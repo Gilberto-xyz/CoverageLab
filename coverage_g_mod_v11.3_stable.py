@@ -1,4 +1,6 @@
+
 # --- START OF FILE coverage_g_mod_v11_Optimized.py ---
+print("Iniciando script de coberturas...")
 
 # Bibliotecas necesarias
 # --------------------------------------------------------------------------------------------------
@@ -386,6 +388,23 @@ pop_coverage = {
     "Nicaragua": "70%", "Panamá": "70%", "Perú": "66%", "RD": "63.29%"
     # Añadir más si es necesario
 }
+
+# --- Función para cargar categorías ---
+def load_categories():
+    """Carga el catálogo de categorías desde el string embebido."""
+    try:
+        categories_file = io.StringIO(CATEGORIES_CSV_DATA)
+        df = pd.read_csv(categories_file, dtype={'cod': str}).set_index('cod')
+        if df.index.duplicated().any():
+            duplicates = df.index[df.index.duplicated()].unique().tolist()
+            print(
+                f"{Fore.YELLOW}Advertencia: Se encontraron códigos de categoría duplicados en los datos embebidos: {duplicates}. Se usará la última entrada encontrada para cada código."
+            )
+        print(Fore.GREEN + "Datos de categorías cargados correctamente desde el script.")
+        return df
+    except Exception as e:
+        print(f"{Fore.RED}{Style.BRIGHT}Error Crítico al cargar datos de categorías desde el string embebido: {e}")
+        exit()
 
 # --- Variables Globales y Funciones de Utilidad ---
 SELECTIONS = {} # Para guardar las respuestas interactivas
@@ -892,26 +911,11 @@ def generar_grafico_tendencia(slide, marca_clean, pipeline, df_plot, lang_idx, l
 # INICIO DEL SCRIPT PRINCIPAL
 # --------------------------------------------------------------------------------------------------
 
-# --- Carga de Datos de Categorías (Desde String Embebido) ---
+# --- Configuración de directorio ---
 root_dir = os.path.dirname(os.path.abspath(__file__))
 os.chdir(root_dir)
 
-try:
-    # Usar io.StringIO para leer el string como un archivo
-    categories_file = io.StringIO(CATEGORIES_CSV_DATA)
-    # Cargar el CSV especificando que 'cod' es texto y usarlo como índice
-    categ = pd.read_csv(categories_file, dtype={'cod': str}).set_index('cod')
-    # Verificar si hay duplicados en el índice (códigos de categoría)
-    if categ.index.duplicated().any():
-        duplicated_codes = categ.index[categ.index.duplicated()].unique().tolist()
-        print(f"{Fore.YELLOW}Advertencia: Se encontraron códigos de categoría duplicados en los datos embebidos: {duplicated_codes}. Se usará la última entrada encontrada para cada código.")
-    print(Fore.GREEN + "Datos de categorías cargados correctamente desde el script.")
-except Exception as e:
-    print(f"{Fore.RED}{Style.BRIGHT}Error Crítico al cargar datos de categorías desde el string embebido: {e}")
-    exit() # Detener ejecución si falla la carga
-
 # --- Selección de Archivo y Opciones ---
-ppt = Presentation('Modelo_Revision.pptx') # Cargar plantilla PPT
 
 excel_list = [f for f in os.listdir(root_dir) if f.endswith('.xlsx') and not f.startswith('~$') and f != EXCEL_TEMP_FILENAME] # Evitar temporales
 
@@ -935,6 +939,8 @@ while True:
             print(Fore.YELLOW + "Opción inválida. Intente de nuevo.")
     except ValueError:
         print(Fore.YELLOW + "Entrada inválida. Ingrese un número.")
+
+categ = load_categories()  # Cargar categorías después de seleccionar el archivo
 
 cov_type = tipo_cobertura() # Preguntar tipo de cobertura
 razon_cobertura = razao_cov() # Preguntar razón
@@ -1331,6 +1337,7 @@ except Exception as e:
 # (2) CREACIÓN DE PPT CON GRÁFICOS
 # --------------------------------------------------------------------------------------------------
 print(Fore.CYAN + "\nGenerando presentación PowerPoint...")
+ppt = Presentation('Modelo_Revision.pptx')  # Cargar plantilla PPT
 
 # Definir etiquetas de idioma (simplificado)
 lang_index = 1 if pais_nombre == 'Brasil' else 2 # 1 -> PT / 2 -> ES
