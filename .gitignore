@@ -1,0 +1,11 @@
+# Ignore all Excel files generated locally
+*.xlsx
+*.xls
+*.xlsm
+*.xlsb
+
+# Keep the Excel file that is part of the repository
+!93_CARB_Coca-Cola.xlsx
+
+# Ignore any directories created locally
+*/
