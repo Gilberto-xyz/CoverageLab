@@ -1,44 +1,94 @@
 
 # --- START OF FILE coverage_g_mod_v11_Optimized.py ---
-print("Iniciando script de coberturas...")
+
 
 # Bibliotecas necesarias
 # --------------------------------------------------------------------------------------------------
-from matplotlib import pyplot as plt
-import dataframe_image as dfi
-import pandas as pd
-import numpy as np
-import warnings
-import matplotlib
-matplotlib.use("Agg")   
 import os
 import re
-import io
-from matplotlib import pyplot as plt
-from datetime import datetime as dt, timedelta
-from scipy.stats import pearsonr
-from pptx import Presentation
-from pptx.util import Inches
-from openpyxl.utils import get_column_letter
-from tqdm import tqdm
+import threading
 import colorama
 from colorama import Fore, Style
-import matplotlib.ticker as mtick
-from matplotlib import pyplot as plt
-from matplotlib.dates import MonthLocator, DateFormatter
-import matplotlib.style # Import specific module for context
-from rich.progress import Progress, BarColumn, TextColumn, TimeElapsedColumn, TimeRemainingColumn, SpinnerColumn
-from PIL import Image, ImageOps
+
+colorama.init(autoreset=True)
+
+def _load_heavy_modules():
+    """Carga en segundo plano las bibliotecas pesadas y datos estáticos."""
+    global pd, np, dfi, plt, warnings, matplotlib, io, dt, timedelta, pearsonr
+    global Presentation, Inches, get_column_letter, tqdm, mtick, MonthLocator
+    global DateFormatter, matplotlib_style, Progress, BarColumn, TextColumn
+    global TimeElapsedColumn, TimeRemainingColumn, SpinnerColumn, Image, ImageOps
+    global pais, pop_coverage
+
+    import dataframe_image as dfi
+    import pandas as pd
+    import numpy as np
+    import warnings
+    import matplotlib
+    matplotlib.use("Agg")
+    from matplotlib import pyplot as plt
+    import io
+    from datetime import datetime as dt, timedelta
+    from scipy.stats import pearsonr
+    from pptx import Presentation
+    from pptx.util import Inches
+    from openpyxl.utils import get_column_letter
+    from tqdm import tqdm
+    import matplotlib.ticker as mtick
+    from matplotlib.dates import MonthLocator, DateFormatter
+    import matplotlib.style as matplotlib_style
+    from rich.progress import (
+        Progress,
+        BarColumn,
+        TextColumn,
+        TimeElapsedColumn,
+        TimeRemainingColumn,
+        SpinnerColumn,
+    )
+    from PIL import Image, ImageOps
+
+    pd.set_option('future.no_silent_downcasting', True)
+    pd.set_option('mode.chained_assignment', None)
+    warnings.filterwarnings('ignore')
+
+    pais = pd.DataFrame(
+        {
+            'cod': [10, 54, 91, 55, 12, 56, 57, 93, 52, 51],
+            'pais': [
+                'LatAm', 'Argentina', 'Bolivia', 'Brasil', 'CAM',
+                'Chile', 'Colombia', 'Ecuador', 'Mexico', 'Peru'
+            ],
+        }
+    )
+
+    pop_coverage = {
+        "Argentina": "90%",
+        "Bolivia": "60%",
+        "Brasil": "82%",
+        "CAM": "63%",
+        "Chile": "78%",
+        "Colombia": "65%",
+        "Costa Rica": "70%",
+        "Ecuador": "55%",
+        "El Salvador": "70%",
+        "Guatemala": "70%",
+        "Honduras": "70%",
+        "Mexico": "64%",
+        "Nicaragua": "70%",
+        "Panamá": "70%",
+        "Perú": "66%",
+        "RD": "63.29%",
+    }
+
+
+_loader_thread = threading.Thread(target=_load_heavy_modules)
+_loader_thread.start()
 
 # Instalar las bibliotecas necesarias si no están instaladas
 # pip install pandas numpy matplotlib openpyxl tqdm colorama rich dataframe_image scipy python-pptx
 
 
-# --- Configuraciones Globales ---
-colorama.init(autoreset=True)
-pd.set_option('future.no_silent_downcasting', True)
-pd.set_option('mode.chained_assignment', None)
-warnings.filterwarnings('ignore')
+# --- Constantes y Configuración ---
 
 # --- Constantes ---
 PPT_LAYOUT_INDEX = 21 # Layout usado para las diapositivas de gráficos
@@ -373,21 +423,7 @@ STCK,Diversos,Inventario
 MIHC,Diversos,Leche y Cereales Calientes-Cereales Precocidos y Leche Líquida Blanca
 """
 
-# --- Datos Estáticos (País, Cobertura Poblacional) ---
-pais = pd.DataFrame(
-    {
-      'cod': [10, 54, 91, 55, 12, 56, 57, 93, 52, 51],
-      'pais': ['LatAm', 'Argentina', 'Bolivia', 'Brasil', 'CAM', 'Chile', 'Colombia', 'Ecuador', 'Mexico', 'Peru']
-    }
-)
-
-pop_coverage = {
-    "Argentina": "90%", "Bolivia": "60%", "Brasil": "82%", "CAM": "63%",
-    "Chile": "78%", "Colombia": "65%", "Costa Rica": "70%", "Ecuador": "55%",
-    "El Salvador": "70%", "Guatemala": "70%", "Honduras": "70%", "Mexico": "64%",
-    "Nicaragua": "70%", "Panamá": "70%", "Perú": "66%", "RD": "63.29%"
-    # Añadir más si es necesario
-}
+# --- Datos Estaticos cargados en _load_heavy_modules
 
 # --- Función para cargar categorías ---
 def load_categories():
@@ -940,6 +976,8 @@ while True:
     except ValueError:
         print(Fore.YELLOW + "Entrada inválida. Ingrese un número.")
 
+categ = None
+_loader_thread.join()  # Esperar a que las librerías y datos estén listos
 categ = load_categories()  # Cargar categorías después de seleccionar el archivo
 
 cov_type = tipo_cobertura() # Preguntar tipo de cobertura
