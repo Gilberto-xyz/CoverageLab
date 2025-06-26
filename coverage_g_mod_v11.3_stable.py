@@ -8,6 +8,7 @@ import os
 import re
 import threading
 import colorama
+import subprocess
 from colorama import Fore, Style
 
 colorama.init(autoreset=True)
