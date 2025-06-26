@@ -9,6 +9,8 @@ import re
 import threading
 import colorama
 from colorama import Fore, Style
+import subprocess
+import sys
 
 colorama.init(autoreset=True)
 
@@ -953,36 +955,63 @@ os.chdir(root_dir)
 
 # --- Selección de Archivo y Opciones ---
 
-excel_list = [f for f in os.listdir(root_dir) if f.endswith('.xlsx') and not f.startswith('~$') and f != EXCEL_TEMP_FILENAME] # Evitar temporales
+excel_list = [f for f in os.listdir(root_dir) if f.endswith('.xlsx') and not f.startswith('~$') and f != EXCEL_TEMP_FILENAME]
 
 if not excel_list:
     print(f"{Fore.RED}{Style.BRIGHT}Error: No se encontraron archivos .xlsx en la carpeta: {root_dir}")
     exit()
 
-print(Fore.CYAN + "Archivos Excel (.xlsx) encontrados:")
-for i, archivo in enumerate(excel_list, start=1):
-    print(Fore.MAGENTA + f"{i}. {archivo}")
+if os.environ.get('AUTO_FILE'):
+    excel_file_name = os.environ['AUTO_FILE']
+    selected_files = [excel_file_name]
+    cov_type = os.environ.get('AUTO_COV_TYPE', 'Absoluta')
+    razon_cobertura = os.environ.get('AUTO_RAZON', 'Otras')
+    tipo_eje_tend = os.environ.get('AUTO_EJE', 'simple')
+else:
+    print(Fore.CYAN + "Archivos Excel (.xlsx) encontrados:")
+    for i, archivo in enumerate(excel_list, start=1):
+        print(Fore.MAGENTA + f"{i}. {archivo}")
 
-while True:
-    try:
-        opcion = int(input(Fore.GREEN + f"Seleccione el número de archivo a procesar (1-{len(excel_list)}): "))
-        if 1 <= opcion <= len(excel_list):
-            excel_file_name = excel_list[opcion - 1]
-            SELECTIONS['Excel'] = excel_file_name
-            clear_and_print_summary()
-            break
+    while True:
+        opcion = input(
+            Fore.GREEN
+            + f"Seleccione el número de archivo a procesar (1-{len(excel_list)}).\n"
+            + "Puede separar varios con comas o escribir 'all': "
+        )
+        opcion = opcion.strip().lower()
+        if opcion in {"all", "todos", "*"}:
+            selected_indices = list(range(1, len(excel_list) + 1))
         else:
-            print(Fore.YELLOW + "Opción inválida. Intente de nuevo.")
-    except ValueError:
-        print(Fore.YELLOW + "Entrada inválida. Ingrese un número.")
+            try:
+                selected_indices = [int(x) for x in opcion.split(',') if x]
+            except ValueError:
+                print(Fore.RED + "Entrada inválida. Ingrese números separados por coma o 'all'.")
+                continue
+            if not all(1 <= idx <= len(excel_list) for idx in selected_indices):
+                print(Fore.RED + "Uno o más números están fuera de rango. Intente nuevamente.")
+                continue
+        selected_files = [excel_list[idx - 1] for idx in selected_indices]
+        SELECTIONS['Excel'] = ", ".join(selected_files)
+        clear_and_print_summary()
+        break
+    cov_type = tipo_cobertura()  # Preguntar tipo de cobertura
+    razon_cobertura = razao_cov()  # Preguntar razón
+    tipo_eje_tend = tipo_eje_tendencia()  # Preguntar tipo de eje para tendencia
+
+    for excel_file_name in tqdm(selected_files, desc="Procesando archivos"):
+        env = os.environ.copy()
+        env.update({
+            'AUTO_FILE': excel_file_name,
+            'AUTO_COV_TYPE': cov_type,
+            'AUTO_RAZON': razon_cobertura,
+            'AUTO_EJE': tipo_eje_tend,
+        })
+        subprocess.run([sys.executable, __file__], env=env)
+    exit()
 
 categ = None
 _loader_thread.join()  # Esperar a que las librerías y datos estén listos
 categ = load_categories()  # Cargar categorías después de seleccionar el archivo
-
-cov_type = tipo_cobertura() # Preguntar tipo de cobertura
-razon_cobertura = razao_cov() # Preguntar razón
-tipo_eje_tend = tipo_eje_tendencia() # Preguntar tipo de eje para tendencia
 
 # --- Procesamiento del Archivo Excel Seleccionado ---
 excel_file_path = os.path.join(root_dir, excel_file_name)
@@ -1013,7 +1042,7 @@ try:
 
 except (IndexError, ValueError, KeyError) as e:
     print(f"{Fore.RED}{Style.BRIGHT}Error al procesar metadatos del nombre de archivo '{excel_file_name}': {e}")
-    print(f"{Fore.YELLOW}Asegúrese que el nombre siga el formato 'CodigoPais_CodigoCategoria_Fabricante.xlsx'.")
+    print(f"{Fore.RED}Asegúrese que el nombre siga el formato 'CodigoPais_CodigoCategoria_Fabricante.xlsx'.")
 
     # Usar country_code_str (que se define antes de la posible falla de int()) para los mensajes
     country_code_str_defined = 'country_code_str' in locals()
@@ -1024,21 +1053,21 @@ except (IndexError, ValueError, KeyError) as e:
     elif isinstance(e, ValueError):
         # Si country_code_str se definió, úsalo en el mensaje
         if country_code_str_defined:
-            print(f"{Fore.YELLOW}El código de país '{country_code_str}' extraído del nombre de archivo no es un número válido.")
+            print(f"{Fore.RED}El código de país '{country_code_str}' extraído del nombre de archivo no es un número válido.")
         else:
-            print(f"{Fore.YELLOW}No se pudo extraer o convertir el código de país a número.")
+            print(f"{Fore.RED}No se pudo extraer o convertir el código de país a número.")
     elif isinstance(e, KeyError):
         # Si el error es de clave, verificar si fue por categoría o país (usando str)
         if category_code_defined and category_code not in categ.index:
-             print(f"{Fore.YELLOW}Verifique que el código de categoría '{category_code}' esté en los datos embebidos.")
+             print(f"{Fore.RED}Verifique que el código de categoría '{category_code}' esté en los datos embebidos.")
         elif country_code_str_defined:
              # No podemos verificar directamente 'country_code not in pais['cod']' si falló int()
              # pero podemos indicar que el código extraído podría ser el problema.
-             print(f"{Fore.YELLOW}Verifique que el código de país '{country_code_str}' exista en la definición de países o que la categoría sea correcta.")
+             print(f"{Fore.RED}Verifique que el código de país '{country_code_str}' exista en la definición de países o que la categoría sea correcta.")
         else:
-             print(f"{Fore.YELLOW}Ocurrió un error al buscar un código (país o categoría).")
+             print(f"{Fore.RED}Ocurrió un error al buscar un código (país o categoría).")
     else:
-        print(f"{Fore.YELLOW}Ocurrió un error inesperado al procesar los metadatos.")
+        print(f"{Fore.RED}Ocurrió un error inesperado al procesar los metadatos.")
 
     exit()
 
