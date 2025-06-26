@@ -7,6 +7,8 @@
 import os
 import re
 import threading
+import subprocess
+import sys
 import colorama
 from colorama import Fore, Style
 
@@ -997,11 +999,11 @@ categ = None
 _loader_thread.join()  # Esperar a que las librerías y datos estén listos
 categ = load_categories()  # Cargar categorías después de seleccionar el archivo
 
-cov_type = tipo_cobertura() # Preguntar tipo de cobertura
-razon_cobertura = razao_cov() # Preguntar razón
-tipo_eje_tend = tipo_eje_tendencia() # Preguntar tipo de eje para tendencia
-
 if not os.environ.get('AUTO_FILE'):
+    cov_type = tipo_cobertura()  # Preguntar tipo de cobertura
+    razon_cobertura = razao_cov()  # Preguntar razón
+    tipo_eje_tend = tipo_eje_tendencia()  # Preguntar tipo de eje para tendencia
+
     for excel_file_name in tqdm(selected_files, desc="Procesando archivos"):
         env = os.environ.copy()
         env.update({
