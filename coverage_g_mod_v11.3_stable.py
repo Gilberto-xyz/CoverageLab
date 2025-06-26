@@ -7,6 +7,8 @@
 import os
 import re
 import threading
+import subprocess
+import sys
 import colorama
 import subprocess
 import sys
@@ -561,51 +563,58 @@ def escalona(df_to_scale):
         df_to_scale[col] = scaled_values
 
 def razao_cov():
-    """Solicita interactivamente la razón de la cobertura y la devuelve."""
-    print(Fore.CYAN + "\nPregunta: ¿Cuál es la razón de la cobertura?")
-    print(Fore.MAGENTA + "Opciones:")
-    print(Fore.MAGENTA + "1 - Actualización periódica por contrato")
-    print(Fore.MAGENTA + "2 - Conocer nivel de cobertura o pipeline")
-    print(Fore.MAGENTA + "3 - Tendencias Contrarias")
-    print(Fore.MAGENTA + "4 - Renovación de contrato")
-    print(Fore.MAGENTA + "5 - Otras")
+    """Devuelve la razón de cobertura elegida o obtenida de las variables de entorno."""
+    if os.environ.get("AUTO_RAZON"):
+        razon_seleccionada = os.environ["AUTO_RAZON"]
+    else:
+        print(Fore.CYAN + "\nPregunta: ¿Cuál es la razón de la cobertura?")
+        print(Fore.MAGENTA + "Opciones:")
+        print(Fore.MAGENTA + "1 - Actualización periódica por contrato")
+        print(Fore.MAGENTA + "2 - Conocer nivel de cobertura o pipeline")
+        print(Fore.MAGENTA + "3 - Tendencias Contrarias")
+        print(Fore.MAGENTA + "4 - Renovación de contrato")
+        print(Fore.MAGENTA + "5 - Otras")
 
-    razones = {
-        '1': "Actualización periódica por contrato",
-        '2': "Conocer nivel de cobertura o pipeline",
-        '3': "Tendencias Contrarias",
-        '4': "Renovación de contrato",
-        '5': "Otras"
-    }
-    eleccion = input(Fore.GREEN + "Elija el número de la opción (1-5): ")
-    razon_seleccionada = razones.get(eleccion, "Otras") # Default a 'Otras'
+        razones = {
+            '1': "Actualización periódica por contrato",
+            '2': "Conocer nivel de cobertura o pipeline",
+            '3': "Tendencias Contrarias",
+            '4': "Renovación de contrato",
+            '5': "Otras"
+        }
+        eleccion = input(Fore.GREEN + "Elija el número de la opción (1-5): ")
+        razon_seleccionada = razones.get(eleccion, "Otras")  # Default a 'Otras'
     SELECTIONS['Razón'] = razon_seleccionada
     clear_and_print_summary()
     return razon_seleccionada
 
 def tipo_cobertura():
-    """Solicita interactivamente el tipo de cobertura (Absoluta o Relativa)."""
-    print(Fore.CYAN + "\nPregunta: ¿Qué tipo de cobertura se calculará?")
-    print(Fore.MAGENTA + "Opciones:")
-    print(Fore.MAGENTA + "1 - Cobertura Absoluta")
-    print(Fore.MAGENTA + "2 - Cobertura Relativa")
-    tipos = {'1': "Absoluta", '2': "relativa"}
-    eleccion = input(Fore.GREEN + "Elija 1 o 2: ")
-    tipo_seleccionado = tipos.get(eleccion, "Absoluta") # Default a 'Absoluta'
+    """Obtiene el tipo de cobertura interactivo o desde las variables de entorno."""
+    if os.environ.get("AUTO_COV_TYPE"):
+        tipo_seleccionado = os.environ["AUTO_COV_TYPE"]
+    else:
+        print(Fore.CYAN + "\nPregunta: ¿Qué tipo de cobertura se calculará?")
+        print(Fore.MAGENTA + "Opciones:")
+        print(Fore.MAGENTA + "1 - Cobertura Absoluta")
+        print(Fore.MAGENTA + "2 - Cobertura Relativa")
+        tipos = {'1': "Absoluta", '2': "relativa"}
+        eleccion = input(Fore.GREEN + "Elija 1 o 2: ")
+        tipo_seleccionado = tipos.get(eleccion, "Absoluta")  # Default a 'Absoluta'
     SELECTIONS['Cobertura'] = tipo_seleccionado
     clear_and_print_summary()
     return tipo_seleccionado
 
 def tipo_eje_tendencia():
-    """
-    Pregunta al usuario si desea el gráfico de tendencia en un solo eje o doble eje (Kantar en eje secundario).
-    """
-    print(Fore.CYAN + "\n¿Desea el gráfico de tendencia con doble eje?")
-    print(Fore.MAGENTA + "1 - Un solo eje (Sell-in y Kantar juntos)")
-    print(Fore.MAGENTA + "2 - Doble eje (Kantar en eje secundario)")
-    opciones = {'1': "simple", '2': "doble"}
-    eleccion = input(Fore.GREEN + "Elija 1 o 2: ")
-    tipo_eje = opciones.get(eleccion, "simple")
+    """Elige tipo de gráfico de tendencia de forma interactiva o vía variables de entorno."""
+    if os.environ.get("AUTO_EJE"):
+        tipo_eje = os.environ["AUTO_EJE"]
+    else:
+        print(Fore.CYAN + "\n¿Desea el gráfico de tendencia con doble eje?")
+        print(Fore.MAGENTA + "1 - Un solo eje (Sell-in y Kantar juntos)")
+        print(Fore.MAGENTA + "2 - Doble eje (Kantar en eje secundario)")
+        opciones = {'1': "simple", '2': "doble"}
+        eleccion = input(Fore.GREEN + "Elija 1 o 2: ")
+        tipo_eje = opciones.get(eleccion, "simple")
     SELECTIONS['Eje tendencia'] = tipo_eje
     clear_and_print_summary()
     return tipo_eje
@@ -999,11 +1008,11 @@ categ = None
 _loader_thread.join()  # Esperar a que las librerías y datos estén listos
 categ = load_categories()  # Cargar categorías después de seleccionar el archivo
 
-cov_type = tipo_cobertura() # Preguntar tipo de cobertura
-razon_cobertura = razao_cov() # Preguntar razón
-tipo_eje_tend = tipo_eje_tendencia() # Preguntar tipo de eje para tendencia
-
 if not os.environ.get('AUTO_FILE'):
+    cov_type = tipo_cobertura()  # Preguntar tipo de cobertura
+    razon_cobertura = razao_cov()  # Preguntar razón
+    tipo_eje_tend = tipo_eje_tendencia()  # Preguntar tipo de eje para tendencia
+
     for excel_file_name in tqdm(selected_files, desc="Procesando archivos"):
         env = os.environ.copy()
         env.update({
