@@ -7,6 +7,8 @@
 import os
 import re
 import threading
+import subprocess
+import sys
 import colorama
 from colorama import Fore, Style
 
@@ -559,51 +561,58 @@ def escalona(df_to_scale):
         df_to_scale[col] = scaled_values
 
 def razao_cov():
-    """Solicita interactivamente la razón de la cobertura y la devuelve."""
-    print(Fore.CYAN + "\nPregunta: ¿Cuál es la razón de la cobertura?")
-    print(Fore.MAGENTA + "Opciones:")
-    print(Fore.MAGENTA + "1 - Actualización periódica por contrato")
-    print(Fore.MAGENTA + "2 - Conocer nivel de cobertura o pipeline")
-    print(Fore.MAGENTA + "3 - Tendencias Contrarias")
-    print(Fore.MAGENTA + "4 - Renovación de contrato")
-    print(Fore.MAGENTA + "5 - Otras")
+    """Devuelve la razón de cobertura elegida o obtenida de las variables de entorno."""
+    if os.environ.get("AUTO_RAZON"):
+        razon_seleccionada = os.environ["AUTO_RAZON"]
+    else:
+        print(Fore.CYAN + "\nPregunta: ¿Cuál es la razón de la cobertura?")
+        print(Fore.MAGENTA + "Opciones:")
+        print(Fore.MAGENTA + "1 - Actualización periódica por contrato")
+        print(Fore.MAGENTA + "2 - Conocer nivel de cobertura o pipeline")
+        print(Fore.MAGENTA + "3 - Tendencias Contrarias")
+        print(Fore.MAGENTA + "4 - Renovación de contrato")
+        print(Fore.MAGENTA + "5 - Otras")
 
-    razones = {
-        '1': "Actualización periódica por contrato",
-        '2': "Conocer nivel de cobertura o pipeline",
-        '3': "Tendencias Contrarias",
-        '4': "Renovación de contrato",
-        '5': "Otras"
-    }
-    eleccion = input(Fore.GREEN + "Elija el número de la opción (1-5): ")
-    razon_seleccionada = razones.get(eleccion, "Otras") # Default a 'Otras'
+        razones = {
+            '1': "Actualización periódica por contrato",
+            '2': "Conocer nivel de cobertura o pipeline",
+            '3': "Tendencias Contrarias",
+            '4': "Renovación de contrato",
+            '5': "Otras"
+        }
+        eleccion = input(Fore.GREEN + "Elija el número de la opción (1-5): ")
+        razon_seleccionada = razones.get(eleccion, "Otras")  # Default a 'Otras'
     SELECTIONS['Razón'] = razon_seleccionada
     clear_and_print_summary()
     return razon_seleccionada
 
 def tipo_cobertura():
-    """Solicita interactivamente el tipo de cobertura (Absoluta o Relativa)."""
-    print(Fore.CYAN + "\nPregunta: ¿Qué tipo de cobertura se calculará?")
-    print(Fore.MAGENTA + "Opciones:")
-    print(Fore.MAGENTA + "1 - Cobertura Absoluta")
-    print(Fore.MAGENTA + "2 - Cobertura Relativa")
-    tipos = {'1': "Absoluta", '2': "relativa"}
-    eleccion = input(Fore.GREEN + "Elija 1 o 2: ")
-    tipo_seleccionado = tipos.get(eleccion, "Absoluta") # Default a 'Absoluta'
+    """Obtiene el tipo de cobertura interactivo o desde las variables de entorno."""
+    if os.environ.get("AUTO_COV_TYPE"):
+        tipo_seleccionado = os.environ["AUTO_COV_TYPE"]
+    else:
+        print(Fore.CYAN + "\nPregunta: ¿Qué tipo de cobertura se calculará?")
+        print(Fore.MAGENTA + "Opciones:")
+        print(Fore.MAGENTA + "1 - Cobertura Absoluta")
+        print(Fore.MAGENTA + "2 - Cobertura Relativa")
+        tipos = {'1': "Absoluta", '2': "relativa"}
+        eleccion = input(Fore.GREEN + "Elija 1 o 2: ")
+        tipo_seleccionado = tipos.get(eleccion, "Absoluta")  # Default a 'Absoluta'
     SELECTIONS['Cobertura'] = tipo_seleccionado
     clear_and_print_summary()
     return tipo_seleccionado
 
 def tipo_eje_tendencia():
-    """
-    Pregunta al usuario si desea el gráfico de tendencia en un solo eje o doble eje (Kantar en eje secundario).
-    """
-    print(Fore.CYAN + "\n¿Desea el gráfico de tendencia con doble eje?")
-    print(Fore.MAGENTA + "1 - Un solo eje (Sell-in y Kantar juntos)")
-    print(Fore.MAGENTA + "2 - Doble eje (Kantar en eje secundario)")
-    opciones = {'1': "simple", '2': "doble"}
-    eleccion = input(Fore.GREEN + "Elija 1 o 2: ")
-    tipo_eje = opciones.get(eleccion, "simple")
+    """Elige tipo de gráfico de tendencia de forma interactiva o vía variables de entorno."""
+    if os.environ.get("AUTO_EJE"):
+        tipo_eje = os.environ["AUTO_EJE"]
+    else:
+        print(Fore.CYAN + "\n¿Desea el gráfico de tendencia con doble eje?")
+        print(Fore.MAGENTA + "1 - Un solo eje (Sell-in y Kantar juntos)")
+        print(Fore.MAGENTA + "2 - Doble eje (Kantar en eje secundario)")
+        opciones = {'1': "simple", '2': "doble"}
+        eleccion = input(Fore.GREEN + "Elija 1 o 2: ")
+        tipo_eje = opciones.get(eleccion, "simple")
     SELECTIONS['Eje tendencia'] = tipo_eje
     clear_and_print_summary()
     return tipo_eje
@@ -953,28 +962,45 @@ os.chdir(root_dir)
 
 # --- Selección de Archivo y Opciones ---
 
-excel_list = [f for f in os.listdir(root_dir) if f.endswith('.xlsx') and not f.startswith('~$') and f != EXCEL_TEMP_FILENAME] # Evitar temporales
+excel_list = [f for f in os.listdir(root_dir) if f.endswith('.xlsx') and not f.startswith('~$') and f != EXCEL_TEMP_FILENAME]
 
 if not excel_list:
     print(f"{Fore.RED}{Style.BRIGHT}Error: No se encontraron archivos .xlsx en la carpeta: {root_dir}")
     exit()
 
-print(Fore.CYAN + "Archivos Excel (.xlsx) encontrados:")
-for i, archivo in enumerate(excel_list, start=1):
-    print(Fore.MAGENTA + f"{i}. {archivo}")
+if os.environ.get('AUTO_FILE'):
+    excel_file_name = os.environ['AUTO_FILE']
+    selected_files = [excel_file_name]
+    cov_type = os.environ.get('AUTO_COV_TYPE', 'Absoluta')
+    razon_cobertura = os.environ.get('AUTO_RAZON', 'Otras')
+    tipo_eje_tend = os.environ.get('AUTO_EJE', 'simple')
+else:
+    print(Fore.CYAN + "Archivos Excel (.xlsx) encontrados:")
+    for i, archivo in enumerate(excel_list, start=1):
+        print(Fore.MAGENTA + f"{i}. {archivo}")
 
-while True:
-    try:
-        opcion = int(input(Fore.GREEN + f"Seleccione el número de archivo a procesar (1-{len(excel_list)}): "))
-        if 1 <= opcion <= len(excel_list):
-            excel_file_name = excel_list[opcion - 1]
-            SELECTIONS['Excel'] = excel_file_name
-            clear_and_print_summary()
-            break
+    while True:
+        opcion = input(
+            Fore.GREEN
+            + f"Seleccione el número de archivo a procesar (1-{len(excel_list)}).\n"
+            + "Puede separar varios con comas o escribir 'all': "
+        )
+        opcion = opcion.strip().lower()
+        if opcion in {"all", "todos", "*"}:
+            selected_indices = list(range(1, len(excel_list) + 1))
         else:
-            print(Fore.YELLOW + "Opción inválida. Intente de nuevo.")
-    except ValueError:
-        print(Fore.YELLOW + "Entrada inválida. Ingrese un número.")
+            try:
+                selected_indices = [int(x) for x in opcion.split(',') if x]
+            except ValueError:
+                print(Fore.RED + "Entrada inválida. Ingrese números separados por coma o 'all'.")
+                continue
+            if not all(1 <= idx <= len(excel_list) for idx in selected_indices):
+                print(Fore.RED + "Uno o más números están fuera de rango. Intente nuevamente.")
+                continue
+        selected_files = [excel_list[idx - 1] for idx in selected_indices]
+        SELECTIONS['Excel'] = ", ".join(selected_files)
+        clear_and_print_summary()
+        break
 
 categ = None
 _loader_thread.join()  # Esperar a que las librerías y datos estén listos
@@ -983,6 +1009,18 @@ categ = load_categories()  # Cargar categorías después de seleccionar el archi
 cov_type = tipo_cobertura() # Preguntar tipo de cobertura
 razon_cobertura = razao_cov() # Preguntar razón
 tipo_eje_tend = tipo_eje_tendencia() # Preguntar tipo de eje para tendencia
+
+if not os.environ.get('AUTO_FILE'):
+    for excel_file_name in tqdm(selected_files, desc="Procesando archivos"):
+        env = os.environ.copy()
+        env.update({
+            'AUTO_FILE': excel_file_name,
+            'AUTO_COV_TYPE': cov_type,
+            'AUTO_RAZON': razon_cobertura,
+            'AUTO_EJE': tipo_eje_tend,
+        })
+        subprocess.run([sys.executable, __file__], env=env)
+    exit()
 
 # --- Procesamiento del Archivo Excel Seleccionado ---
 excel_file_path = os.path.join(root_dir, excel_file_name)
@@ -1013,7 +1051,7 @@ try:
 
 except (IndexError, ValueError, KeyError) as e:
     print(f"{Fore.RED}{Style.BRIGHT}Error al procesar metadatos del nombre de archivo '{excel_file_name}': {e}")
-    print(f"{Fore.YELLOW}Asegúrese que el nombre siga el formato 'CodigoPais_CodigoCategoria_Fabricante.xlsx'.")
+    print(f"{Fore.RED}Asegúrese que el nombre siga el formato 'CodigoPais_CodigoCategoria_Fabricante.xlsx'.")
 
     # Usar country_code_str (que se define antes de la posible falla de int()) para los mensajes
     country_code_str_defined = 'country_code_str' in locals()
@@ -1024,21 +1062,21 @@ except (IndexError, ValueError, KeyError) as e:
     elif isinstance(e, ValueError):
         # Si country_code_str se definió, úsalo en el mensaje
         if country_code_str_defined:
-            print(f"{Fore.YELLOW}El código de país '{country_code_str}' extraído del nombre de archivo no es un número válido.")
+            print(f"{Fore.RED}El código de país '{country_code_str}' extraído del nombre de archivo no es un número válido.")
         else:
-            print(f"{Fore.YELLOW}No se pudo extraer o convertir el código de país a número.")
+            print(f"{Fore.RED}No se pudo extraer o convertir el código de país a número.")
     elif isinstance(e, KeyError):
         # Si el error es de clave, verificar si fue por categoría o país (usando str)
         if category_code_defined and category_code not in categ.index:
-             print(f"{Fore.YELLOW}Verifique que el código de categoría '{category_code}' esté en los datos embebidos.")
+             print(f"{Fore.RED}Verifique que el código de categoría '{category_code}' esté en los datos embebidos.")
         elif country_code_str_defined:
              # No podemos verificar directamente 'country_code not in pais['cod']' si falló int()
              # pero podemos indicar que el código extraído podría ser el problema.
-             print(f"{Fore.YELLOW}Verifique que el código de país '{country_code_str}' exista en la definición de países o que la categoría sea correcta.")
+             print(f"{Fore.RED}Verifique que el código de país '{country_code_str}' exista en la definición de países o que la categoría sea correcta.")
         else:
-             print(f"{Fore.YELLOW}Ocurrió un error al buscar un código (país o categoría).")
+             print(f"{Fore.RED}Ocurrió un error al buscar un código (país o categoría).")
     else:
-        print(f"{Fore.YELLOW}Ocurrió un error inesperado al procesar los metadatos.")
+        print(f"{Fore.RED}Ocurrió un error inesperado al procesar los metadatos.")
 
     exit()
 
