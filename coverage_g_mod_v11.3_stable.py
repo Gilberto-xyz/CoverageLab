@@ -9,6 +9,7 @@ import re
 import threading
 import colorama
 import subprocess
+import sys
 from colorama import Fore, Style
 
 colorama.init(autoreset=True)
@@ -984,7 +985,7 @@ else:
             try:
                 selected_indices = [int(x) for x in opcion.split(',') if x]
             except ValueError:
-                print(Fore.RED + "Entrada inválida. Ingrese números separados por coma o 'all'.")
+                print(Fore.RED + Style.BRIGHT + "Entrada inválida. Ingrese números separados por coma o 'all'.")
                 continue
             if not all(1 <= idx <= len(excel_list) for idx in selected_indices):
                 print(Fore.RED + "Uno o más números están fuera de rango. Intente nuevamente.")
@@ -1011,7 +1012,7 @@ if not os.environ.get('AUTO_FILE'):
             'AUTO_RAZON': razon_cobertura,
             'AUTO_EJE': tipo_eje_tend,
         })
-        subprocess.run([sys.executable, __file__], env=env)
+        subprocess.run([sys.executable, __file__], env=env, check=True)
     exit()
 
 # --- Procesamiento del Archivo Excel Seleccionado ---
