@@ -13,11 +13,8 @@ import colorama
 import subprocess
 import sys
 from colorama import Fore, Style
-from rich.console import Console
-from rich.progress import track
 
 colorama.init(autoreset=True)
-console = Console()
 
 def _load_heavy_modules():
     """Carga en segundo plano las bibliotecas pesadas y datos estáticos."""
@@ -463,19 +460,6 @@ def clear_and_print_summary():
     if 'Razón' in SELECTIONS:
         print(Fore.BLUE + "Razón de Cobertura: " + Fore.YELLOW + f"{SELECTIONS['Razón']}")
     print("\n" + "-"*50 + "\n")
-
-def print_file_header(file_name: str, index: int, total: int) -> None:
-    """Muestra un encabezado estilizado para cada archivo a procesar."""
-    console.rule(f"[bold cyan] Procesando archivo {index}/{total}: {file_name} ")
-
-
-def print_final_summary(excel_path: str, ppt_path: str, bank_path: str) -> None:
-    """Resume las rutas de salida más relevantes para el archivo procesado."""
-    console.print("[bold magenta]\nResumen del archivo generado[/bold magenta]")
-    console.print(f"[green]Excel:[/] [blue]{excel_path}")
-    console.print(f"[green]PPT:[/] [blue]{ppt_path}")
-    console.print(f"[green]Banco:[/] [blue]{bank_path}")
-    console.rule()
 
 def calc_var1(df, coluna, p):
     """
@@ -1029,9 +1013,7 @@ if not os.environ.get('AUTO_FILE'):
     razon_cobertura = razao_cov()  # Preguntar razón
     tipo_eje_tend = tipo_eje_tendencia()  # Preguntar tipo de eje para tendencia
 
-    total_files = len(selected_files)
-    for idx, excel_file_name in enumerate(track(selected_files, description="Procesando archivos"), start=1):
-        print_file_header(excel_file_name, idx, total_files)
+    for excel_file_name in tqdm(selected_files, desc="Procesando archivos"):
         env = os.environ.copy()
         env.update({
             'AUTO_FILE': excel_file_name,
@@ -1854,6 +1836,6 @@ try:
 except Exception as e:
     print(f"{Fore.RED}{Style.BRIGHT}Error al guardar el banco de coberturas: {e}")
 
-print_final_summary(ruta_template_final, ruta_ppt_final, ruta_banco_final)
 print(f"\n{Fore.CYAN}{Style.BRIGHT}--- Proceso completado ---")
+
 # --- END OF FILE ---
