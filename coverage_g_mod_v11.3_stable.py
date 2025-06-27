@@ -1839,10 +1839,11 @@ else:
 
 # --- 2.11) Guardar PPT y Banco ---
 try:
-    # Mover slide de resumen a la segunda posición (índice 1)
+    # Mover slide de resumen a la octava posición (índice 7)
     if len(ppt.slides) > 1:
-        summary_slide_xml = ppt.slides._sldIdLst[-1] # El último slide añadido es el resumen
-        ppt.slides._sldIdLst.insert(1, summary_slide_xml) # Insertar en posición 1 (segundo slide)
+        summary_slide_xml = ppt.slides._sldIdLst[-1]  # El último slide añadido es el resumen
+        insert_idx = 7 if len(ppt.slides) > 7 else len(ppt.slides) - 1
+        ppt.slides._sldIdLst.insert(insert_idx, summary_slide_xml)  # Insertar en la posición deseada
 
     nombre_ppt_final = f"{nombre_base_archivo}.pptx"
     ruta_ppt_final = os.path.join(carpeta_salida, nombre_ppt_final)
