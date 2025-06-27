@@ -13,8 +13,10 @@ import colorama
 import subprocess
 import sys
 from colorama import Fore, Style
+from rich.console import Console
 
 colorama.init(autoreset=True)
+console = Console()
 
 def _load_heavy_modules():
     """Carga en segundo plano las bibliotecas pesadas y datos estáticos."""
@@ -435,12 +437,13 @@ def load_categories():
     try:
         categories_file = io.StringIO(CATEGORIES_CSV_DATA)
         df = pd.read_csv(categories_file, dtype={'cod': str}).set_index('cod')
-        if df.index.duplicated().any():
+        if os.environ.get('SHOW_CAT_MSG', '1') == '1' and df.index.duplicated().any():
             duplicates = df.index[df.index.duplicated()].unique().tolist()
             print(
                 f"{Fore.YELLOW}Advertencia: Se encontraron códigos de categoría duplicados en los datos embebidos: {duplicates}. Se usará la última entrada encontrada para cada código."
             )
-        print(Fore.GREEN + "Datos de categorías cargados correctamente desde el script.")
+        if os.environ.get('SHOW_CAT_MSG', '1') == '1':
+            print(Fore.GREEN + "Datos de categorías cargados correctamente desde el script.")
         return df
     except Exception as e:
         print(f"{Fore.RED}{Style.BRIGHT}Error Crítico al cargar datos de categorías desde el string embebido: {e}")
@@ -460,6 +463,20 @@ def clear_and_print_summary():
     if 'Razón' in SELECTIONS:
         print(Fore.BLUE + "Razón de Cobertura: " + Fore.YELLOW + f"{SELECTIONS['Razón']}")
     print("\n" + "-"*50 + "\n")
+
+def print_file_header(idx: int, total: int, filename: str) -> None:
+    """Muestra un encabezado visual para la ejecución de un archivo."""
+    console.rule(f"[bold cyan]Procesando archivo {idx}/{total}: {filename}")
+
+def print_file_summary(ruta_excel: str, ruta_ppt: str, ruta_banco: str) -> None:
+    """Muestra un resumen con las rutas generadas para el archivo."""
+    console.print("\n[bold green]Resumen del archivo:[/]")
+    if ruta_excel:
+        console.print(f"[blue]Excel:[/] [yellow]{ruta_excel}")
+    if ruta_ppt:
+        console.print(f"[blue]Presentación:[/] [yellow]{ruta_ppt}")
+    if ruta_banco:
+        console.print(f"[blue]Banco:[/] [yellow]{ruta_banco}")
 
 def calc_var1(df, coluna, p):
     """
@@ -976,6 +993,9 @@ if os.environ.get('AUTO_FILE'):
     cov_type = os.environ.get('AUTO_COV_TYPE', 'Absoluta')
     razon_cobertura = os.environ.get('AUTO_RAZON', 'Otras')
     tipo_eje_tend = os.environ.get('AUTO_EJE', 'simple')
+    file_idx = int(os.environ.get('AUTO_INDEX', '1'))
+    file_total = int(os.environ.get('AUTO_TOTAL', '1'))
+    print_file_header(file_idx, file_total, excel_file_name)
 else:
     print(Fore.CYAN + "Archivos Excel (.xlsx) encontrados:")
     for i, archivo in enumerate(excel_list, start=1):
@@ -1013,13 +1033,17 @@ if not os.environ.get('AUTO_FILE'):
     razon_cobertura = razao_cov()  # Preguntar razón
     tipo_eje_tend = tipo_eje_tendencia()  # Preguntar tipo de eje para tendencia
 
-    for excel_file_name in tqdm(selected_files, desc="Procesando archivos"):
+    total_files = len(selected_files)
+    for idx, excel_file_name in enumerate(selected_files, start=1):
         env = os.environ.copy()
         env.update({
             'AUTO_FILE': excel_file_name,
             'AUTO_COV_TYPE': cov_type,
             'AUTO_RAZON': razon_cobertura,
             'AUTO_EJE': tipo_eje_tend,
+            'AUTO_INDEX': str(idx),
+            'AUTO_TOTAL': str(total_files),
+            'SHOW_CAT_MSG': '1' if idx == 1 else '0',
         })
         subprocess.run([sys.executable, __file__], env=env, check=True)
     exit()
@@ -1836,6 +1860,7 @@ try:
 except Exception as e:
     print(f"{Fore.RED}{Style.BRIGHT}Error al guardar el banco de coberturas: {e}")
 
+print_file_summary(ruta_template_final, ruta_ppt_final, ruta_banco_final)
 print(f"\n{Fore.CYAN}{Style.BRIGHT}--- Proceso completado ---")
 
 # --- END OF FILE ---
