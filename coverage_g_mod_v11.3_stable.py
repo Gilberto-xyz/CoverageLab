@@ -220,7 +220,7 @@ SPIC,Alimentos,Condimentos y Especias
 CKCH,Alimentos,Chocolate de Mesa
 COIL,Alimentos,Aceite-Aceites Comestibles
 CSAU,Alimentos,Salsas Listas-Salsas Caseras Envasadas
-CNML,Alimentos,Grano - Harina y Masa de Maíz
+CNML,Alimentos,Grano- Harina y Masa de Maíz
 CNST,Alimentos,Fécula de Maíz
 CNFL,Alimentos,Harina De Maíz
 CAID,Alimentos,Ayudantes Culinarios
@@ -248,7 +248,7 @@ LJDR,Alimentos,Jugo de Limon Adereso
 MALT,Alimentos,Maltas
 SEAS,Alimentos,Adobos - Sazonadores
 MAYO,Alimentos,Mayonesa
-MEAT,Alimentos,Cárnicos # Segunda ocurrencia de MEAT
+MEAT,Alimentos,Cárnicos
 MLKM,Alimentos,Modificadores de Leche-Saborizadores p-leche
 MXCO,Alimentos,Mixta Cereales Infantiles+Avenas
 MXBS,Alimentos,Mixta Caldos + Saborizantes
@@ -380,14 +380,14 @@ FEMI,Cuidado Personal,Protección Femenina-Toallas Femeninas
 FRAG,Cuidado Personal,Fragancias
 HAIR,Cuidado Personal,Cuidado del Cabello-Hair Care
 HRCO,Cuidado Personal,Tintes para el Cabello-Tintes - Tintura - Tintes y Coloración para el cabello
-HREM,C cuidado Personal,Depilación
+HREM,Cuidado Personal,Depilación
 HRST,Cuidado Personal,Alisadores para el Cabello
 HSTY,Cuidado Personal,Fijadores para el Cabello-Modeladores-Gel-Fijadores para el cabello
 HRTR,Cuidado Personal,Tratamientos para el Cabello
 LINI,Cuidado Personal,Óleo Calcáreo
 MAKE,Cuidado Personal,Maquillaje-Cosméticos
 MEDS,Cuidado Personal,Jabón Medicinal
-CRDT,Cuidado Personal,Pañitos + Pañales # Nota: CRDT duplicado - verificar
+CRDT,Cuidado Personal,Pañitos + Pañales
 MXMH,Cuidado Personal,Mixta Make Up+Tinturas
 MOWA,Cuidado Personal,Enjuague Bucal-Refrescante Bucal
 ORAL,Cuidado Personal,Cuidado Bucal
@@ -412,21 +412,22 @@ CSTD,Diversos,Estudio de Categorías
 CORP,Diversos,Corporativa
 CROS,Diversos,Cross Category
 CRBA,Diversos,Cross Category (Bebés)
-CRBR,Diversos,Cross Category (Desayuno)-Yogurt - Cereal - Pan - Queso
-CRDT,Diversos,Cross Category (Diet y Light) # Segunda ocurrencia de CRDT
+CRBR,Diversos,Cross Category (Desayuno)-Yogurt - Cereal - Pan y Queso
+CRDT,Diversos,Cross Category (Diet y Light)
 CRDF,Diversos,Cross Category (Alimentos Secos)
 CRFO,Diversos,Cross Category (Alimentos)
 CRSA,Diversos,Cross Category (Salsas)-Mayonesas-Ketchup - Salsas Frías
-CRSN,Diversos,Cross Category (Snacks) # Nota: CRSN duplicado- verificar
+CRSN,Diversos,Cross Category (Snacks)
 DEMO,Diversos,Demo
 FLSH,Diversos,Flash
 HLVW,Diversos,Holistic View
 COCP,Diversos,Mezcla para café instantaneo y crema no láctea
-CRSN,Diversos,Mezclas nutricionales y suplementos # Segunda ocurrencia de CRSN
+CRSN,Diversos,Mezclas nutricionales y suplementos
 MULT,Diversos,Consolidado-Multicategory
 PCHK,Diversos,Pantry Check
 STCK,Diversos,Inventario
 MIHC,Diversos,Leche y Cereales Calientes-Cereales Precocidos y Leche Líquida Blanca
+FLWT,Alimentos,Agua Saborizada
 """
 
 # --- Datos Estaticos cargados en _load_heavy_modules
