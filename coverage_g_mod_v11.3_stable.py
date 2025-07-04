@@ -770,7 +770,7 @@ def generar_grafico_evolucion_mensual(df_graf, pipeline_meses=0):
         # Eje secundario (Barras de Variación YOY)
         width = 8
         offset = 4
-        ax2.bar(df_plot[COL_DATA] - pd.DateOffset(days=offset), df_plot["Kantar_yoy"], width=width, color=COLOR_KANTAR_BAR_VAR, edgecolor=COLOR_KANTAR_EDGE_VAR, alpha=0.7, label="% Var Kantar")
+        ax2.bar(df_plot[COL_DATA] - pd.DateOffset(days=offset), df_plot["Kantar_yoy"], width=width, color=COLOR_KANTAR_BAR_VAR, edgecolor=COLOR_KANTAR_EDGE_VAR, alpha=0.7, label="% Var Worldpanel by Numerator")
         ax2.bar(df_plot[COL_DATA] + pd.DateOffset(days=offset), df_plot["Sellin_yoy"], width=width, color=COLOR_SELLIN_BAR_VAR, edgecolor=COLOR_SELLIN_EDGE_VAR, alpha=0.7, label="% Var Sell-in")
         ax2.set_ylabel("Variación Interanual (%)", fontsize=11, labelpad=15)
         ax2.yaxis.set_major_formatter(mtick.PercentFormatter(decimals=0))
@@ -1445,7 +1445,7 @@ ppt = Presentation('Modelo_Revision.pptx')  # Cargar plantilla PPT
 lang_index = 1 if pais_nombre == 'Brasil' else 2 # 1 -> PT / 2 -> ES
 labels = {
     (1, 'S1'): 'Construa sua história',
-    (1, 'Summary'): ['Marca', 'Pipeline', 'Penetração Média Mensal', fabricante, 'Kantar Worldpanel',
+    (1, 'Summary'): ['Marca', 'Pipeline', 'Penetração Média Mensal', fabricante, 'Worldpanel by Numerator',
                       f'Cobertura {(dt.strptime(ref_month_year, "%m-%y") - timedelta(days=365)).strftime("%b-%y")}', # Formato mes-año
                       f'Cobertura {dt.strptime(ref_month_year, "%m-%y").strftime("%b-%y")}', 'Estabilidad'],
     (1, 'Graf cob Penet Men'): 'Penetração Mensal',
@@ -1454,7 +1454,7 @@ labels = {
     (1, 'Titulo Vol'): 'Tendência em Volumen',
 
     (2, 'S1'): '-', # Placeholder para español
-    (2, 'Summary'): ['Marca', 'Pipeline', 'Penetración Media Mensual', f'%VAR {fabricante}', '% VAR Kantar Worldpanel',
+    (2, 'Summary'): ['Marca', 'Pipeline', 'Penetración Media Mensual', f'%VAR {fabricante}', '% VAR Worldpanel by Numerator',
                       f'Cobertura {(dt.strptime(ref_month_year, "%m-%y") - timedelta(days=365)).strftime("%b-%y")}',
                       f'Cobertura {dt.strptime(ref_month_year, "%m-%y").strftime("%b-%y")}', 'Estabilidad'],
     (2, 'Graf cob Penet Men'): 'Penetración Mensual',
@@ -1695,7 +1695,7 @@ with progress:
             var_mat_data = {
              " ": [f"VAR % MAT ({ref_month_year})"], # Fila 0, columna 'Tipo'/'Periodo'
              f"{fabricante} {labels[(lang_index, 'Var')]} Pipeline {p}": [f"{var_cliente_p_mat*100:.1f}%" if pd.notna(var_cliente_p_mat) else "-"],
-             "Kantar Worldpanel": [f"{var_kantar_mat*100:.1f}%" if pd.notna(var_kantar_mat) else "-"]
+             "Worldpanel by Numerator": [f"{var_kantar_mat*100:.1f}%" if pd.notna(var_kantar_mat) else "-"]
             }
             df_var_mat_table = pd.DataFrame(var_mat_data)
 
