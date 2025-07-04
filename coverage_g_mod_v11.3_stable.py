@@ -1439,8 +1439,66 @@ except Exception as e:
 # --------------------------------------------------------------------------------------------------
 # (2) CREACIÓN DE PPT CON GRÁFICOS
 # --------------------------------------------------------------------------------------------------
+
+
 print(Fore.CYAN + "\nGenerando presentación PowerPoint...")
 ppt = Presentation('Modelo_Revision.pptx')  # Cargar plantilla PPT
+
+# --- MODIFICACIÓN SLIDE 1: Portada personalizada ---
+from pptx.dml.color import RGBColor
+from pptx.util import Pt
+from pptx.enum.shapes import MSO_SHAPE
+
+
+
+# Editar la primera slide existente (portada) AGREGANDO los cuadros de texto sin eliminar shapes previos
+cover_slide = ppt.slides[0]
+
+# Texto dinámico
+line1 = f"{pais_nombre} | {fabricante}"
+try:
+    import calendar
+    ref_dt = dt.strptime(ref_month_year, "%m-%y")
+    mes = calendar.month_name[ref_dt.month].capitalize()
+    anio = ref_dt.year
+    line2 = f"{categoria_nombre} - Corte a {mes} {anio}"
+except Exception:
+    line2 = f"{categoria_nombre} - Corte a {ref_month_year}"
+
+# Añadir fondo oscuro para la segunda línea (detrás del texto)
+# left = Inches(0.5)
+# top = Inches(3.1)
+# width = Inches(9)
+# height = Inches(1.1)
+# bg_shape = cover_slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, left, top, width, height)
+# bg_shape.fill.solid()
+# bg_shape.fill.fore_color.rgb = RGBColor(30, 30, 30)
+# bg_shape.line.fill.background()
+
+# Añadir cuadro de texto para ambas líneas
+text_left = Inches(0.5)
+text_top = Inches(2.2)
+text_width = Inches(9)
+text_height = Inches(2.5)
+textbox = cover_slide.shapes.add_textbox(text_left, text_top, text_width, text_height)
+tf = textbox.text_frame
+tf.clear()
+
+# Primera línea (blanco, grande)
+p1 = tf.add_paragraph()
+p1.text = line1
+p1.font.size = Pt(44)
+p1.font.bold = True
+p1.font.color.rgb = RGBColor(255, 255, 255)
+p1.alignment = 1  # Centrado
+
+# Segunda línea (blanco, grande)
+p2 = tf.add_paragraph()
+p2.text = line2
+p2.font.size = Pt(36)
+p2.font.bold = True
+p2.font.color.rgb = RGBColor(255, 255, 255)
+p2.alignment = 1  # Centrado
 
 # Definir etiquetas de idioma (simplificado)
 lang_index = 1 if pais_nombre == 'Brasil' else 2 # 1 -> PT / 2 -> ES
