@@ -1,6 +1,4 @@
-
 # --- START OF FILE coverage_g_mod_v11_Optimized.py ---
-
 
 # Bibliotecas necesarias
 # --------------------------------------------------------------------------------------------------
@@ -1465,16 +1463,6 @@ try:
 except Exception:
     line2 = f"{categoria_nombre} - Corte a {ref_month_year}"
 
-# Añadir fondo oscuro para la segunda línea (detrás del texto)
-# left = Inches(0.5)
-# top = Inches(3.1)
-# width = Inches(9)
-# height = Inches(1.1)
-# bg_shape = cover_slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, left, top, width, height)
-# bg_shape.fill.solid()
-# bg_shape.fill.fore_color.rgb = RGBColor(30, 30, 30)
-# bg_shape.line.fill.background()
-
 # Añadir cuadro de texto para ambas líneas
 text_left = Inches(0.5)
 text_top = Inches(2.2)
@@ -1903,6 +1891,11 @@ try:
         summary_slide_xml = ppt.slides._sldIdLst[-1]  # El último slide añadido es el resumen
         insert_idx = 7 if len(ppt.slides) > 7 else len(ppt.slides) - 1
         ppt.slides._sldIdLst.insert(insert_idx, summary_slide_xml)  # Insertar en la posición deseada
+
+    # Mover slide de créditos (índice 6) a la última posición
+    if len(ppt.slides) > 7:
+        credit_slide_xml = ppt.slides._sldIdLst[6]
+        ppt.slides._sldIdLst.append(credit_slide_xml)
 
     nombre_ppt_final = f"{nombre_base_archivo}.pptx"
     ruta_ppt_final = os.path.join(carpeta_salida, nombre_ppt_final)
