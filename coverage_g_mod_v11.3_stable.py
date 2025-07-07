@@ -428,6 +428,36 @@ MIHC,Diversos,Leche y Cereales Calientes-Cereales Precocidos y Leche Líquida Bl
 FLWT,Alimentos,Agua Saborizada
 """
 
+# Mapeos rápidos para países y categorías (evitan cargar pandas al inicio)
+COUNTRY_MAP = {
+    "10": "LatAm",
+    "54": "Argentina",
+    "91": "Bolivia",
+    "55": "Brasil",
+    "12": "CAM",
+    "56": "Chile",
+    "57": "Colombia",
+    "93": "Ecuador",
+    "52": "Mexico",
+    "51": "Peru",
+}
+
+CATEGORY_MAP: dict[str, str] = {}
+for _line in CATEGORIES_CSV_DATA.splitlines()[1:]:
+    _parts = _line.split(',')
+    if len(_parts) >= 3:
+        CATEGORY_MAP[_parts[0]] = _parts[2]
+
+def quick_file_metadata(filename: str) -> str:
+    """Obtiene metadatos básicos del nombre de archivo."""
+    base = os.path.splitext(filename)[0]
+    parts = base.split('_')
+    if len(parts) < 2:
+        return ""
+    country = COUNTRY_MAP.get(parts[0], "Desconocido")
+    category = CATEGORY_MAP.get(parts[1], "Categoria desconocida")
+    return f"{country} - {category}"
+
 # --- Datos Estaticos cargados en _load_heavy_modules
 
 # --- Función para cargar categorías ---
@@ -998,7 +1028,11 @@ if os.environ.get('AUTO_FILE'):
 else:
     print(Fore.CYAN + "Archivos Excel (.xlsx) encontrados:")
     for i, archivo in enumerate(excel_list, start=1):
-        print(Fore.MAGENTA + f"{i}. {archivo}")
+        meta = quick_file_metadata(archivo)
+        if meta:
+            print(Fore.MAGENTA + f"{i}. {archivo} " + Fore.YELLOW + f"| {meta}")
+        else:
+            print(Fore.MAGENTA + f"{i}. {archivo}")
 
     while True:
         opcion = input(
