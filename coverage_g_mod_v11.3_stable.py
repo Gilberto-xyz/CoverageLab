@@ -656,8 +656,8 @@ def tipo_eje_tendencia():
         tipo_eje = os.environ["AUTO_EJE"]
     else:
         print(Fore.CYAN + "\n¿Desea el gráfico de tendencia con doble eje?")
-        print(Fore.MAGENTA + "1 - Un solo eje (Sell-in y Kantar juntos)")
-        print(Fore.MAGENTA + "2 - Doble eje (Kantar en eje secundario)")
+        print(Fore.MAGENTA + "1 - Un solo eje (Sell-in y WP by Numerator juntos)")
+        print(Fore.MAGENTA + "2 - Doble eje (WP by Numerator en eje secundario)")
         opciones = {'1': "simple", '2': "doble"}
         eleccion = input(Fore.GREEN + "Elija 1 o 2: ")
         tipo_eje = opciones.get(eleccion, "simple")
@@ -745,7 +745,7 @@ def load_and_preprocess_sheet(excel_file_obj, sheet_name):
 
 def generar_grafico_evolucion_mensual(df_graf, pipeline_meses=0):
     """
-    Genera un gráfico de evolución mensual de Kantar vs Sell-in con variación interanual.
+    Genera un gráfico de evolución mensual de WP by Numerator vs Sell-in con variación interanual.
 
     Args:
         df_graf (pd.DataFrame): DataFrame con datos mensuales (col 'Data' debe ser datetime).
@@ -941,7 +941,7 @@ def generar_grafico_cobertura(slide, marca_clean, pipeline, df_cov_pipe, df_pen_
 def generar_grafico_tendencia(slide, marca_clean, pipeline, df_plot, lang_idx, labels_dict, doble_eje=False):
     """
     Genera el gráfico de líneas de Tendencia (Sell-in vs Sell-out) y lo añade al slide.
-    Si doble_eje=True, Kantar (Sell-out) va en eje secundario.
+    Si doble_eje=True, WP by Numerator (Sell-out) va en eje secundario.
     """
     if df_plot is None or df_plot.empty or pipeline >= len(df_plot):
          print(f"{Fore.YELLOW}Advertencia: Datos insuficientes para gráfico de Tendencia (Marca: {marca_clean}, P:{pipeline}).")
@@ -1200,7 +1200,8 @@ try:
                         # Verificar que las filas referenciadas existan
                         if num_row_excel <= max_rows_excel and den_row_excel <= max_rows_excel:
                             # La fórmula asume Acum_Sell_in en N y Acum_Sell_out en M
-                            base_formula = f"M{den_row_excel}/N{num_row_excel}*100"
+                            #anterior  m{den_row_excel}/n{num_row_excel}*100
+                            base_formula = f"M{num_row_excel}/N{den_row_excel}*100"
                             if cov_type == "relativa":
                                 # CORRECCIÓN: Cambiar formato de porcentaje y usar NA()
                                 pop_value_decimal = float(pop_value_str.replace("%", "")) / 100
@@ -1243,12 +1244,12 @@ try:
                 start_prev = start_curr - months
                 period_label = f"{period_type} vs Y-1"
                 row_vars = {'Tipo': period_type, 'Periodo': period_label}
-                # Kantar (columna C)
+                # WP by Numerator (columna C)
                 if start_curr >= excel_row_offset and start_prev >= excel_row_offset:
                     formula_kantar = f"=IFERROR(SUM(C{start_curr}:C{end_curr})/SUM(C{start_prev}:C{end_prev})-1,NA())"
-                    row_vars['Kantar'] = formula_kantar
+                    row_vars['WP by Numerator'] = formula_kantar
                 else:
-                    row_vars['Kantar'] = "-"
+                    row_vars['WP by Numerator'] = "-"
                 # Cliente (columna L) para P0-P6
                 for p in range(7):
                     end_curr_p = end_curr - p
@@ -1270,12 +1271,12 @@ try:
                 start_prev = start_curr - 24
                 period_label = f"{period_type} vs Y-2"
                 row_vars = {'Tipo': period_type, 'Periodo': period_label}
-                # Kantar (columna C)
+                # WP by Numerator (columna C)
                 if start_curr >= excel_row_offset and start_prev >= excel_row_offset:
                     formula_kantar = f"=IFERROR(SUM(C{start_curr}:C{end_curr})/SUM(C{start_prev}:C{end_prev})-1,NA())"
-                    row_vars['Kantar'] = formula_kantar
+                    row_vars['WP by Numerator'] = formula_kantar
                 else:
-                    row_vars['Kantar'] = "-"
+                    row_vars['WP by Numerator'] = "-"
                 # Cliente (columna L) para P0-P6
                 for p in range(7):
                     end_curr_p = end_curr - p
@@ -1292,25 +1293,71 @@ try:
             df_variations_excel = pd.DataFrame(var_summary_list)
 
 
+
             # --- 1.9) Cálculo de correlaciones en Excel (MAT) ---
+            # Se genera un diccionario con fórmulas de correlación para cada pipeline (P0 a P6)
+            # Se construyen fórmulas Excel que calculan la correlación Pearson entre dos rangos de 12 filas:
+            #   uno en la columna M y otro en la columna N, considerando el desplazamiento (pipeline).
+            # Los índices son base 1 y se garantiza que cada rango tenga exactamente 12 filas; de lo contrario, se asigna '-'.
             correl_formulas = {'Correl': 'Anual'}
+
             if n_data >= 12:
-                 start_row_corr = last_row_excel - 11
-                 end_row_corr = last_row_excel
-                 # Corrección: Correlación debe ser entre series originales (C vs L con pipeline) no acumuladas
-                 sell_out_range = f"C{start_row_corr}:C{end_row_corr}"
+                for p in range(0, 7):  # Se implementa la correlación para P0 también
+                    # Definir el rango de 12 filas:
+                    #   row_ini: fila inicial = última fila Excel - 11
+                    #   row_fin: fila final = última fila Excel
+                    row_ini = last_row_excel - 11
+                    row_fin = last_row_excel
 
-                 for p in range(7): # Incluir P0 ahora
-                     sell_in_range_p = f"L{start_row_corr-p}:L{end_row_corr-p}"
-                     if start_row_corr-p >= excel_row_offset:
-                         # CORRECCIÓN: Usar IFERROR y NA()
-                         correl_formulas[f'P{p}'] = f"=IFERROR(CORREL({sell_out_range},{sell_in_range_p}),NA())"
-                     else:
-                         correl_formulas[f'P{p}'] = np.nan
+                    # Asegurar que los índices sean válidos (mínimo 2, ya que la fila 1 es el encabezado)
+                    m_start = max(row_ini, 2)
+                    m_end   = max(row_fin, 2)
+                    n_start = max(row_ini - p, 2)
+                    n_end   = max(row_fin - p, 2)
+
+                    # Verificar que ambos rangos tengan exactamente 12 filas
+                    if (m_end - m_start + 1 == 12) and (n_end - n_start + 1 == 12):
+                        correl_formulas[f'P{p}'] = f"=CORREL(M{m_start}:M{m_end},N{n_start}:N{n_end})"
+                    else:
+                        correl_formulas[f'P{p}'] = '-'
             else:
-                 for p in range(7): correl_formulas[f'P{p}'] = np.nan # O NA()
+                for p in range(7):
+                    correl_formulas[f'P{p}'] = np.nan
 
+            # Convertir el diccionario en un DataFrame para integrarlo al Excel final
             df_correlations_excel = pd.DataFrame([correl_formulas])
+
+
+
+
+
+            # # --- 1.9) Cálculo de correlaciones en Excel (MAT) ---
+            # correl_formulas = {'Correl': 'Anual'}
+            # if n_data >= 12:
+            #     # Implementación exacta de coverage_new_v14.py:
+            #     # correl = pd.DataFrame([['Anual',* ["=CORREL(M"+str(len(df)-10) + ":M" + str(len(df)+1) +","+ "N"+str(len(df)-10-p) + ":N" + str(len(df)+1-p)+ ")" for p in range(1,7)] ]], columns=['Correl'] + ['P'+str(i) for i in range (1,7)] )
+            #     # Aquí, P0 se deja como '-', P1-P6 con la fórmula
+            #     correl_formulas['P0'] = '-'
+            #     # Inspirado en coverage_new_v14.py: los rangos deben ser de 12 filas, base 1, sin saltos ni celdas fuera de rango
+            #     for p in range(1,7):
+            #         # El rango debe ser: M{row_ini}:M{row_fin}, N{row_ini-p}:N{row_fin-p}, donde row_ini = last_row_excel-11, row_fin = last_row_excel
+            #         row_ini = last_row_excel - 11
+            #         row_fin = last_row_excel
+            #         # Validar que los índices sean >=2 (base 1, header en 1)
+            #         m_start = max(row_ini, 2)
+            #         m_end = max(row_fin, 2)
+            #         n_start = max(row_ini - p, 2)
+            #         n_end = max(row_fin - p, 2)
+            #         # Si el rango es válido (12 filas), genera la fórmula, si no, deja '-'
+            #         if (m_end - m_start + 1 == 12) and (n_end - n_start + 1 == 12):
+            #             correl_formulas[f'P{p}'] = f"=CORREL(M{m_start}:M{m_end},N{n_start}:N{n_end})"
+            #         else:
+            #             correl_formulas[f'P{p}'] = '-'
+            # else:
+            #     for p in range(7):
+            #         correl_formulas[f'P{p}'] = np.nan
+
+            # df_correlations_excel = pd.DataFrame([correl_formulas])
 
 
             # --- 1.10) Promedio de Penetración y Buyers (MAT) en Excel ---
@@ -1360,13 +1407,8 @@ try:
                      estab_data[f'P{p}'] = formula
                  else:
                      estab_data[f'P{p}'] = np.nan
-
-
-
-
-
-
-
+            
+            # Crear DataFrame para estabilidad
             df_stability_excel = pd.DataFrame([estab_data])
 
             # --- 1.12) Ensamblar DataFrame final para Excel ---
@@ -1551,7 +1593,7 @@ df_coverage_bank = pd.DataFrame(
              'Penet Media Ano Mov Atual', 'Penet Media Ano Mov Anterior',
              'Raw Buyers Media Ano Mov Atual', 'Pipeline',
              'Cobertura Año Mov Actual', 'Cobertura Año Mov Anterior',
-             '%VAR Cliente', '% VAR Kantar', 'Misma Tendencia']
+             '%VAR Cliente', '% VAR WP by Numerator', 'Misma Tendencia']
 )
 
 # --- Bucle principal para generar diapositivas ---
@@ -1627,20 +1669,20 @@ with progress:
         df_coverage_py = df_coverage_py.round(1)
 
         # 2.3) Cálculo de variaciones en Python
-        df_variations_py = pd.DataFrame(columns=['Tipo', 'Periodo', 'Kantar'] + [f'Cliente P{p}' for p in range(7)])
+        df_variations_py = pd.DataFrame(columns=['Tipo', 'Periodo', 'WP by Numerator'] + [f'Cliente P{p}' for p in range(7)])
         period_types = ["Anual", "Semestral", "Trimestral"]
         # Y-1
         kantar_vars_y1 = calc_var1(df_marca_ppt, COL_SELL_OUT, 0)
         cliente_vars_y1 = {p: calc_var1(df_marca_ppt, COL_SELL_IN, p) for p in range(7)}
         for i, p_type in enumerate(period_types):
-            row = {'Tipo': p_type, 'Periodo': f'{p_type} vs Y-1', 'Kantar': kantar_vars_y1[i]}
+            row = {'Tipo': p_type, 'Periodo': f'{p_type} vs Y-1', 'WP by Numerator': kantar_vars_y1[i]}
             for p in range(7): row[f'Cliente P{p}'] = cliente_vars_y1[p][i]
             df_variations_py.loc[len(df_variations_py)] = row
         # Y-2
         kantar_vars_y2 = calc_var2(df_marca_ppt, COL_SELL_OUT, 0)
         cliente_vars_y2 = {p: calc_var2(df_marca_ppt, COL_SELL_IN, p) for p in range(7)}
         for i, p_type in enumerate(period_types):
-            row = {'Tipo': p_type, 'Periodo': f'{p_type} vs Y-2', 'Kantar': kantar_vars_y2[i]}
+            row = {'Tipo': p_type, 'Periodo': f'{p_type} vs Y-2', 'WP by Numerator': kantar_vars_y2[i]}
             for p in range(7): row[f'Cliente P{p}'] = cliente_vars_y2[p][i]
             df_variations_py.loc[len(df_variations_py)] = row
 
@@ -1699,7 +1741,7 @@ with progress:
                 coverage_anterior = np.nan
 
             var_cliente_anual_y1 = df_variations_py.loc[df_variations_py['Tipo'] == 'Anual', f'Cliente P{p}'].iloc[0]
-            var_kantar_anual_y1 = df_variations_py.loc[df_variations_py['Tipo'] == 'Anual', 'Kantar'].iloc[0]
+            var_kantar_anual_y1 = df_variations_py.loc[df_variations_py['Tipo'] == 'Anual', 'WP by Numerator'].iloc[0]
 
             tendencia_alineada = "NO"
             if pd.notna(var_cliente_anual_y1) and pd.notna(var_kantar_anual_y1):
@@ -1726,7 +1768,7 @@ with progress:
                 'Cobertura Año Mov Actual': round(coverage_actual, 1) if pd.notna(coverage_actual) else 0,
                 'Cobertura Año Mov Anterior': round(coverage_anterior, 1) if pd.notna(coverage_anterior) else 0,
                 '%VAR Cliente': round(var_cliente_anual_y1 * 100, 1) if pd.notna(var_cliente_anual_y1) else 0,
-                '% VAR Kantar': round(var_kantar_anual_y1 * 100, 1) if pd.notna(var_kantar_anual_y1) else 0,
+                '% VAR WP by Numerator': round(var_kantar_anual_y1 * 100, 1) if pd.notna(var_kantar_anual_y1) else 0,
                 'Misma Tendencia': tendencia_alineada
             }
             df_coverage_bank.loc[len(df_coverage_bank)] = banco_row
@@ -1771,7 +1813,7 @@ with progress:
 
             # B) Añadir tabla de Variación MAT Y-1 al slide de cobertura
             var_cliente_p_mat = df_variations_py.loc[0, f'Cliente P{p}'] # Fila 0 es Anual Y-1
-            var_kantar_mat = df_variations_py.loc[0, 'Kantar']
+            var_kantar_mat = df_variations_py.loc[0, 'WP by Numerator']
 
             var_mat_data = {
              " ": [f"VAR % MAT ({ref_month_year})"], # Fila 0, columna 'Tipo'/'Periodo'
