@@ -1224,73 +1224,155 @@ try:
             df_cov_excel_scaled = df_cov_excel.copy()
             escalona(df_cov_excel_scaled) # Escalonar la copia
 
-            # --- 1.7 & 1.8) Cálculo de variaciones (Y-1 e Y-2) en Excel --- (REEMPLAZADO)
-            var_summary_list = []
-            n_data = original_data_rows  # Número de filas con datos
-            last_row_excel = n_data + excel_row_offset - 1
 
-            # Definir los periodos y desplazamientos
-            periods = [
-                ("Anual", 12),
-                ("Semestral", 6),
-                ("Trimestral", 3)
+
+
+# -------------------------------------------------------
+            # 1.7 & 1.8) Cálculo de variaciones (Y-1 e Y-2) en Excel
+            # -------------------------------------------------------
+
+            # ► VARIABLES EXTRA que tu código “heredado” sigue ocupando
+            n_data          = original_data_rows                            # filas con datos
+            last_row_excel  = n_data + excel_row_offset - 1                 # última fila real en Excel
+
+            # ---------- Y-1 -------------------------------------------------
+            var = pd.DataFrame([
+                ['Anual',      "MAT " + df_excel.loc[original_data_rows-1, COL_DATA].strftime('%b-%y') +
+                            " x MAT " + df_excel.loc[original_data_rows-1-12, COL_DATA].strftime('%b-%y')],
+                ['Semestral',  "SEM " + df_excel.loc[original_data_rows-1, COL_DATA].strftime('%b-%y') +
+                            " x SEM " + df_excel.loc[original_data_rows-1-6,  COL_DATA].strftime('%b-%y')],
+                ['Trimestral', "TRI " + df_excel.loc[original_data_rows-1, COL_DATA].strftime('%b-%y') +
+                            " x TRI " + df_excel.loc[original_data_rows-1-3,  COL_DATA].strftime('%b-%y')]
+            ], columns=['Tipo', 'Periodo'])
+
+            # Variaciones WP by Numerator
+            var['WP by Numerator'] = [
+                f"=SUM(C{original_data_rows+excel_row_offset-i}:C{original_data_rows+excel_row_offset})/"
+                f"SUM(C{original_data_rows+excel_row_offset-2*j}:C{original_data_rows+excel_row_offset-j})-1"
+                for i, j in zip([10, 4, 1], [11, 5, 2])
             ]
 
-            # Y-1
-            for period_type, months in periods:
-                end_curr = last_row_excel
-                start_curr = end_curr - months + 1
-                end_prev = end_curr - months
-                start_prev = start_curr - months
-                period_label = f"{period_type} vs Y-1"
-                row_vars = {'Tipo': period_type, 'Periodo': period_label}
-                # WP by Numerator (columna C)
-                if start_curr >= excel_row_offset and start_prev >= excel_row_offset:
-                    formula_kantar = f"=IFERROR(SUM(C{start_curr}:C{end_curr})/SUM(C{start_prev}:C{end_prev})-1,NA())"
-                    row_vars['WP by Numerator'] = formula_kantar
-                else:
-                    row_vars['WP by Numerator'] = "-"
-                # Cliente (columna L) para P0-P6
-                for p in range(7):
-                    end_curr_p = end_curr - p
-                    start_curr_p = end_curr_p - months + 1
-                    end_prev_p = end_curr_p - months
-                    start_prev_p = start_curr_p - months
-                    if start_curr_p >= excel_row_offset and start_prev_p >= excel_row_offset:
-                        formula_cliente = f"=IFERROR(SUM(L{start_curr_p}:L{end_curr_p})/SUM(L{start_prev_p}:L{end_prev_p})-1,NA())"
-                        row_vars[f'Cliente P{p}'] = formula_cliente
-                    else:
-                        row_vars[f'Cliente P{p}'] = "-"
-                var_summary_list.append(row_vars)
+            # Variaciones Cliente
+            for p in range(7):
+                var[f'Cliente P{p}'] = [
+                    f"=SUM(L{original_data_rows+excel_row_offset-i-p}:L{original_data_rows+excel_row_offset-p})/"
+                    f"SUM(L{original_data_rows+excel_row_offset-2*j-p}:L{original_data_rows+excel_row_offset-j-p})-1"
+                    for i, j in zip([10, 4, 1], [11, 5, 2])
+                ]
 
-            # Y-2
-            for period_type, months in periods:
-                end_curr = last_row_excel
-                start_curr = end_curr - months + 1
-                end_prev = end_curr - 24  # 24 meses atrás
-                start_prev = start_curr - 24
-                period_label = f"{period_type} vs Y-2"
-                row_vars = {'Tipo': period_type, 'Periodo': period_label}
-                # WP by Numerator (columna C)
-                if start_curr >= excel_row_offset and start_prev >= excel_row_offset:
-                    formula_kantar = f"=IFERROR(SUM(C{start_curr}:C{end_curr})/SUM(C{start_prev}:C{end_prev})-1,NA())"
-                    row_vars['WP by Numerator'] = formula_kantar
-                else:
-                    row_vars['WP by Numerator'] = "-"
-                # Cliente (columna L) para P0-P6
-                for p in range(7):
-                    end_curr_p = end_curr - p
-                    start_curr_p = end_curr_p - months + 1
-                    end_prev_p = end_curr_p - 24
-                    start_prev_p = start_curr_p - 24
-                    if start_curr_p >= excel_row_offset and start_prev_p >= excel_row_offset:
-                        formula_cliente = f"=IFERROR(SUM(L{start_curr_p}:L{end_curr_p})/SUM(L{start_prev_p}:L{end_prev_p})-1,NA())"
-                        row_vars[f'Cliente P{p}'] = formula_cliente
-                    else:
-                        row_vars[f'Cliente P{p}'] = "-"
-                var_summary_list.append(row_vars)
+            # ---------- Y-2 -------------------------------------------------
+            aux = pd.DataFrame([
+                ['Anual',      "MAT " + df_excel.loc[original_data_rows-1, COL_DATA].strftime('%b-%y') +
+                            " x MAT " + df_excel.loc[original_data_rows-1-24, COL_DATA].strftime('%b-%y')],
+                ['Semestral',  "SEM " + df_excel.loc[original_data_rows-1, COL_DATA].strftime('%b-%y') +
+                            " x SEM " + df_excel.loc[original_data_rows-1-12, COL_DATA].strftime('%b-%y')],
+                ['Trimestral', "TRI " + df_excel.loc[original_data_rows-1, COL_DATA].strftime('%b-%y') +
+                            " x TRI " + df_excel.loc[original_data_rows-1-12, COL_DATA].strftime('%b-%y')]
+            ], columns=['Tipo', 'Periodo'])
 
-            df_variations_excel = pd.DataFrame(var_summary_list)
+            if original_data_rows < 36:
+                aux['WP by Numerator'] = ["-"] + [
+                    f"=SUM(C{original_data_rows+excel_row_offset-i}:C{original_data_rows+excel_row_offset})/"
+                    f"SUM(C{original_data_rows+excel_row_offset-16+j}:C{original_data_rows+excel_row_offset-11})-1"
+                    for i, j in zip([4, 1], [0, 3])
+                ]
+                for p in range(7):
+                    aux[f'Cliente P{p}'] = ["-"] + [
+                        f"=SUM(L{original_data_rows+excel_row_offset-i-p}:L{original_data_rows+excel_row_offset-p})/"
+                        f"SUM(L{original_data_rows+excel_row_offset-16+j-p}:L{original_data_rows+excel_row_offset-11-p})-1"
+                        for i, j in zip([4, 1], [0, 3])
+                    ]
+            else:
+                aux['WP by Numerator'] = [
+                    f"=SUM(C{original_data_rows+excel_row_offset-i}:C{original_data_rows+excel_row_offset})/"
+                    f"SUM(C{original_data_rows+excel_row_offset-i-j}:C{original_data_rows+excel_row_offset-j})-1"
+                    for i, j in zip([10, 4, 1], [24, 12, 12])
+                ]
+                for p in range(7):
+                    aux[f'Cliente P{p}'] = [
+                        f"=SUM(L{original_data_rows+excel_row_offset-i-p}:L{original_data_rows+excel_row_offset-p})/"
+                        f"SUM(L{original_data_rows+excel_row_offset-i-j-p}:L{original_data_rows+excel_row_offset-j-p})-1"
+                        for i, j in zip([10, 4, 1], [24, 12, 12])
+                    ]
+                # Limpiar variaciones sin sentido
+                if 42 - original_data_rows >= 0:
+                    for i in range(abs(42 - original_data_rows)):
+                        aux.loc[0, f'Cliente P{6 - i}'] = np.nan
+
+            # ---------- Unir Y-1 y Y-2 --------------------------------------
+            df_variations_excel = pd.concat([var, aux], ignore_index=True)
+
+
+
+
+            # # --- 1.7 & 1.8) Cálculo de variaciones (Y-1 e Y-2) en Excel
+            # var_summary_list = []
+            # n_data = original_data_rows  # Número de filas con datos
+            # last_row_excel = n_data + excel_row_offset - 1
+
+            # # Definir los periodos y desplazamientos
+            # periods = [
+            #     ("Anual", 12),
+            #     ("Semestral", 6),
+            #     ("Trimestral", 3)
+            # ]
+
+            # # Y-1
+            # for period_type, months in periods:
+            #     end_curr = last_row_excel
+            #     start_curr = end_curr - months + 1
+            #     end_prev = end_curr - months
+            #     start_prev = start_curr - months
+            #     period_label = f"{period_type} vs Y-1"
+            #     row_vars = {'Tipo': period_type, 'Periodo': period_label}
+            #     # WP by Numerator (columna C)
+            #     if start_curr >= excel_row_offset and start_prev >= excel_row_offset:
+            #         formula_kantar = f"=IFERROR(SUM(C{start_curr}:C{end_curr})/SUM(C{start_prev}:C{end_prev})-1,NA())"
+            #         row_vars['WP by Numerator'] = formula_kantar
+            #     else:
+            #         row_vars['WP by Numerator'] = "-"
+            #     # Cliente (columna L) para P0-P6
+            #     for p in range(7):
+            #         end_curr_p = end_curr - p
+            #         start_curr_p = end_curr_p - months + 1
+            #         end_prev_p = end_curr_p - months
+            #         start_prev_p = start_curr_p - months
+            #         if start_curr_p >= excel_row_offset and start_prev_p >= excel_row_offset:
+            #             formula_cliente = f"=IFERROR(SUM(L{start_curr_p}:L{end_curr_p})/SUM(L{start_prev_p}:L{end_prev_p})-1,NA())"
+            #             row_vars[f'Cliente P{p}'] = formula_cliente
+            #         else:
+            #             row_vars[f'Cliente P{p}'] = "-"
+            #     var_summary_list.append(row_vars)
+
+            # # Y-2
+            # for period_type, months in periods:
+            #     end_curr = last_row_excel
+            #     start_curr = end_curr - months + 1
+            #     end_prev = end_curr - 24  # 24 meses atrás
+            #     start_prev = start_curr - 24
+            #     period_label = f"{period_type} vs Y-2"
+            #     row_vars = {'Tipo': period_type, 'Periodo': period_label}
+            #     # WP by Numerator (columna C)
+            #     if start_curr >= excel_row_offset and start_prev >= excel_row_offset:
+            #         formula_kantar = f"=IFERROR(SUM(C{start_curr}:C{end_curr})/SUM(C{start_prev}:C{end_prev})-1,NA())"
+            #         row_vars['WP by Numerator'] = formula_kantar
+            #     else:
+            #         row_vars['WP by Numerator'] = "-"
+            #     # Cliente (columna L) para P0-P6
+            #     for p in range(7):
+            #         end_curr_p = end_curr - p
+            #         start_curr_p = end_curr_p - months + 1
+            #         end_prev_p = end_curr_p - 24
+            #         start_prev_p = start_curr_p - 24
+            #         if start_curr_p >= excel_row_offset and start_prev_p >= excel_row_offset:
+            #             formula_cliente = f"=IFERROR(SUM(L{start_curr_p}:L{end_curr_p})/SUM(L{start_prev_p}:L{end_prev_p})-1,NA())"
+            #             row_vars[f'Cliente P{p}'] = formula_cliente
+            #         else:
+            #             row_vars[f'Cliente P{p}'] = "-"
+            #     var_summary_list.append(row_vars)
+
+            # df_variations_excel = pd.DataFrame(var_summary_list)
+
 
 
 
