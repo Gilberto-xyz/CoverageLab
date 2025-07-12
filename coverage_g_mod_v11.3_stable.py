@@ -12,6 +12,8 @@ import subprocess
 import sys
 from colorama import Fore, Style
 from rich.console import Console
+from rich.panel import Panel
+from datetime import datetime
 
 colorama.init(autoreset=True)
 console = Console()
@@ -497,15 +499,27 @@ def print_file_header(idx: int, total: int, filename: str) -> None:
     """Muestra un encabezado visual para la ejecución de un archivo."""
     console.rule(f"[bold cyan]Procesando archivo {idx}/{total}: {filename}")
 
+# --- Función para mostrar resumen de archivos generados ---
 def print_file_summary(ruta_excel: str, ruta_ppt: str, ruta_banco: str) -> None:
     """Muestra un resumen con las rutas generadas para el archivo."""
-    console.print("\n[bold green]Resumen del archivo:[/]")
+    console.print("\n[bold green]Resumen de archivos generados:[/bold green]")
     if ruta_excel:
-        console.print(f"[blue]Excel:[/] [yellow]{ruta_excel}")
+        console.print(f"[blue]Excel:[/] [grey]{ruta_excel}")
     if ruta_ppt:
-        console.print(f"[blue]Presentación:[/] [yellow]{ruta_ppt}")
+        console.print(f"[blue]Presentación:[/] [grey]{ruta_ppt}")
     if ruta_banco:
-        console.print(f"[blue]Banco:[/] [yellow]{ruta_banco}")
+        console.print(f"[blue]Banco:[/] [grey]{ruta_banco}")
+    # Mostrar panel de proceso completado con hora actual
+    hora_actual = datetime.now().strftime("%H:%M:%S")
+    mensaje = (
+        "[bright_white]Proceso completado[/bright_white]\n\n"
+        f"[white]Hora de finalización: [bold]{hora_actual}[/bold][/white]"
+    )
+    console.print()
+    console.print(Panel.fit(mensaje, border_style="cyan", title="Coverages Latam"))
+    console.print()
+
+
 
 def calc_var1(df, coluna, p):
     """
@@ -1954,7 +1968,7 @@ try:
     nombre_ppt_final = f"{nombre_base_archivo}.pptx"
     ruta_ppt_final = os.path.join(carpeta_salida, nombre_ppt_final)
     ppt.save(ruta_ppt_final)
-    print(Fore.GREEN + "Presentación PowerPoint guardada en: " + Fore.YELLOW + f"{ruta_ppt_final}")
+    print(Fore.GREEN + "-> Presentación PowerPoint guardada")
 except Exception as e:
     print(f"{Fore.RED}{Style.BRIGHT}Error al guardar la presentación PowerPoint: {e}")
 
@@ -1963,11 +1977,10 @@ try:
     nombre_banco_final = f"Banco_{fabricante}_{categoria_nombre}_{pais_nombre}_{ref_month_year}_{coverage_label}.xlsx"
     ruta_banco_final = os.path.join(carpeta_salida, nombre_banco_final)
     df_coverage_bank.to_excel(ruta_banco_final, index=False)
-    print(Fore.GREEN + "Banco de coberturas guardado en: " + Fore.YELLOW + f"{ruta_banco_final}")
+    print(Fore.GREEN + "-> Banco de coberturas guardado")
 except Exception as e:
     print(f"{Fore.RED}{Style.BRIGHT}Error al guardar el banco de coberturas: {e}")
 
 print_file_summary(ruta_template_final, ruta_ppt_final, ruta_banco_final)
-print(f"\n{Fore.CYAN}{Style.BRIGHT}--- Proceso completado ---")
 
 # --- END OF FILE ---
