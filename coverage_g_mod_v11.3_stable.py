@@ -1328,38 +1328,6 @@ try:
             df_correlations_excel = pd.DataFrame([correl_formulas])
 
 
-
-
-
-            # # --- 1.9) Cálculo de correlaciones en Excel (MAT) ---
-            # correl_formulas = {'Correl': 'Anual'}
-            # if n_data >= 12:
-            #     # Implementación exacta de coverage_new_v14.py:
-            #     # correl = pd.DataFrame([['Anual',* ["=CORREL(M"+str(len(df)-10) + ":M" + str(len(df)+1) +","+ "N"+str(len(df)-10-p) + ":N" + str(len(df)+1-p)+ ")" for p in range(1,7)] ]], columns=['Correl'] + ['P'+str(i) for i in range (1,7)] )
-            #     # Aquí, P0 se deja como '-', P1-P6 con la fórmula
-            #     correl_formulas['P0'] = '-'
-            #     # Inspirado en coverage_new_v14.py: los rangos deben ser de 12 filas, base 1, sin saltos ni celdas fuera de rango
-            #     for p in range(1,7):
-            #         # El rango debe ser: M{row_ini}:M{row_fin}, N{row_ini-p}:N{row_fin-p}, donde row_ini = last_row_excel-11, row_fin = last_row_excel
-            #         row_ini = last_row_excel - 11
-            #         row_fin = last_row_excel
-            #         # Validar que los índices sean >=2 (base 1, header en 1)
-            #         m_start = max(row_ini, 2)
-            #         m_end = max(row_fin, 2)
-            #         n_start = max(row_ini - p, 2)
-            #         n_end = max(row_fin - p, 2)
-            #         # Si el rango es válido (12 filas), genera la fórmula, si no, deja '-'
-            #         if (m_end - m_start + 1 == 12) and (n_end - n_start + 1 == 12):
-            #             correl_formulas[f'P{p}'] = f"=CORREL(M{m_start}:M{m_end},N{n_start}:N{n_end})"
-            #         else:
-            #             correl_formulas[f'P{p}'] = '-'
-            # else:
-            #     for p in range(7):
-            #         correl_formulas[f'P{p}'] = np.nan
-
-            # df_correlations_excel = pd.DataFrame([correl_formulas])
-
-
             # --- 1.10) Promedio de Penetración y Buyers (MAT) en Excel ---
             avg_formulas = []
             # MAT Actual
