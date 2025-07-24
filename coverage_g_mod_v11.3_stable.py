@@ -1560,7 +1560,7 @@ p2.alignment = 1  # Centrado
 lang_index = 1 if pais_nombre == 'Brasil' else 2 # 1 -> PT / 2 -> ES
 labels = {
     (1, 'S1'): 'Construa sua história',
-    (1, 'Summary'): ['Marca', 'Pipeline', 'Penetração Média Mensal', fabricante, 'Worldpanel by Numerator',
+    (1, 'Summary'): ['Marca/Fabricante', 'Pipeline', 'Penetração Média Mensal', fabricante, 'Worldpanel by Numerator',
                       f'Cobertura {(dt.strptime(ref_month_year, "%m-%y") - timedelta(days=365)).strftime("%b-%y")}', # Formato mes-año
                       f'Cobertura {dt.strptime(ref_month_year, "%m-%y").strftime("%b-%y")}', 'Estabilidad'],
     (1, 'Graf cob Penet Men'): 'Penetração Mensal',
@@ -1569,7 +1569,7 @@ labels = {
     (1, 'Titulo Vol'): 'Tendência em Volumen',
 
     (2, 'S1'): '-', # Placeholder para español
-    (2, 'Summary'): ['Marca', 'Pipeline', 'Penetración Media Mensual', f'%VAR {fabricante}', '% VAR Worldpanel by Numerator',
+    (2, 'Summary'): ['Marca/Fabricante', 'Pipeline', 'Penetración Media Mensual', f'%VAR {fabricante}', '% VAR Worldpanel by Numerator',
                       f'Cobertura {(dt.strptime(ref_month_year, "%m-%y") - timedelta(days=365)).strftime("%b-%y")}',
                       f'Cobertura {dt.strptime(ref_month_year, "%m-%y").strftime("%b-%y")}', 'Estabilidad'],
     (2, 'Graf cob Penet Men'): 'Penetración Mensual',
@@ -1746,7 +1746,7 @@ with progress:
                 'Periodo': dt.strptime(ref_month_year, '%m-%y').strftime('%b-%y'),
                 'Fabricante': fabricante,
                 'Categoria': categoria_nombre,
-                'Marca': marca_nombre_limpio,
+                'Marca/Fabricante': marca_nombre_limpio,
                 'Cesta': cesta_nombre,
                 'Panel': 'PNC',
                 'Unidade': measure_unit_ppt,
