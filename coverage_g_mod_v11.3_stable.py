@@ -1581,7 +1581,7 @@ labels = {
 # DataFrames para resumen final y banco de coberturas
 df_summary_ppt = pd.DataFrame(columns=labels[(lang_index, 'Summary')])
 df_coverage_bank = pd.DataFrame(
-    columns=['Periodo', 'Fabricante', 'Categoria', 'Marca', 'Cesta', 'Panel', 'Unidade', 'Razon', 'Pais', 'Ampliacion',
+    columns=['Periodo', 'Fabricante', 'Categoria', 'Marca/Fabricante', 'Cesta', 'Panel', 'Unidade', 'Razon', 'Pais', 'Ampliacion',
              'Penet Media Ano Mov Atual', 'Penet Media Ano Mov Anterior',
              'Raw Buyers Media Ano Mov Atual', 'Pipeline',
              'Cobertura Año Mov Actual', 'Cobertura Año Mov Anterior',
