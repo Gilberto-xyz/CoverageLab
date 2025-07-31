@@ -502,13 +502,13 @@ def print_file_header(idx: int, total: int, filename: str) -> None:
 # --- Función para mostrar resumen de archivos generados ---
 def print_file_summary(ruta_excel: str, ruta_ppt: str, ruta_banco: str) -> None:
     """Muestra un resumen con las rutas generadas para el archivo."""
-    console.print("\n[bold green]Resumen de archivos generados:[/bold green]")
+    console.print("\n[blue]Resumen de archivos generados:[/blue]")
     if ruta_excel:
-        console.print(f"[blue]Excel:[/] [grey]{ruta_excel}")
+        console.print(f"[cyan]Excel:[/] [grey]{ruta_excel}")
     if ruta_ppt:
-        console.print(f"[blue]Presentación:[/] [grey]{ruta_ppt}")
+        console.print(f"[cyan]Presentación:[/] [grey]{ruta_ppt}")
     if ruta_banco:
-        console.print(f"[blue]Banco:[/] [grey]{ruta_banco}")
+        console.print(f"[cyan]Banco:[/] [grey]{ruta_banco}")
     # Mostrar panel de proceso completado con hora actual
     hora_actual = datetime.now().strftime("%H:%M:%S")
     mensaje = (
@@ -628,12 +628,12 @@ def razao_cov():
         razon_seleccionada = os.environ["AUTO_RAZON"]
     else:
         print(Fore.CYAN + "\nPregunta: ¿Cuál es la razón de la cobertura?")
-        print(Fore.MAGENTA + "Opciones:")
-        print(Fore.MAGENTA + "1 - Actualización periódica por contrato")
-        print(Fore.MAGENTA + "2 - Conocer nivel de cobertura o pipeline")
-        print(Fore.MAGENTA + "3 - Tendencias Contrarias")
-        print(Fore.MAGENTA + "4 - Renovación de contrato")
-        print(Fore.MAGENTA + "5 - Otras")
+        print(Fore.WHITE + "Opciones:")
+        print(Fore.WHITE + "1 - Actualización periódica por contrato")
+        print(Fore.WHITE + "2 - Conocer nivel de cobertura o pipeline")
+        print(Fore.WHITE + "3 - Tendencias Contrarias")
+        print(Fore.WHITE + "4 - Renovación de contrato")
+        print(Fore.WHITE + "5 - Otras")
 
         razones = {
             '1': "Actualización periódica por contrato",
@@ -654,9 +654,9 @@ def tipo_cobertura():
         tipo_seleccionado = os.environ["AUTO_COV_TYPE"]
     else:
         print(Fore.CYAN + "\nPregunta: ¿Qué tipo de cobertura se calculará?")
-        print(Fore.MAGENTA + "Opciones:")
-        print(Fore.MAGENTA + "1 - Cobertura Absoluta")
-        print(Fore.MAGENTA + "2 - Cobertura Relativa")
+        print(Fore.WHITE + "Opciones:")
+        print(Fore.WHITE + "1 - Cobertura Absoluta")
+        print(Fore.WHITE + "2 - Cobertura Relativa")
         tipos = {'1': "Absoluta", '2': "relativa"}
         eleccion = input(Fore.GREEN + "Elija 1 o 2: ")
         tipo_seleccionado = tipos.get(eleccion, "Absoluta")  # Default a 'Absoluta'
@@ -670,8 +670,8 @@ def tipo_eje_tendencia():
         tipo_eje = os.environ["AUTO_EJE"]
     else:
         print(Fore.CYAN + "\n¿Desea el gráfico de tendencia con doble eje?")
-        print(Fore.MAGENTA + "1 - Un solo eje (Sell-in y WP by Numerator juntos)")
-        print(Fore.MAGENTA + "2 - Doble eje (WP by Numerator en eje secundario)")
+        print(Fore.WHITE + "1 - Un solo eje (Sell-in y WP by Numerator juntos)")
+        print(Fore.WHITE + "2 - Doble eje (WP by Numerator en eje secundario)")
         opciones = {'1': "simple", '2': "doble"}
         eleccion = input(Fore.GREEN + "Elija 1 o 2: ")
         tipo_eje = opciones.get(eleccion, "simple")
@@ -720,10 +720,20 @@ def load_and_preprocess_sheet(excel_file_obj, sheet_name):
             return None, None
 
 
-        # # Validar estructura mínima esperada (al menos 2 filas, 8 columnas)
-        # if df_sheet.shape[0] < 2 or df_sheet.shape[1] < 8:
-        #      print(f"{Fore.YELLOW}Advertencia: La hoja '{sheet_name}' tiene una estructura inesperada ({df_sheet.shape[0]} filas, {df_sheet.shape[1]} columnas). Se omitirá.")
-        #      return None, None
+        # === Validación temprana adicional: abortar si la columna 8 no tiene datos ===
+        # Si existen los 8 encabezados pero no hay datos debajo del encabezado de la columna 8,
+        # se omite la hoja para evitar que el programa se rompa más adelante.
+        try:
+            _col8 = df_sheet.iloc[1:, 7]  # índice 0-based: 7 es la 8ª columna
+            _col8_empty = _col8.isna().all() or (_col8.astype(str).str.strip() == '').all()
+        except Exception:
+            _col8_empty = True  # si por alguna razón falla, tratamos como vacío
+
+        if _col8_empty:
+            print(f"{Fore.RED}Advertencia: La hoja '{sheet_name}' se omitirá porque la columna 8 (Sell-in) no tiene datos debajo del encabezado.")
+            return None, None
+        # === Fin validación adicional ===
+
 
         # Obtiene la 'unidad' o 'medida' de la primera fila, columna 2 (índice 1)
         measure = str(df_sheet.iat[0, 1]).replace('Weighted', '').strip()
@@ -1069,13 +1079,13 @@ else:
     for i, archivo in enumerate(excel_list, start=1):
         meta = quick_file_metadata(archivo)
         if meta:
-            print(Fore.MAGENTA + f"{i}. {archivo} " + Fore.YELLOW + f"| {meta}")
+            print(Fore.BLUE + f"{i}. {archivo} " + Fore.YELLOW + f"| {meta}")
         else:
-            print(Fore.MAGENTA + f"{i}. {archivo}")
+            print(Fore.BLUE + f"{i}. {archivo}")
 
     while True:
         opcion = input(
-            Fore.GREEN
+            Fore.WHITE
             + f"Seleccione el número de archivo a procesar (1-{len(excel_list)}).\n"
             + "Puede separar varios con comas o escribir 'all': "
         )
@@ -1504,23 +1514,23 @@ carpeta_salida = os.path.join(root_dir, nombre_base_archivo) # Carpeta con el mi
 if not os.path.exists(carpeta_salida):
     try:
         os.makedirs(carpeta_salida)
-        print(Fore.BLUE + "Carpeta de salida creada: " + Fore.YELLOW + f"{carpeta_salida}")
+        print(Fore.BLUE + "Carpeta de salida creada")
     except OSError as e:
         print(f"{Fore.RED}Error al crear carpeta de salida '{carpeta_salida}': {e}")
         if os.path.exists(excel_temp_path): os.remove(excel_temp_path)
         exit()
 else:
-    print(Fore.BLUE + "Carpeta de salida ya existe: " + Fore.YELLOW + f"{carpeta_salida}")
+    print(Fore.YELLOW + "Carpeta de salida ya existe, no se creara de nuevo")
 
 nombre_template_final = f"{nombre_base_archivo}.xlsx"
 ruta_template_final = os.path.join(carpeta_salida, nombre_template_final)
 
 try:
     if os.path.exists(ruta_template_final):
-        print(Fore.YELLOW + f"Archivo Excel '{nombre_template_final}' ya existe. Se sobrescribirá.")
+        print(Fore.YELLOW + f"Archivo Excel ya existe. Se sobrescribirá.")
         os.remove(ruta_template_final)
     os.rename(excel_temp_path, ruta_template_final)
-    print(Fore.GREEN + "Archivo Excel final guardado en: " + Fore.YELLOW + f"{ruta_template_final}")
+    print(Fore.GREEN + "Archivo Excel final guardado")
 except Exception as e:
     print(f"{Fore.RED}Error al mover/renombrar archivo Excel final: {e}")
     if os.path.exists(excel_temp_path): os.remove(excel_temp_path) # Limpiar temporal si falla el renombrado
@@ -1993,7 +2003,7 @@ try:
     nombre_ppt_final = f"{nombre_base_archivo}.pptx"
     ruta_ppt_final = os.path.join(carpeta_salida, nombre_ppt_final)
     ppt.save(ruta_ppt_final)
-    print(Fore.GREEN + "-> Presentación PowerPoint guardada")
+    print(Fore.MAGENTA + "-> Presentación PowerPoint guardada")
 except Exception as e:
     print(f"{Fore.RED}{Style.BRIGHT}Error al guardar la presentación PowerPoint: {e}")
 
@@ -2002,7 +2012,7 @@ try:
     nombre_banco_final = f"Banco_{fabricante}_{categoria_nombre}_{pais_nombre}_{ref_month_year}_{coverage_label}.xlsx"
     ruta_banco_final = os.path.join(carpeta_salida, nombre_banco_final)
     df_coverage_bank.to_excel(ruta_banco_final, index=False)
-    print(Fore.GREEN + "-> Banco de coberturas guardado")
+    print(Fore.MAGENTA + "-> Banco de coberturas guardado")
 except Exception as e:
     print(f"{Fore.RED}{Style.BRIGHT}Error al guardar el banco de coberturas: {e}")
 
