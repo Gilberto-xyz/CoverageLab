@@ -1,5 +1,7 @@
 # coverage_g_mod_v11.3_stable.py
 
+![Bienvenida](welcome.png)
+
 ## Descripción General
 
 Este script es una herramienta avanzada para el procesamiento, análisis y visualización de datos de cobertura y penetración de marcas en mercados de consumo masivo, especialmente diseñada para equipos de inteligencia comercial, marketing y ventas. Automatiza la generación de reportes en Excel y presentaciones PowerPoint a partir de archivos de datos mensuales, permitiendo comparar la información de ventas (Sell-in) y consumo (Sell-out/Kantar) bajo diferentes pipelines y metodologías de cobertura.
@@ -62,6 +64,40 @@ Este script es una herramienta avanzada para el procesamiento, análisis y visua
 - **Escalabilidad**: Permite procesar grandes volúmenes de datos y múltiples marcas en una sola ejecución.
 
 ---
+
+## Guía de Ejecución Paso a Paso
+
+### Paso 1: Generar Excel con archivos_studio.py
+1. Ejecuta el archivo `archivos_studio.py`
+```bash
+python archivos_studio.py
+```
+2. Este script generará los archivos Excel base necesarios para el análisis
+3. Los archivos Excel creados contendrán las plantillas y estructuras requeridas
+
+### Paso 2: Llenar la Información en Excel
+1. Abre los archivos Excel generados en el Paso 1
+2. Completa toda la información requerida en las hojas correspondientes:
+   - Datos de ventas (Sell-in)
+   - Datos de consumo (Sell-out/Kantar)
+   - Información de marcas y categorías
+   - Datos poblacionales por país
+3. Guarda los cambios en los archivos Excel
+
+### Paso 3: Ejecutar Estudio de Cobertura con coverage_studio.py
+1. Ejecuta el archivo `coverage_studio.py`
+```bash
+python coverage_studio.py
+```
+2. Selecciona el archivo Excel que llenaste en el Paso 2
+3. Sigue las instrucciones interactivas para configurar:
+   - Tipo de cobertura deseado
+   - Razón del análisis
+   - Configuración de gráficos
+4. El script procesará los datos y generará:
+   - Reporte Excel con análisis detallado
+   - Presentación PowerPoint con visualizaciones
+   - Banco de coberturas
 
 ## Requisitos
 
