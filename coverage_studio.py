@@ -21,7 +21,7 @@ console = Console()
 def _load_heavy_modules():
     """Carga en segundo plano las bibliotecas pesadas y datos estáticos."""
     global pd, np, dfi, plt, warnings, matplotlib, io, dt, timedelta, pearsonr
-    global Presentation, Inches, get_column_letter, tqdm, mtick, MonthLocator
+    global Presentation, Inches, get_column_letter, Font, CellIsRule, tqdm, mtick, MonthLocator
     global DateFormatter, matplotlib_style, Progress, BarColumn, TextColumn
     global TimeElapsedColumn, TimeRemainingColumn, SpinnerColumn, Image, ImageOps
     global pais, pop_coverage
@@ -39,6 +39,8 @@ def _load_heavy_modules():
     from pptx import Presentation
     from pptx.util import Inches
     from openpyxl.utils import get_column_letter
+    from openpyxl.styles import Font
+    from openpyxl.formatting.rule import CellIsRule
     from tqdm import tqdm
     import matplotlib.ticker as mtick
     from matplotlib.dates import MonthLocator, DateFormatter
@@ -1492,6 +1494,32 @@ try:
 
             # --- 1.13) Exportar a la hoja de Excel ---
             df_excel_final.to_excel(writer, sheet_name=marca_sheet_name, index=False)
+
+            # Formatear variaciones Y-1 e Y-2 como porcentaje con color rojo/verde
+            sheet = writer.sheets[marca_sheet_name]
+            start_row = original_data_rows + 4  # primera fila de variaciones
+            end_row = start_row + 5             # seis filas en total
+            start_col = 3                       # "WP by Numerator" empieza en la columna 3
+            end_col = 10                        # Hasta "Cliente P6"
+            rango = f"{get_column_letter(start_col)}{start_row}:{get_column_letter(end_col)}{end_row}"
+
+            # Formato de porcentaje
+            for row in sheet.iter_rows(min_row=start_row, max_row=end_row,
+                                       min_col=start_col, max_col=end_col):
+                for cell in row:
+                    cell.number_format = '0.0%'
+
+            # Colores condicionales
+            sheet.conditional_formatting.add(
+                rango,
+                CellIsRule(operator='greaterThanOrEqual', formula=['0'],
+                           stopIfTrue=False, font=Font(color='006100'))
+            )
+            sheet.conditional_formatting.add(
+                rango,
+                CellIsRule(operator='lessThan', formula=['0'],
+                           stopIfTrue=False, font=Font(color='9C0006'))
+            )
 
     print(Fore.GREEN + f"Archivo Excel temporal '{EXCEL_TEMP_FILENAME}' generado.")
 
