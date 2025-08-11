@@ -1552,15 +1552,19 @@ from pptx.enum.shapes import MSO_SHAPE
 
 
 
-# Editar la primera slide existente (portada) AGREGANDO los cuadros de texto sin eliminar shapes previos
+# Editar la primera slide existente (portada) 
 cover_slide = ppt.slides[0]
 
 # Texto dinámico
 line1 = f"{pais_nombre} | {fabricante}"
 try:
-    import calendar
     ref_dt = dt.strptime(ref_month_year, "%m-%y")
-    mes = calendar.month_name[ref_dt.month].capitalize()
+    # Nombres de meses en español (evita dependencias de locale)
+    meses_es = [
+        "", "enero", "febrero", "marzo", "abril", "mayo", "junio",
+        "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre"
+    ]
+    mes = meses_es[ref_dt.month].capitalize()
     anio = ref_dt.year
     line2 = f"{categoria_nombre} - Corte a {mes} {anio}"
 except Exception:
