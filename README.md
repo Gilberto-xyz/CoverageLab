@@ -1,7 +1,6 @@
-# coverage_g_mod_v11.3_stable.py
+# coverage_studio.py
 
 ![Bienvenida](welcome.png)
-Hola Bruna, Saludos desde MEXICO.
 
 ## Descripción General
 
