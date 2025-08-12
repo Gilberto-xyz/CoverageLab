@@ -3,6 +3,7 @@
 # Bibliotecas necesarias
 # --------------------------------------------------------------------------------------------------
 import os
+import shutil
 import re
 import threading
 import subprocess
@@ -679,6 +680,26 @@ def tipo_eje_tendencia():
     clear_and_print_summary()
     return tipo_eje
 
+def include_english_flag():
+    """Indica si se incluirá la versión en inglés (EN) de la plantilla.
+
+    Prioriza la variable de entorno AUTO_ENGLISH. Si no está definida, pregunta de forma interactiva.
+    """
+    env_val = os.environ.get("AUTO_ENGLISH")
+    if env_val is not None:
+        env_val_norm = str(env_val).strip().lower()
+        include_en = env_val_norm in {"1", "true", "yes", "y", "si", "sí"}
+    else:
+        print(Fore.CYAN + "\n¿Desea generar la presentación en inglés?")
+        print(Fore.WHITE + "1 - Sí (usar bloque EN de la plantilla)")
+        print(Fore.WHITE + "2 - No (usar idioma por país: PT si Brasil, de lo contrario ES)")
+        opciones = {'1': True, '2': False}
+        eleccion = input(Fore.GREEN + "Elija 1 o 2: ")
+        include_en = opciones.get(eleccion, False)
+    SELECTIONS['Inglés'] = 'Sí' if include_en else 'No'
+    clear_and_print_summary()
+    return include_en
+
 def load_and_preprocess_sheet(excel_file_obj, sheet_name):
     """
     Carga una hoja del archivo Excel, la preprocesa (renombra, limpia, fechas)
@@ -1071,6 +1092,8 @@ if os.environ.get('AUTO_FILE'):
     cov_type = os.environ.get('AUTO_COV_TYPE', 'Absoluta')
     razon_cobertura = os.environ.get('AUTO_RAZON', 'Otras')
     tipo_eje_tend = os.environ.get('AUTO_EJE', 'simple')
+    include_english = os.environ.get('AUTO_ENGLISH', '0')
+    include_english = str(include_english).strip().lower() in {"1", "true", "yes", "y", "si", "sí"}
     file_idx = int(os.environ.get('AUTO_INDEX', '1'))
     file_total = int(os.environ.get('AUTO_TOTAL', '1'))
     print_file_header(file_idx, file_total, excel_file_name)
@@ -1114,6 +1137,7 @@ if not os.environ.get('AUTO_FILE'):
     cov_type = tipo_cobertura()  # Preguntar tipo de cobertura
     razon_cobertura = razao_cov()  # Preguntar razón
     tipo_eje_tend = tipo_eje_tendencia()  # Preguntar tipo de eje para tendencia
+    include_english = include_english_flag()  # Preguntar versión en inglés
 
     total_files = len(selected_files)
     for idx, excel_file_name in enumerate(selected_files, start=1):
@@ -1123,6 +1147,7 @@ if not os.environ.get('AUTO_FILE'):
             'AUTO_COV_TYPE': cov_type,
             'AUTO_RAZON': razon_cobertura,
             'AUTO_EJE': tipo_eje_tend,
+            'AUTO_ENGLISH': '1' if include_english else '0',
             'AUTO_INDEX': str(idx),
             'AUTO_TOTAL': str(total_files),
             'SHOW_CAT_MSG': '1' if idx == 1 else '0',
@@ -1543,7 +1568,63 @@ except Exception as e:
 
 
 print(Fore.CYAN + "\nGenerando presentación PowerPoint...")
-ppt = Presentation('Modelo_Revision.pptx')  # Cargar plantilla PPT
+
+# --- Preparación de plantilla multilenguaje: copiar, podar y reabrir ---
+run_id = os.environ.get('RUN_ID') or datetime.now().strftime('%Y%m%d_%H%M%S')
+tmp_dir = os.path.join(root_dir, 'tmp')
+os.makedirs(tmp_dir, exist_ok=True)
+
+# Determinar idioma a partir de indicador include_english y país
+# Prioridad: EN si include_english=True; si no, PT para Brasil; en otro caso ES
+chosen_lang = 'EN' if include_english else ('PT' if pais_nombre == 'Brasil' else 'ES')
+
+src_template_path = os.path.join(root_dir, 'Modelo_PPT.pptx')
+tmp_ppt_name = f"Modelo_PPT_{run_id}_{chosen_lang}.pptx"
+tmp_ppt_path = os.path.join(tmp_dir, tmp_ppt_name)
+
+try:
+    if not os.path.exists(src_template_path):
+        raise FileNotFoundError(f"No se encontró la plantilla base: {src_template_path}")
+    shutil.copyfile(src_template_path, tmp_ppt_path)
+except Exception as e:
+    print(f"{Fore.RED}{Style.BRIGHT}Error al copiar la plantilla PPT: {e}")
+    exit()
+
+# Abrir la copia y eliminar slides no incluidos según idioma
+ppt = Presentation(tmp_ppt_path)
+
+# Índices a conservar (0-based)
+keep_indices_by_lang = {
+    'ES': {0, 1, 2, 3, 4, 5, 16},
+    'PT': {0, 6, 7, 8, 9, 10, 16},
+    'EN': {0, 11, 12, 13, 14, 15, 16},
+}
+keep_set = keep_indices_by_lang.get(chosen_lang, keep_indices_by_lang['ES'])
+
+def _delete_slide(pres_obj, idx):
+    sldIdLst = pres_obj.slides._sldIdLst  # protected API de python-pptx
+    sldId = sldIdLst[idx]
+    rId = sldId.rId
+    pres_obj.part.drop_rel(rId)
+    sldIdLst.remove(sldId)
+
+try:
+    total_initial = len(ppt.slides)
+    delete_list = sorted([i for i in range(total_initial) if i not in keep_set], reverse=True)
+    for di in delete_list:
+        _delete_slide(ppt, di)
+    if len(ppt.slides) != 7:
+        raise RuntimeError(f"Validación fallida: se esperaban 7 slides tras poda, hay {len(ppt.slides)}")
+    ppt.save(tmp_ppt_path)
+    del ppt
+    ppt = Presentation(tmp_ppt_path)
+except Exception as e:
+    print(f"{Fore.RED}{Style.BRIGHT}Error al podar la plantilla PPT: {e}")
+    try:
+        os.remove(tmp_ppt_path)
+    except Exception:
+        pass
+    exit()
 
 # --- MODIFICACIÓN SLIDE 1: Portada personalizada ---
 from pptx.dml.color import RGBColor
@@ -1993,6 +2074,39 @@ else:
 
 # --- 2.11) Guardar PPT y Banco ---
 try:
+    # Insertar texto de agradecimiento en slide 7 (índice 6) con estilo de portada
+    try:
+        thanks_map = {'ES': 'Gracias', 'PT': 'Obrigado(a)', 'EN': 'Thank you'}
+        thanks_txt = thanks_map.get(chosen_lang, 'Gracias')
+        slide7 = ppt.slides[6]
+        text_left = Inches(0.5)
+        text_top = Inches(2.2)
+        text_width = Inches(9)
+        text_height = Inches(2.5)
+        tb = slide7.shapes.add_textbox(text_left, text_top, text_width, text_height)
+        tf7 = tb.text_frame
+        tf7.clear()
+        p = tf7.add_paragraph()
+        p.text = thanks_txt
+        p.font.size = Pt(36)
+        p.font.bold = True
+        p.font.color.rgb = RGBColor(255, 255, 255)
+        p.alignment = 1
+        # Validación simple de presencia del texto
+        found_thanks = False
+        for shp in slide7.shapes:
+            try:
+                if getattr(shp, 'has_text_frame', False) and shp.text_frame and shp.text_frame.text:
+                    if shp.text_frame.text.strip() == thanks_txt:
+                        found_thanks = True
+                        break
+            except Exception:
+                continue
+        if not found_thanks:
+            print(f"{Fore.YELLOW}Advertencia: No se encontró el texto de agradecimiento en el slide 7 tras insertarlo.")
+    except Exception as inner_e:
+        print(f"{Fore.YELLOW}Advertencia: No se pudo insertar texto en slide 7: {inner_e}")
+
     # Mover slide de resumen a la octava posición (índice 7)
     if len(ppt.slides) > 1:
         summary_slide_xml = ppt.slides._sldIdLst[-1]  # El último slide añadido es el resumen
