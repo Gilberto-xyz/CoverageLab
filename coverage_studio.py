@@ -905,9 +905,11 @@ def generar_grafico_evolucion_mensual(df_graf, pipeline_meses=0, lang_idx=2):
         padding = max(abs(y2_min), abs(y2_max)) * 0.15 # 15% padding
         ax2.set_ylim(y2_min - padding, y2_max + padding*2) # Más espacio arriba
 
-        # Formato Eje X (Fechas)
-        fechas_validas = df_plot[COL_DATA] # Obtener fechas válidas para el eje X (no extras)
-        ax1.set_xlim([fechas_validas.min(), fechas_validas.max()])
+        # Formato Eje X (Fechas) con extensión de un mes antes y después
+        fechas_validas = df_plot[COL_DATA]
+        fecha_min = fechas_validas.min() - pd.DateOffset(months=1)
+        fecha_max = fechas_validas.max() + pd.DateOffset(months=1)
+        ax1.set_xlim([fecha_min, fecha_max])
         ax1.xaxis.set_major_locator(MonthLocator(interval=1)) # Ajustar intervalo dinámicamente
         ax1.xaxis.set_major_formatter(DateFormatter('%b-%y'))
         ax1.tick_params(axis='x', rotation=45, labelsize=8)
