@@ -2136,4 +2136,13 @@ except Exception as e:
 
 print_file_summary(ruta_template_final, ruta_ppt_final, ruta_banco_final)
 
+# Limpieza de temporales: eliminar carpeta ./tmp al final
+try:
+    tmp_dir = os.path.join(root_dir, 'tmp')
+    if os.path.isdir(tmp_dir):
+        shutil.rmtree(tmp_dir)
+        print(Fore.BLUE + "Carpeta temporal ./tmp eliminada")
+except Exception as e:
+    print(f"{Fore.YELLOW}Advertencia: No se pudo eliminar la carpeta temporal ./tmp: {e}")
+
 # --- END OF FILE ---
