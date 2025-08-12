@@ -499,7 +499,7 @@ def clear_and_print_summary():
     if 'Idioma PPT' in SELECTIONS:
         print(Fore.BLUE + "Idioma PPT: " + Fore.YELLOW + f"{SELECTIONS['Idioma PPT']}")
     elif 'Inglés' in SELECTIONS:
-        print(Fore.BLUE + "Idioma PPT: " + Fore.YELLOW + ("EN" if SELECTIONS['Inglés'] == 'Sí' else ("PT" if SELECTIONS.get('Pais') == 'Brasil' else "ES")))
+        print(Fore.BLUE + "Idioma PPT: " + Fore.YELLOW + ("ENGLISH" if SELECTIONS['Inglés'] == 'Sí' else ("PORTUGUES" if SELECTIONS.get('Pais') == 'Brasil' else "ESPAÑOL")))
     print("\n" + "-"*50 + "\n")
 
 def print_file_header(idx: int, total: int, filename: str) -> None:
@@ -697,8 +697,8 @@ def include_english_flag():
         include_en = env_val_norm in {"1", "true", "yes", "y", "si", "sí"}
     else:
         print(Fore.CYAN + "\n¿Desea generar la presentación en inglés?")
-        print(Fore.WHITE + "1 - Sí (usar bloque EN de la plantilla)")
-        print(Fore.WHITE + "2 - No (usar idioma por país: PT si Brasil, de lo contrario ES)")
+        print(Fore.WHITE + "1 - Sí (usar bloque ENGLISH de la plantilla)")
+        print(Fore.WHITE + "2 - No (usar idioma por país: PORTUGUES si Brasil, de lo contrario ESPAÑOL)")
         opciones = {'1': True, '2': False}
         eleccion = input(Fore.GREEN + "Elija 1 o 2: ")
         include_en = opciones.get(eleccion, False)
@@ -2130,13 +2130,32 @@ if not df_summary_ppt.empty:
         img_height_inch = min(5.5, 0.3 + n_rows_summary * 0.25) # Ajustar multiplicador según tamaño de fuente/padding
         img_width_inch = 9.0 # Ancho
 
-        # slide_summary.shapes.add_picture(summary_table_stream, Inches(0.5), Inches(1.0), width=Inches(img_width_inch) , height=Inches(img_height_inch))
+        # Abrir imagen de la tabla y añadir borde
         img_pil = Image.open(summary_table_stream)
         bordered = ImageOps.expand(img_pil, border=2, fill='black')
         img_stream_bordered = io.BytesIO()
         bordered.save(img_stream_bordered, format='PNG')
         img_stream_bordered.seek(0)
+
+        # Insertar imagen de la tabla en el slide
         slide_summary.shapes.add_picture(img_stream_bordered, Inches(0.5), Inches(1.0), width=Inches(img_width_inch), height=Inches(img_height_inch))
+
+        # --- INSERTAR TABLA AJUSTADA AL ANCHO DEL SLIDE ---
+        left = Inches(0.5)   # margen lateral mediano - Ajuste equilibrado para no saturar
+        top  = Inches(1.0)
+
+        # ancho útil del slide (EMU), auto-centrado
+        usable_w = ppt.slide_width - 2*left
+        final_left = int((ppt.slide_width - usable_w) // 2)
+
+        slide_summary.shapes.add_picture(
+            img_stream_bordered,
+            final_left,
+            top,
+            width=usable_w        # clave: fijamos solo el ancho; mantiene aspecto
+        )
+
+
 
     except Exception as e:
         print(f"{Fore.YELLOW}Advertencia: No se pudo generar la tabla resumen en el PPT. Error: {e}")
