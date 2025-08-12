@@ -494,6 +494,12 @@ def clear_and_print_summary():
         print(Fore.BLUE + "Tipo de cobertura: " + Fore.YELLOW + f"{SELECTIONS['Cobertura']}")
     if 'Razón' in SELECTIONS:
         print(Fore.BLUE + "Razón de Cobertura: " + Fore.YELLOW + f"{SELECTIONS['Razón']}")
+    if 'Eje tendencia' in SELECTIONS:
+        print(Fore.BLUE + "Tipo de gráfico (tendencia): " + Fore.YELLOW + f"{SELECTIONS['Eje tendencia']}")
+    if 'Idioma PPT' in SELECTIONS:
+        print(Fore.BLUE + "Idioma PPT: " + Fore.YELLOW + f"{SELECTIONS['Idioma PPT']}")
+    elif 'Inglés' in SELECTIONS:
+        print(Fore.BLUE + "Idioma PPT: " + Fore.YELLOW + ("EN" if SELECTIONS['Inglés'] == 'Sí' else ("PT" if SELECTIONS.get('Pais') == 'Brasil' else "ES")))
     print("\n" + "-"*50 + "\n")
 
 def print_file_header(idx: int, total: int, filename: str) -> None:
