@@ -1721,7 +1721,7 @@ lang_index = 3 if (os.environ.get('AUTO_ENGLISH', '').strip().lower() in {"1", "
 labels = {
     # PT
     (1, 'S1'): ' ',
-    (1, 'Summary'): ['Marca/Fabricante', 'Pipeline', 'Penetração Média Mensal', fabricante, 'Worldpanel by Numerator',
+    (1, 'Summary'): ['Fabricante/Marca', 'Pipeline', 'Penetração Média Mensal', fabricante, 'Worldpanel by Numerator',
                       f'Cobertura {(dt.strptime(ref_month_year, "%m-%y") - timedelta(days=365)).strftime("%b-%y")}',
                       f'Cobertura {dt.strptime(ref_month_year, "%m-%y").strftime("%b-%y")}', 'Estabilidade'],
     (1, 'Graf cob Penet Men'): 'Penetração Mensal',
@@ -1731,7 +1731,7 @@ labels = {
 
     # ES
     (2, 'S1'): ' ',
-    (2, 'Summary'): ['Marca/Fabricante', 'Pipeline', 'Penetración Media Mensual', f'%VAR {fabricante}', '% VAR Worldpanel by Numerator',
+    (2, 'Summary'): ['Fabricante/Marca', 'Pipeline', 'Penetración Media Mensual', f'%VAR {fabricante}', '% VAR Worldpanel by Numerator',
                       f'Cobertura {(dt.strptime(ref_month_year, "%m-%y") - timedelta(days=365)).strftime("%b-%y")}',
                       f'Cobertura {dt.strptime(ref_month_year, "%m-%y").strftime("%b-%y")}', 'Estabilidad'],
     (2, 'Graf cob Penet Men'): 'Penetración Mensual',
@@ -1741,7 +1741,7 @@ labels = {
 
     # EN
     (3, 'S1'): ' ',
-    (3, 'Summary'): ['Brand/Manufacturer', 'Pipeline', 'Monthly Avg Penetration', f'%VAR {fabricante}', '% VAR Worldpanel by Numerator',
+    (3, 'Summary'): ['Manufacturer/Brand', 'Pipeline', 'Monthly Avg Penetration', f'%VAR {fabricante}', '% VAR Worldpanel by Numerator',
                       f'Coverage {(dt.strptime(ref_month_year, "%m-%y") - timedelta(days=365)).strftime("%b-%y")}',
                       f'Coverage {dt.strptime(ref_month_year, "%m-%y").strftime("%b-%y")}', 'Stability'],
     (3, 'Graf cob Penet Men'): 'PENETRATION BY PERIOD',
@@ -1753,7 +1753,7 @@ labels = {
 # DataFrames para resumen final y banco de coberturas
 df_summary_ppt = pd.DataFrame(columns=labels[(lang_index, 'Summary')])
 df_coverage_bank = pd.DataFrame(
-    columns=['Periodo', 'Fabricante', 'Categoria', 'Marca/Fabricante', 'Cesta', 'Panel', 'Unidade', 'Razon', 'Pais', 'Ampliacion',
+    columns=['Periodo', 'Fabricante', 'Categoria', 'Fabricante/Marca', 'Cesta', 'Panel', 'Unidade', 'Razon', 'Pais', 'Ampliacion',
              'Penet Media Ano Mov Atual', 'Penet Media Ano Mov Anterior',
              'Raw Buyers Media Ano Mov Atual', 'Pipeline',
              'Cobertura Año Mov Actual', 'Cobertura Año Mov Anterior',
@@ -1918,7 +1918,7 @@ with progress:
                 'Periodo': dt.strptime(ref_month_year, '%m-%y').strftime('%b-%y'),
                 'Fabricante': fabricante,
                 'Categoria': categoria_nombre,
-                'Marca/Fabricante': marca_nombre_limpio,
+                'Fabricante/Marca': marca_nombre_limpio,
                 'Cesta': cesta_nombre,
                 'Panel': 'PNC',
                 'Unidade': measure_unit_ppt,
