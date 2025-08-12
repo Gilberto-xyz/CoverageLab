@@ -2025,10 +2025,9 @@ with progress:
             t_trend.font.size = Inches(0.3)
 
             generar_grafico_tendencia(
-    slide_trend, marca_nombre_limpio, p,
-    df_trend_plot, lang_index, labels,
-    doble_eje=(tipo_eje_tend == "doble")
-)
+                slide_trend, marca_nombre_limpio, p,
+                df_trend_plot, lang_index, labels,
+                doble_eje=(tipo_eje_tend == "doble"))
 
             # D) Slide de Evolución Mensual y Variación YOY (si hay datos)
             if len(df_marca_ppt) >= 24:
@@ -2055,12 +2054,27 @@ with progress:
                     t_evol.font.bold = True
                     t_evol.font.size = Inches(0.3)
 
-                    # Guardar gráfico en memoria y añadir al slide
+                    # Ajustar el tamaño del gráfico                    
+                    # Guardar gráfico en memoria y añadir al slide (ajustando al ANCHO del slide)
                     img_stream_evol = io.BytesIO()
-                    fig_evol.savefig(img_stream_evol, format='png', bbox_inches='tight', pad_inches=0.1, transparent=True)
+                    fig_evol.savefig(img_stream_evol, format='png', dpi=240, bbox_inches='tight', pad_inches=0.08, transparent=True)
                     img_stream_evol.seek(0)
-                    slide_evol.shapes.add_picture(img_stream_evol, Inches(0.4), Inches(1.0), height=Inches(5.5)) # Ajustar posición y tamaño gráfico variacion mensual
+
+                    left = Inches(0.1)                     # margen izquierdo (y derecho)
+                    usable_w = ppt.slide_width - 2*left    # ancho útil del slide (en EMUs)
+
+                    slide_evol.shapes.add_picture(
+                        img_stream_evol,
+                        left,
+                        Inches(1.0),                       # top
+                        width=usable_w                     # << clave: ajustar por ancho
+                    )
+
                     plt.close(fig_evol)
+
+
+
+
                     progress.update(progress_task, advance=1)
             progress.update(progress_task, advance=1)
             progress.update(progress_task, advance=1)
