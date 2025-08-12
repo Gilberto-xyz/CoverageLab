@@ -813,7 +813,7 @@ def load_and_preprocess_sheet(excel_file_obj, sheet_name):
 
 # --- Funciones de Generación de Gráficos ---
 
-def generar_grafico_evolucion_mensual(df_graf, pipeline_meses=0):
+def generar_grafico_evolucion_mensual(df_graf, pipeline_meses=0, lang_idx=2):
     """
     Genera un gráfico de evolución mensual de WP by Numerator vs Sell-in con variación interanual.
 
@@ -858,10 +858,16 @@ def generar_grafico_evolucion_mensual(df_graf, pipeline_meses=0):
         ax2 = ax1.twinx()
 
         # Eje primario (Líneas)
-        sellin_label = f"{COL_SELL_IN} (Mensual)" + (f" - P:{pipeline_meses}" if pipeline_meses > 0 else "")
-        ax1.plot(df_plot[COL_DATA], df_plot[COL_SELL_OUT], color=COLOR_KANTAR_LINE, marker="o", linewidth=2, markersize=5, label=f"{COL_SELL_OUT} (Mensual)")
+        sellin_label = (
+            f"{COL_SELL_IN} (Mensual)" if lang_idx != 3 else f"{COL_SELL_IN} (Monthly)"
+        ) + (f" - P:{pipeline_meses}" if pipeline_meses > 0 else "")
+        ax1.plot(
+            df_plot[COL_DATA], df_plot[COL_SELL_OUT],
+            color=COLOR_KANTAR_LINE, marker="o", linewidth=2, markersize=5,
+            label=f"{COL_SELL_OUT} (Mensual)" if lang_idx != 3 else f"{COL_SELL_OUT} (Monthly)"
+        )
         ax1.plot(df_plot[COL_DATA], df_plot[COL_SELL_IN], color=COLOR_SELLIN_LINE, marker="o", linewidth=2, markersize=5, label=sellin_label)
-        ax1.set_ylabel("Volumen Mensual", fontsize=11, labelpad=15)
+        ax1.set_ylabel("Volumen Mensual" if lang_idx != 3 else "Monthly Volume", fontsize=11, labelpad=15)
         ax1.tick_params(axis='y', labelsize=9)
         ax1.set_ylim(bottom=0)
         ax1.grid(axis='y', linestyle='--', alpha=0.4)
@@ -871,7 +877,7 @@ def generar_grafico_evolucion_mensual(df_graf, pipeline_meses=0):
         offset = 4
         ax2.bar(df_plot[COL_DATA] - pd.DateOffset(days=offset), df_plot["Kantar_yoy"], width=width, color=COLOR_KANTAR_BAR_VAR, edgecolor=COLOR_KANTAR_EDGE_VAR, alpha=0.7, label="% Var Worldpanel by Numerator")
         ax2.bar(df_plot[COL_DATA] + pd.DateOffset(days=offset), df_plot["Sellin_yoy"], width=width, color=COLOR_SELLIN_BAR_VAR, edgecolor=COLOR_SELLIN_EDGE_VAR, alpha=0.7, label="% Var Sell-in")
-        ax2.set_ylabel("Variación Interanual (%)", fontsize=11, labelpad=15)
+        ax2.set_ylabel("Variación Interanual (%)" if lang_idx != 3 else "Year-over-Year Change (%)", fontsize=11, labelpad=15)
         ax2.yaxis.set_major_formatter(mtick.PercentFormatter(decimals=0))
         ax2.tick_params(axis='y', labelsize=9)
         ax2.axhline(y=0, color='gray', linestyle='-', alpha=0.5, linewidth=0.8)
@@ -978,7 +984,8 @@ def generar_grafico_cobertura(slide, marca_clean, pipeline, df_cov_pipe, df_pen_
     # Configuración del gráfico
     ax_cov.set_ylabel(f"{coverage_label} | {labels_dict.get((lang_idx, 'Graf cob Penet Men'), 'Penetración Mensual')}", fontsize=9)
     title_key = 'Titulo Cob'
-    ax_cov.set_title(f"{labels_dict.get((lang_idx, title_key), 'Cobertura Año Móvil')} | {marca_clean} Pipeline {pipeline}", size=16)
+    default_title = 'Cobertura Año Móvil' if lang_idx != 3 else 'MOVING YEAR COVERAGE'
+    ax_cov.set_title(f"{labels_dict.get((lang_idx, title_key), default_title)} | {marca_clean} Pipeline {pipeline}", size=16)
     ax_cov.set_xticks(x_pos)
     ax_cov.set_xticklabels(x_labels, rotation=30, ha='right', fontsize=9)
     ax_cov.legend(loc='lower center', bbox_to_anchor=(0.5, -0.30), # Ajustar posición leyenda
@@ -1213,7 +1220,13 @@ except (IndexError, ValueError, KeyError) as e:
 
     exit()
 
-coverage_label = "Cobertura Absoluta" if cov_type == "Absoluta" else "Cobertura Relativa"
+# Etiqueta de cobertura según selección de idioma
+# Si include_english=True, usar traducción al inglés; de lo contrario, español por defecto
+coverage_label = (
+    ("MOVING YEAR COVERAGE" if cov_type == "Absoluta" else "MOVING YEAR COVERAGE RELATIVE")
+    if (os.environ.get('AUTO_ENGLISH', '').strip().lower() in {"1", "true", "yes", "y", "si", "sí"})
+    else ("Cobertura Absoluta" if cov_type == "Absoluta" else "Cobertura Relativa")
+)
 ref_month_year = "" # Se actualizará en el bucle con la última fecha
 
 # --- (1) CREACIÓN DEL TEMPLATE EN EXCEL ---
@@ -1640,16 +1653,35 @@ cover_slide = ppt.slides[0]
 line1 = f"{pais_nombre} | {fabricante}"
 try:
     ref_dt = dt.strptime(ref_month_year, "%m-%y")
-    # Nombres de meses en español (evita dependencias de locale)
+    # Nombres de meses por idioma (evita dependencias de locale)
     meses_es = [
         "", "enero", "febrero", "marzo", "abril", "mayo", "junio",
         "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre"
     ]
-    mes = meses_es[ref_dt.month].capitalize()
-    anio = ref_dt.year
-    line2 = f"{categoria_nombre} - Corte a {mes} {anio}"
+    meses_pt = [
+        "", "janeiro", "fevereiro", "março", "abril", "maio", "junho",
+        "julho", "agosto", "setembro", "outubro", "novembro", "dezembro"
+    ]
+    meses_en = [
+        "", "January", "February", "March", "April", "May", "June",
+        "July", "August", "September", "October", "November", "December"
+    ]
+    if chosen_lang == 'PT':
+        month_name = meses_pt[ref_dt.month].capitalize()
+        line2 = f"{categoria_nombre} - Corte em {month_name} {ref_dt.year}"
+    elif chosen_lang == 'EN':
+        month_name = meses_en[ref_dt.month]
+        line2 = f"{categoria_nombre} - As of {month_name} {ref_dt.year}"
+    else:  # ES por defecto
+        month_name = meses_es[ref_dt.month].capitalize()
+        line2 = f"{categoria_nombre} - Corte a {month_name} {ref_dt.year}"
 except Exception:
-    line2 = f"{categoria_nombre} - Corte a {ref_month_year}"
+    if chosen_lang == 'PT':
+        line2 = f"{categoria_nombre} - Corte em {ref_month_year}"
+    elif chosen_lang == 'EN':
+        line2 = f"{categoria_nombre} - As of {ref_month_year}"
+    else:
+        line2 = f"{categoria_nombre} - Corte a {ref_month_year}"
 
 # Añadir cuadro de texto para ambas líneas
 text_left = Inches(0.5)
@@ -1676,26 +1708,38 @@ p2.font.bold = True
 p2.font.color.rgb = RGBColor(255, 255, 255)
 p2.alignment = 1  # Centrado
 
-# Definir etiquetas de idioma (simplificado)
-lang_index = 1 if pais_nombre == 'Brasil' else 2 # 1 -> PT / 2 -> ES
+# Definir etiquetas por idioma: 1=PT, 2=ES, 3=EN
+lang_index = 3 if (os.environ.get('AUTO_ENGLISH', '').strip().lower() in {"1", "true", "yes", "y", "si", "sí"}) else (1 if pais_nombre == 'Brasil' else 2)
 labels = {
-    (1, 'S1'): 'Construa sua história',
+    # PT
+    (1, 'S1'): ' ',
     (1, 'Summary'): ['Marca/Fabricante', 'Pipeline', 'Penetração Média Mensal', fabricante, 'Worldpanel by Numerator',
-                      f'Cobertura {(dt.strptime(ref_month_year, "%m-%y") - timedelta(days=365)).strftime("%b-%y")}', # Formato mes-año
-                      f'Cobertura {dt.strptime(ref_month_year, "%m-%y").strftime("%b-%y")}', 'Estabilidad'],
+                      f'Cobertura {(dt.strptime(ref_month_year, "%m-%y") - timedelta(days=365)).strftime("%b-%y")}',
+                      f'Cobertura {dt.strptime(ref_month_year, "%m-%y").strftime("%b-%y")}', 'Estabilidade'],
     (1, 'Graf cob Penet Men'): 'Penetração Mensal',
     (1, 'Titulo Cob'): 'Cobertura em Ano Móvel',
     (1, 'Var'): 'com',
     (1, 'Titulo Vol'): 'Tendência em Volumen',
 
-    (2, 'S1'): '-', # Placeholder para español
+    # ES
+    (2, 'S1'): ' ',
     (2, 'Summary'): ['Marca/Fabricante', 'Pipeline', 'Penetración Media Mensual', f'%VAR {fabricante}', '% VAR Worldpanel by Numerator',
                       f'Cobertura {(dt.strptime(ref_month_year, "%m-%y") - timedelta(days=365)).strftime("%b-%y")}',
                       f'Cobertura {dt.strptime(ref_month_year, "%m-%y").strftime("%b-%y")}', 'Estabilidad'],
     (2, 'Graf cob Penet Men'): 'Penetración Mensual',
-    (2, 'Titulo Cob'): 'Cobertura en Año Móvil', # Corregido Móbil->Móvil
+    (2, 'Titulo Cob'): 'Cobertura en Año Móvil',
     (2, 'Var'): 'con',
-    (2, 'Titulo Vol'): 'Tendencia en Volumen'
+    (2, 'Titulo Vol'): 'Tendencia en Volumen',
+
+    # EN
+    (3, 'S1'): ' ',
+    (3, 'Summary'): ['Brand/Manufacturer', 'Pipeline', 'Monthly Avg Penetration', f'%VAR {fabricante}', '% VAR Worldpanel by Numerator',
+                      f'Coverage {(dt.strptime(ref_month_year, "%m-%y") - timedelta(days=365)).strftime("%b-%y")}',
+                      f'Coverage {dt.strptime(ref_month_year, "%m-%y").strftime("%b-%y")}', 'Stability'],
+    (3, 'Graf cob Penet Men'): 'PENETRATION BY PERIOD',
+    (3, 'Titulo Cob'): 'MOVING YEAR COVERAGE',
+    (3, 'Var'): 'with',
+    (3, 'Titulo Vol'): 'TREND IN VOLUME',
 }
 
 # DataFrames para resumen final y banco de coberturas
@@ -1983,7 +2027,7 @@ with progress:
                 df_evol_plot = df_marca_ppt[[COL_DATA, COL_SELL_IN, COL_SELL_OUT]].copy()
                 df_evol_plot[COL_DATA] = pd.to_datetime(df_evol_plot[COL_DATA])
 
-                fig_evol = generar_grafico_evolucion_mensual(df_evol_plot, p)
+                fig_evol = generar_grafico_evolucion_mensual(df_evol_plot, p, lang_index)
 
                 if fig_evol is not None:
                     slide_evol = ppt.slides.add_slide(ppt.slide_layouts[PPT_LAYOUT_INDEX])
@@ -1994,7 +2038,12 @@ with progress:
                     else:
                          tx_title_evol = tx_title_evol.text_frame
                     t_evol = tx_title_evol.paragraphs[0]
-                    t_evol.text = f"{marca_nombre_limpio} - Pipeline {p} - Evolución Mensual y Variación"
+                    if lang_index == 3:  # EN
+                        t_evol.text = f"{marca_nombre_limpio} - Pipeline {p} - Monthly Evolution and YoY Variation"
+                    elif lang_index == 1:  # PT
+                        t_evol.text = f"{marca_nombre_limpio} - Pipeline {p} - Evolução Mensal e Variação"
+                    else:  # ES
+                        t_evol.text = f"{marca_nombre_limpio} - Pipeline {p} - Evolución Mensual y Variación"
                     t_evol.font.bold = True
                     t_evol.font.size = Inches(0.3)
 
