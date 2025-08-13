@@ -4,8 +4,8 @@
 *.xlsm
 *.xlsb
 
-# Keep the Excel file that is part of the repository
-!93_CARB_Coca-Cola.xlsx
+# Keep the PowerPoint file that is part of the repository (Modelo_PPT.pptx)
+!Modelo_PPT.pptx
 
 # Ignore any directories created locally
 */
