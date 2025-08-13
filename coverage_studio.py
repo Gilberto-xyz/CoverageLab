@@ -1475,8 +1475,8 @@ try:
 
             # Construye las 3 filas en el orden solicitado
             rows = [
-                _build_correl_row('Anual', 12, end_offset=0),                   # últimos 12 meses
-                _build_correl_row('2 años antes', 12, end_offset=24),           # 12 meses que terminaron hace 24 meses
+                _build_correl_row('Año Actual', 12, end_offset=0),                   # últimos 12 meses
+                _build_correl_row('1 año antes', 12, end_offset=12),           # 12 meses que terminaron hace 12 meses (Año anterior)
                 _build_correl_row('2 años (ventana de 24 meses)', 24, 0),       # últimos 24 meses
             ]
 
