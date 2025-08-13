@@ -1356,43 +1356,72 @@ try:
                 ]
 
             # ---------- Y-2 -------------------------------------------------
+            # Ventanas: MAT=12, SEM=6, TRI=3  (todas comparadas contra el mismo tamaño W, 24 meses antes)
+            periods = [
+                ('Anual',      12,  24),   # (nombre, meses_ventana, lag_meses)
+                ('Semestral',   6,  24),
+                ('Trimestral',  3,  24),
+            ]
+
+            # Texto de periodo (tu formato actual)
             aux = pd.DataFrame([
-                ['Anual',      "MAT " + df_excel.loc[original_data_rows-1, COL_DATA].strftime('%b-%y') +
+                ['Anual',      "MAT " + df_excel.loc[original_data_rows-1,     COL_DATA].strftime('%b-%y') +
                             " x MAT " + df_excel.loc[original_data_rows-1-24, COL_DATA].strftime('%b-%y')],
-                ['Semestral',  "SEM " + df_excel.loc[original_data_rows-1, COL_DATA].strftime('%b-%y') +
-                            " x SEM " + df_excel.loc[original_data_rows-1-12, COL_DATA].strftime('%b-%y')],
-                ['Trimestral', "TRI " + df_excel.loc[original_data_rows-1, COL_DATA].strftime('%b-%y') +
-                            " x TRI " + df_excel.loc[original_data_rows-1-12, COL_DATA].strftime('%b-%y')]
+                ['Semestral',  "SEM " + df_excel.loc[original_data_rows-1,     COL_DATA].strftime('%b-%y') +
+                            " x SEM " + df_excel.loc[original_data_rows-1-24, COL_DATA].strftime('%b-%y')],
+                ['Trimestral', "TRI " + df_excel.loc[original_data_rows-1,     COL_DATA].strftime('%b-%y') +
+                            " x TRI " + df_excel.loc[original_data_rows-1-24, COL_DATA].strftime('%b-%y')]
             ], columns=['Tipo', 'Periodo'])
 
-            if original_data_rows < 36: # Si hay menos de 36 meses de datos
-                aux['WP by Numerator'] = ["-"] + [
-                    f"=SUM(C{original_data_rows+excel_row_offset-i - 2}:C{original_data_rows+excel_row_offset-1})/"
-                    f"SUM(C{original_data_rows+excel_row_offset-16+j-2}:C{original_data_rows+excel_row_offset-11-2})-1"
-                    for i, j in zip([4, 1], [0, 3])
-                ]
-                for p in range(7): # Clientes P0 a P6
-                    aux[f'Cliente P{p}'] = ["-"] + [
-                        f"=SUM(L{original_data_rows+excel_row_offset-i-p -2}:L{original_data_rows+excel_row_offset-p -1})/"
-                        f"SUM(L{original_data_rows+excel_row_offset-16+j-p -2}:L{original_data_rows+excel_row_offset-11-p -2})-1"
-                        for i, j in zip([4, 1], [0, 3])
-                    ]
-            else: # Si hay al menos 36 meses de datos
-                aux['WP by Numerator'] = [
-                    f"=SUM(C{original_data_rows+excel_row_offset-i - 2}:C{original_data_rows+excel_row_offset-1})/"
-                    f"SUM(C{original_data_rows+excel_row_offset-i-j - 2}:C{original_data_rows+excel_row_offset-j - 2})-1"
-                    for i, j in zip([10, 4, 1], [24, 12, 12])
-                ]
-                for p in range(7):# Clientes P0 a P6
-                    aux[f'Cliente P{p}'] = [
-                        f"=SUM(L{original_data_rows+excel_row_offset-i-p -2}:L{original_data_rows+excel_row_offset-p -1})/"
-                        f"SUM(L{original_data_rows+excel_row_offset-i-j-p -2}:L{original_data_rows+excel_row_offset-j-p -2})-1"
-                        for i, j in zip([10, 4, 1], [24, 12, 12])
-                    ]
-                # Limpiar variaciones sin sentido
-                if 42 - original_data_rows >= 0:
-                    for i in range(abs(42 - original_data_rows)):
-                        aux.loc[0, f'Cliente P{6 - i}'] = np.nan
+            def rango_excel(end_row: int, meses: int) -> tuple[int, int]:
+                """Devuelve (inicio, fin) inclusivo para una ventana de 'meses' que termina en 'end_row'."""
+                return end_row - (meses - 1), end_row
+
+            def formula_yoy_excel(col: str, end_row: int, meses: int, lag_meses: int) -> str:
+                """
+                = SUM( col[num_ini:num_fin] ) / SUM( col[den_ini:den_fin] ) - 1
+                donde el denominador termina en end_row - lag_meses y tiene el mismo tamaño 'meses'.
+                """
+                # Numerador: ventana actual (tamaño 'meses') que termina en end_row
+                num_ini, num_fin = rango_excel(end_row, meses)
+                # Denominador: misma ventana 'meses', pero que termina 'lag_meses' antes
+                den_fin = end_row - lag_meses
+                den_ini, den_fin = rango_excel(den_fin, meses)
+                return f"=SUM({col}{num_ini}:{col}{num_fin})/SUM({col}{den_ini}:{col}{den_fin})-1"
+
+            # Reglas de suficiencia de datos por ventana para Y-2:
+            #  - MAT (12): requiere >= 12 + 24 = 36 meses
+            #  - SEM (6):  requiere >= 6  + 24 = 30 meses
+            #  - TRI (3):  requiere >= 3  + 24 = 27 meses
+
+            # ► WP by Numerator (columna C)
+            wp_y2_formulas = []
+            for _, meses, lag in periods:
+                required = meses + lag
+                if n_data >= required:
+                    wp_y2_formulas.append(formula_yoy_excel("C", last_row_excel, meses, lag))
+                else:
+                    wp_y2_formulas.append("-")
+            aux['WP by Numerator'] = wp_y2_formulas
+
+            # ► Clientes P0..P6 (columna L), ajustando el fin por 'p'
+            for p in range(7):
+                end_row_p = last_row_excel - p
+                cli_y2 = []
+                for _, meses, lag in periods:
+                    required = meses + lag
+                    # Suficiencia: descontamos 'p' del total disponible para ese cliente
+                    if (n_data - p) >= required:
+                        cli_y2.append(formula_yoy_excel("L", end_row_p, meses, lag))
+                    else:
+                        cli_y2.append("-")
+                aux[f'Cliente P{p}'] = cli_y2
+
+            # Limpiar variaciones sin sentido
+            if 42 - original_data_rows >= 0:
+                for i in range(abs(42 - original_data_rows)):
+                    aux.loc[0, f'Cliente P{6 - i}'] = np.nan
+
 
             # ---------- Unir Y-1 y Y-2 --------------------------------------
             df_variations_excel = pd.concat([var, aux], ignore_index=True)
