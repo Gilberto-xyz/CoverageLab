@@ -1434,37 +1434,6 @@ try:
             #   uno en la columna M y otro en la columna N, considerando el desplazamiento (pipeline).
             # Los índices son base 1 y se garantiza que cada rango tenga exactamente 12 filas; de lo contrario, se asigna '-'.
             
-            # correl_formulas = {'Correl': 'Anual'}
-
-            # if n_data >= 12:
-            #     for p in range(0, 7):  # Se implementa la correlación para P0 también
-            #         # Definir el rango de 12 filas:
-            #         #   row_ini: fila inicial = última fila Excel - 11
-            #         #   row_fin: fila final = última fila Excel
-            #         row_ini = last_row_excel - 11
-            #         row_fin = last_row_excel
-
-            #         # Asegurar que los índices sean válidos (mínimo 2, ya que la fila 1 es el encabezado)
-            #         m_start = max(row_ini, 2)
-            #         m_end   = max(row_fin, 2)
-            #         n_start = max(row_ini - p, 2)
-            #         n_end   = max(row_fin - p, 2)
-
-            #         # Verificar que ambos rangos tengan exactamente 12 filas
-            #         if (m_end - m_start + 1 == 12) and (n_end - n_start + 1 == 12):
-            #             correl_formulas[f'P{p}'] = f"=CORREL(M{m_start}:M{m_end},N{n_start}:N{n_end})"
-            #         else:
-            #             correl_formulas[f'P{p}'] = '-'
-            # else:
-            #     for p in range(7):
-            #         correl_formulas[f'P{p}'] = np.nan
-
-            # # Convertir el diccionario en un DataFrame para integrarlo al Excel final
-            # df_correlations_excel = pd.DataFrame([correl_formulas])
-# ---------- Correlaciones: 12 meses (Anual) y 24 meses (2 años) ----------
-
-            # ---------- Correlaciones: 12m (Anual), 12m (2 años antes), 24m reciente, y Pipeline 6m ----------
-
             # ---------- Correlaciones: 12m, 2 años antes (12m terminando hace 24m), 2 años (ventana 24m) ----------
 
             def _build_correl_row(label: str, window: int, end_offset: int = 0) -> dict:
