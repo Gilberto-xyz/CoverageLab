@@ -2191,9 +2191,6 @@ if not df_summary_ppt.empty:
         bordered.save(img_stream_bordered, format='PNG')
         img_stream_bordered.seek(0)
 
-        # Insertar imagen de la tabla en el slide
-        slide_summary.shapes.add_picture(img_stream_bordered, Inches(0.5), Inches(1.0), width=Inches(img_width_inch), height=Inches(img_height_inch))
-
         # --- INSERTAR TABLA AJUSTADA AL ANCHO DEL SLIDE ---
         left = Inches(0.5)   # margen lateral mediano - Ajuste equilibrado para no saturar
         top  = Inches(1.0)
