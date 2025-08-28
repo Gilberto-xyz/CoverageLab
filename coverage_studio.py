@@ -1647,6 +1647,80 @@ try:
 
         apply_correlation_formatting(excel_temp_path)
         print(Fore.GREEN + "Formato de correlaciones aplicado (colores y porcentaje).")
+
+        # Variaciones: formato porcentaje y reglas de color rojo(<0)/verde(>0)
+        def apply_variations_formatting(xlsx_path: str) -> None:
+            from openpyxl import load_workbook as _load_wb2
+            from openpyxl.utils import get_column_letter as _col_letter
+            from openpyxl.formatting.rule import Rule as _Rule
+            from openpyxl.styles import PatternFill as _PatternFill, Font as _Font
+            from openpyxl.styles.differential import DifferentialStyle as _Diff
+            wb2 = _load_wb2(xlsx_path)
+            for ws in wb2.worksheets:
+                header_row = None
+                wp_col = None
+                # Buscar el encabezado 'WP by Numerator'
+                for row in ws.iter_rows(values_only=False):
+                    for cell in row:
+                        if isinstance(cell.value, str) and str(cell.value).strip().lower() == 'wp by numerator':
+                            header_row = cell.row
+                            wp_col = cell.column
+                            break
+                    if header_row:
+                        break
+                if not header_row:
+                    continue
+                # Detectar columnas de Cliente P0..P6 consecutivas hacia la derecha
+                end_col = wp_col
+                p = 0
+                while True:
+                    header_cell = ws.cell(row=header_row, column=wp_col + 1 + p)
+                    val = header_cell.value
+                    if isinstance(val, str) and val.strip().lower() == f'cliente p{p}':
+                        end_col = wp_col + 1 + p
+                        p += 1
+                        if p > 20:  # seguridad
+                            break
+                    else:
+                        break
+                # Si no se detectaron clientes, por defecto tomar WP + 7 clientes
+                if end_col == wp_col:
+                    end_col = wp_col + 7
+                # Determinar rango de filas con datos (hasta que todas las columnas estén vacías)
+                r = header_row + 1
+                last_row = r - 1
+                while True:
+                    vals = [ws.cell(row=r, column=c).value for c in range(wp_col, end_col + 1)]
+                    if all(v is None for v in vals):
+                        break
+                    last_row = r
+                    r += 1
+                if last_row < header_row + 1:
+                    continue
+                # Aplicar formato porcentaje
+                for rr in range(header_row + 1, last_row + 1):
+                    for cc in range(wp_col, end_col + 1):
+                        ws.cell(row=rr, column=cc).number_format = '0.0%'
+                data_range = f"{_col_letter(wp_col)}{header_row + 1}:{_col_letter(end_col)}{last_row}"
+                # Regla < 0%: relleno rojo claro (#FFC7CE), texto rojo oscuro (#9C0006)
+                dxf_red = _Diff(
+                    fill=_PatternFill(start_color='FFC7CE', end_color='FFC7CE', fill_type='solid'),
+                    font=_Font(color='9C0006')
+                )
+                rule_red = _Rule(type='cellIs', operator='lessThan', formula=['0'], dxf=dxf_red)
+                ws.conditional_formatting.add(data_range, rule_red)
+
+                # Regla > 0%: relleno verde claro (#C6EFCE), texto verde oscuro (#006100)
+                dxf_green = _Diff(
+                    fill=_PatternFill(start_color='C6EFCE', end_color='C6EFCE', fill_type='solid'),
+                    font=_Font(color='006100')
+                )
+                rule_green = _Rule(type='cellIs', operator='greaterThan', formula=['0'], dxf=dxf_green)
+                ws.conditional_formatting.add(data_range, rule_green)
+
+            wb2.save(xlsx_path)
+        apply_variations_formatting(excel_temp_path)
+        print(Fore.GREEN + "Formato de variaciones aplicado (0.0% + rojo/verde).")
     except Exception as e:
         print(Fore.YELLOW + f"No se pudo aplicar el formato de correlaciones: {e}")
 
