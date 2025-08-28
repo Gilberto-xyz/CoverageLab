@@ -40,6 +40,9 @@ def _load_heavy_modules():
     from pptx import Presentation
     from pptx.util import Inches
     from openpyxl.utils import get_column_letter
+    from openpyxl import load_workbook
+    from openpyxl.formatting.rule import ColorScaleRule
+    from openpyxl.utils import get_column_letter
     from tqdm import tqdm
     import matplotlib.ticker as mtick
     from matplotlib.dates import MonthLocator, DateFormatter
@@ -1594,6 +1597,58 @@ try:
             df_excel_final.to_excel(writer, sheet_name=marca_sheet_name, index=False)
 
     print(Fore.GREEN + f"Archivo Excel temporal '{EXCEL_TEMP_FILENAME}' generado.")
+
+    # Aplicar formato de color y porcentaje a la sección de Correlaciones (como en excel_color.py)
+    try:
+        def apply_correlation_formatting(xlsx_path: str) -> None:
+            from openpyxl import load_workbook as _load_wb
+            from openpyxl.formatting.rule import ColorScaleRule as _ColorScaleRule
+            from openpyxl.utils import get_column_letter as _get_col_letter
+            wb = _load_wb(xlsx_path)
+            for ws in wb.worksheets:
+                found = False
+                for row in ws.iter_rows(values_only=False):
+                    for cell in row:
+                        if isinstance(cell.value, str) and str(cell.value).strip().lower() == 'correlacion':
+                            header_row = cell.row
+                            header_col = cell.column
+                            start_col = header_col + 1  # P0
+                            end_col = start_col + 6     # P6
+
+                            # Detectar largo dinámico: desde la fila siguiente hasta que la fila esté vacía en P0..P6
+                            r = header_row + 1
+                            last_row = r - 1
+                            while True:
+                                vals = [ws.cell(row=r, column=c).value for c in range(start_col, end_col + 1)]
+                                if all(v is None for v in vals):
+                                    break
+                                last_row = r
+                                r += 1
+
+                            if last_row >= header_row + 1:
+                                # Formato de porcentaje 0.0% en P0..P6
+                                for rr in range(header_row + 1, last_row + 1):
+                                    for cc in range(start_col, end_col + 1):
+                                        ws.cell(row=rr, column=cc).number_format = '0.0%'
+
+                                # Regla de escala de color 3-colores (rojo-amarillo-verde)
+                                rng = f"{_get_col_letter(start_col)}{header_row + 1}:{_get_col_letter(end_col)}{last_row}"
+                                color_scale = _ColorScaleRule(
+                                    start_type='min', start_color='F8696B',
+                                    mid_type='percentile', mid_value=50, mid_color='FFEB84',
+                                    end_type='max', end_color='63BE7B'
+                                )
+                                ws.conditional_formatting.add(rng, color_scale)
+                            found = True
+                            break
+                    if found:
+                        break
+            wb.save(xlsx_path)
+
+        apply_correlation_formatting(excel_temp_path)
+        print(Fore.GREEN + "Formato de correlaciones aplicado (colores y porcentaje).")
+    except Exception as e:
+        print(Fore.YELLOW + f"No se pudo aplicar el formato de correlaciones: {e}")
 
 except Exception as e:
     print(f"{Fore.RED}{Style.BRIGHT}Error crítico durante la generación del archivo Excel: {e}")
