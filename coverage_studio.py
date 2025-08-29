@@ -1148,13 +1148,10 @@ else:
         break
 
 categ = None
-_loader_thread.join()  # Esperar a que las librerías y datos estén listos
-categ = load_categories()  # Cargar categorías después de seleccionar el archivo
-
 if not os.environ.get('AUTO_FILE'):
-    cov_type = tipo_cobertura()  # Preguntar tipo de cobertura
-    razon_cobertura = razao_cov()  # Preguntar razón
-    tipo_eje_tend = tipo_eje_tendencia()  # Preguntar tipo de eje para tendencia
+    cov_type = tipo_cobertura()  # Preguntar tipo de cobertura␊
+    razon_cobertura = razao_cov()  # Preguntar razón␊
+    tipo_eje_tend = tipo_eje_tendencia()  # Preguntar tipo de eje para tendencia␊
     include_english = include_english_flag()  # Preguntar versión en inglés
 
     total_files = len(selected_files)
@@ -1174,6 +1171,9 @@ if not os.environ.get('AUTO_FILE'):
     exit()
 
 # --- Procesamiento del Archivo Excel Seleccionado ---
+_loader_thread.join() #Esperar a que las librerías y datos estén listos
+categ = load_categories()# Cargar categorías después de seleccionar el archivo
+
 excel_file_path = os.path.join(root_dir, excel_file_name)
 try:
     excel_file_obj = pd.ExcelFile(excel_file_path)
