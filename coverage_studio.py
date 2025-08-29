@@ -1940,7 +1940,7 @@ df_coverage_bank = pd.DataFrame(
              'Penet Media Ano Mov Atual', 'Penet Media Ano Mov Anterior',
              'Raw Buyers Media Ano Mov Atual', 'Pipeline',
              'Cobertura Año Mov Actual', 'Cobertura Año Mov Anterior',
-             '%VAR Cliente', '% VAR WP by Numerator', 'Misma Tendencia']
+             '%VAR Cliente', '% VAR WP by Numerator', 'Misma Tendencia', 'Estabilidad']
 )
 
 # --- Bucle principal para generar diapositivas ---
@@ -2097,6 +2097,11 @@ with progress:
                 elif var_cliente_anual_y1 == 0 and var_kantar_anual_y1 == 0:
                     tendencia_alineada = "SI"
 
+            # Calcular valores de cobertura y estabilidad para el banco
+            cov_actual_val = round(coverage_actual, 1) if pd.notna(coverage_actual) else 0
+            cov_anterior_val = round(coverage_anterior, 1) if pd.notna(coverage_anterior) else 0
+            estabilidad = round(cov_actual_val - cov_anterior_val, 1)
+
             banco_row = {
                 'Periodo': dt.strptime(ref_month_year, '%m-%y').strftime('%b-%y'),
                 'Fabricante': fabricante,
@@ -2112,15 +2117,15 @@ with progress:
                 'Penet Media Ano Mov Anterior': round(averages_py.get('Penet_MAT_Anterior', 0), 1),
                 'Raw Buyers Media Ano Mov Atual': round(averages_py.get('Buyers_MAT_Actual', 0), 1),
                 'Pipeline': p,
-                'Cobertura Año Mov Actual': round(coverage_actual, 1) if pd.notna(coverage_actual) else 0,
-                'Cobertura Año Mov Anterior': round(coverage_anterior, 1) if pd.notna(coverage_anterior) else 0,
+                'Cobertura Año Mov Actual': cov_actual_val,
+                'Cobertura Año Mov Anterior': cov_anterior_val,
                 '%VAR Cliente': round(var_cliente_anual_y1 * 100, 1) if pd.notna(var_cliente_anual_y1) else 0,
                 '% VAR WP by Numerator': round(var_kantar_anual_y1 * 100, 1) if pd.notna(var_kantar_anual_y1) else 0,
-                'Misma Tendencia': tendencia_alineada
+                'Misma Tendencia': tendencia_alineada,
+                'Estabilidad': estabilidad
             }
             df_coverage_bank.loc[len(df_coverage_bank)] = banco_row
 
-            estabilidad = round(coverage_actual - coverage_anterior, 1) if pd.notna(coverage_actual) and pd.notna(coverage_anterior) else np.nan
             summary_row = {
                 labels[(lang_index, 'Summary')][0]: marca_nombre_limpio,
                 labels[(lang_index, 'Summary')][1]: p,

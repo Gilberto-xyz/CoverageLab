@@ -1,10 +1,9 @@
 # Pendientes y Seguimiento
 
 ## Bugs, Comentarios y Sugerencias de Cambios
-- [ ] Agregar la estabilidad en la tabla resumen
-- [ ] Agregar colores en el template, asi como formato de salida en % con un decimal segun sea el caso
-
-
+- [ ] Comentario 1
+- [ ] Comentario 2
+- [ ] Comentario 3
 
 ## Historial de Cambios  
 
@@ -37,5 +36,6 @@
 - [x] Complementación del formato multidioma  
 - [x] Eliminación automática de la carpeta temporal de PPT  
 - [x] Cambio de nombre en README  
-
-
+- [x] Agregar colores en el template, asi como formato de salida en % con un decimal segun sea el caso
+- [x] Mejora en el rendimiento en el menu. carga de modulos hasta el momento de procesar los archivos excel y generacion de graficos
+- [x] Agregar la estabilidad en la tabla resumen
