@@ -62,13 +62,8 @@ def _load_heavy_modules():
     warnings.filterwarnings('ignore')
 
     pais = pd.DataFrame(
-        {
-            'cod': [10, 54, 91, 55, 12, 56, 57, 93, 52, 51],
-            'pais': [
-                'LatAm', 'Argentina', 'Bolivia', 'Brasil', 'CAM',
-                'Chile', 'Colombia', 'Ecuador', 'Mexico', 'Peru'
-            ],
-        }
+        {'cod' : [10,        54,         91,         55,      12,    56,         57,         93,     52,         51,         69],
+        'pais': ['LatAm', 'Argentina', 'Bolivia', 'Brasil', 'CAM', 'Chile', 'Colombia', 'Ecuador', 'Mexico', 'Peru', 'Republica Dominicana']}
     )
 
     pop_coverage = {
@@ -87,7 +82,7 @@ def _load_heavy_modules():
         "Nicaragua": "70%",
         "Panamá": "70%",
         "Perú": "66%",
-        "RD": "63.29%",
+        "Republica Dominicana": "63.29%",
     }
 
 
@@ -96,7 +91,6 @@ _loader_thread.start()
 
 # Instalar las bibliotecas necesarias si no están instaladas
 # pip install pandas numpy matplotlib openpyxl tqdm colorama rich dataframe_image scipy python-pptx
-
 
 # --- Constantes y Configuración ---
 
@@ -446,6 +440,7 @@ COUNTRY_MAP = {
     "93": "Ecuador",
     "52": "Mexico",
     "51": "Peru",
+    "69": "Republica Dominicana"
 }
 
 CATEGORY_MAP: dict[str, str] = {}
