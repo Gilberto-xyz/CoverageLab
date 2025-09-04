@@ -1957,6 +1957,7 @@ for marca_sheet_name in marcas:
 
 print(f"Total slides a generar (estimado): {total_slides_to_generate}") # Añade esto para depurar
 
+
 # --- INICIO CAMBIO: Usar rich Progress ---
 progress = Progress(
     SpinnerColumn(),
@@ -2255,12 +2256,10 @@ with progress:
 
                     plt.close(fig_evol)
 
-
-
-
                     progress.update(progress_task, advance=1)
             progress.update(progress_task, advance=1)
             progress.update(progress_task, advance=1)
+
 
 # --- 2.10) Creación del slide "Summary" ---
 print(Fore.CYAN + "\nAgregando slide de resumen...")
@@ -2334,13 +2333,11 @@ if not df_summary_ppt.empty:
             top,
             width=usable_w        # clave: fijamos solo el ancho; mantiene aspecto
         )
-
-
-
     except Exception as e:
         print(f"{Fore.YELLOW}Advertencia: No se pudo generar la tabla resumen en el PPT. Error: {e}")
 else:
     print(f"{Fore.YELLOW}Advertencia: No hay datos para generar la tabla resumen en el PPT.")
+
 
 # --- 2.11) Guardar PPT y Banco ---
 try:
