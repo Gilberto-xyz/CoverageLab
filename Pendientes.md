@@ -1,11 +1,11 @@
 # Pendientes y Seguimiento
 
 ## Bugs, Comentarios y Sugerencias de Cambios
-- [ ] Comentario 1
-- [ ] Comentario 2
-- [ ] Comentario 3
+- [ ] Agregar fecha de ejecución en el archivo Excel para el Banco [Tomar el mes actual donde se esta ejecutando el script]
+- [ ] Redondear en el gráfico de cobertura y summary los datos a 0 digitos (Implementacion global en el menu del script / como la opcion de graficos en doble eje) 
 
-## Historial de Cambios  
+
+## Historial de Cambios
 
 ### Junio 2025  
 - [x] Optimización del rendimiento, inicio y carga de módulos  
@@ -41,6 +41,5 @@
 - [x] Agregar la estabilidad en la tabla resumen
 
 ### Septiembre 2025  
-- [ ] agregar fecha de ejecución en el archivo Excel para el Banco
-- [ ] redondear en el gráfico de cobertura y summary los datos a 0 digitos
+
 
