@@ -42,5 +42,5 @@
 
 ### Septiembre 2025  
 - [ ] agregar fecha de ejecución en el archivo Excel para el Banco
-- [ ] redondear la cobertura a 0 digitos
+- [ ] redondear en el gráfico de cobertura y summary los datos a 0 digitos
 
