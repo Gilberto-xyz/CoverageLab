@@ -39,3 +39,8 @@
 - [x] Agregar colores en el template, asi como formato de salida en % con un decimal segun sea el caso
 - [x] Mejora en el rendimiento en el menu. carga de modulos hasta el momento de procesar los archivos excel y generacion de graficos
 - [x] Agregar la estabilidad en la tabla resumen
+
+### Septiembre 2025  
+- [] agregar fecha de ejecución en el archivo Excel para el Banco
+- [] redondear la cobertura a 0 digitos
+
