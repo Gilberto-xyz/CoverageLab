@@ -2098,8 +2098,9 @@ with progress:
             cov_anterior_val = round(coverage_anterior, 1) if pd.notna(coverage_anterior) else 0
             estabilidad = round(cov_actual_val - cov_anterior_val, 1)
 
+            # Guardar Periodo como fecha real (día 1 del mes) para formatear en Excel como mmm-yy
             banco_row = {
-                'Periodo': dt.strptime(ref_month_year, '%m-%y').strftime('%b-%y'),
+                'Periodo': dt.strptime(ref_month_year, '%m-%y').date(),
                 'Fabricante': fabricante,
                 'Categoria': categoria_nombre,
                 'Fabricante/Marca': marca_nombre_limpio,
@@ -2394,9 +2395,43 @@ except Exception as e:
 
 # --- (3) Guardado del banco de coberturas ---
 try:
+    # Agregar mes de ejecución como primera columna para el Banco
+    # Formato: YYYY-MM (mes de ejecución del script)
+    try:
+        mes_ejecucion_dt = datetime.now().date().replace(day=1)
+        if 'Mes_Ejecucion' not in df_coverage_bank.columns:
+            df_coverage_bank.insert(0, 'Mes_Ejecucion', mes_ejecucion_dt)
+        else:
+            # Si ya existe, actualizar su valor para todas las filas como fecha
+            df_coverage_bank['Mes_Ejecucion'] = mes_ejecucion_dt
+    except Exception as _e:
+        print(f"{Fore.YELLOW}Advertencia: No se pudo agregar la columna 'Mes_Ejecucion': {_e}")
+
     nombre_banco_final = f"Banco_{fabricante}_{categoria_nombre}_{pais_nombre}_{ref_month_year}_{coverage_label}.xlsx"
     ruta_banco_final = os.path.join(carpeta_salida, nombre_banco_final)
     df_coverage_bank.to_excel(ruta_banco_final, index=False)
+    # Aplicar formato visual mmm-yy a las columnas Periodo y Mes_Ejecucion en el archivo guardado
+    try:
+        from openpyxl import load_workbook as _wb_load
+        wb_bank = _wb_load(ruta_banco_final)
+        for ws in wb_bank.worksheets:
+            # Mapear nombres de encabezado a índice de columna
+            header_map = {}
+            for cell in ws[1]:
+                if cell.value is not None:
+                    header_map[str(cell.value).strip().lower()] = cell.column
+            for header_name in ['periodo', 'mes_ejecucion']:
+                col_idx = header_map.get(header_name)
+                if col_idx is None:
+                    continue
+                # Formatear todas las celdas de datos como mmm-yy
+                for r in range(2, ws.max_row + 1):
+                    c = ws.cell(row=r, column=col_idx)
+                    # Solo aplicar formato; si el valor es string, se mantendrá como texto
+                    c.number_format = 'mmm-yy'
+        wb_bank.save(ruta_banco_final)
+    except Exception as _fe:
+        print(f"{Fore.YELLOW}Advertencia: No se pudo aplicar formato mmm-yy en Banco: {_fe}")
     print(Fore.MAGENTA + "-> Banco de coberturas guardado")
 except Exception as e:
     print(f"{Fore.RED}{Style.BRIGHT}Error al guardar el banco de coberturas: {e}")
