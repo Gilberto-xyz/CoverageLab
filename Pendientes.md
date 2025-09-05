@@ -1,7 +1,6 @@
 # Pendientes y Seguimiento
 
 ## Bugs, Comentarios y Sugerencias de Cambios
-- [ ] Agregar fecha de ejecución en el archivo Excel para el Banco [Tomar el mes actual donde se esta ejecutando el script]
 - [ ] Redondear en el gráfico de cobertura y summary los datos a 0 digitos (Implementacion global en el menu del script / como la opcion de graficos en doble eje) 
 
 
@@ -41,5 +40,6 @@
 - [x] Agregar la estabilidad en la tabla resumen
 
 ### Septiembre 2025  
-
+- [x] Se Agrega fecha de ejecución en el archivo Excel para el Banco [Tomar el mes actual donde se esta ejecutando el script y Ajuste formato a fecha (día 1 del mes) para que en Excel se pueda formatear como mmm-yy]
+- [x] Se modifico "periodo" en el archivo Excel para el Banco [Ajuste formato a fecha (día 1 del mes) para que en Excel se pueda formatear como mmm-yy] y sea mes-yy visualmente en Excel
 
