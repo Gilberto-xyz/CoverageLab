@@ -482,6 +482,37 @@ def load_categories():
 # --- Variables Globales y Funciones de Utilidad ---
 SELECTIONS = {} # Para guardar las respuestas interactivas
 
+# Flag global para redondeo de Cobertura (entero, .5 hacia arriba)
+ROUND_COVERAGE = False
+
+def _round_half_up_series(series):
+    """Redondea una serie numérica al entero más cercano con umbral .5 (ROUND_HALF_UP).
+    Devuelve float con .0 para mantener NaN compatibles.
+    """
+    # Requiere numpy/pandas cargados; se usa después de _loader_thread.join()
+    arr = series.to_numpy(dtype=float)
+    # Usar isfinite para evitar afectar NaN/inf
+    mask = np.isfinite(arr)
+    arr[mask] = np.floor(arr[mask] + 0.5)
+    return pd.Series(arr, index=series.index, name=series.name)
+
+def round_coverage_flag():
+    """Pregunta/lee si se debe redondear la cobertura (sin decimales, .5 hacia arriba)."""
+    env_val = os.environ.get("AUTO_ROUND_COV")
+    if env_val is not None:
+        env_val_norm = str(env_val).strip().lower()
+        do_round = env_val_norm in {"1", "true", "yes", "y", "si", "sí"}
+    else:
+        print(Fore.CYAN + "\n¿Desea redondear la cobertura (sin decimales, umbral .5)?")
+        print(Fore.WHITE + "1 - Sí")
+        print(Fore.WHITE + "2 - No")
+        opciones = {'1': True, '2': False}
+        eleccion = input(Fore.GREEN + "Elija 1 o 2: ")
+        do_round = opciones.get(eleccion, False)
+    SELECTIONS['Redondeo Cobertura'] = 'Sí' if do_round else 'No'
+    clear_and_print_summary()
+    return do_round
+
 def clear_and_print_summary():
     """Limpia la terminal y muestra un resumen de las selecciones del usuario."""
     os.system('cls' if os.name == 'nt' else 'clear') # Compatible con Windows y Linux/Mac
@@ -498,6 +529,8 @@ def clear_and_print_summary():
         print(Fore.BLUE + "Idioma PPT: " + Fore.YELLOW + f"{SELECTIONS['Idioma PPT']}")
     elif 'Inglés' in SELECTIONS:
         print(Fore.BLUE + "Idioma PPT: " + Fore.YELLOW + ("ENGLISH" if SELECTIONS['Inglés'] == 'Sí' else ("PORTUGUES" if SELECTIONS.get('Pais') == 'Brasil' else "ESPAÑOL")))
+    if 'Redondeo Cobertura' in SELECTIONS:
+        print(Fore.BLUE + "Redondeo de Cobertura: " + Fore.YELLOW + f"{SELECTIONS['Redondeo Cobertura']}")
     print("\n" + "-"*50 + "\n")
 
 def print_file_header(idx: int, total: int, filename: str) -> None:
@@ -677,9 +710,9 @@ def tipo_eje_tendencia():
         print(Fore.CYAN + "\n¿Desea el gráfico de tendencia con doble eje?")
         print(Fore.WHITE + "1 - Un solo eje (Sell-in y WP by Numerator juntos)")
         print(Fore.WHITE + "2 - Doble eje (WP by Numerator en eje secundario)")
-        opciones = {'1': "simple", '2': "doble"}
+        opciones = {'1': "Simple", '2': "Doble"}
         eleccion = input(Fore.GREEN + "Elija 1 o 2: ")
-        tipo_eje = opciones.get(eleccion, "simple")
+        tipo_eje = opciones.get(eleccion, "Simple")
     SELECTIONS['Eje tendencia'] = tipo_eje
     clear_and_print_summary()
     return tipo_eje
@@ -981,7 +1014,12 @@ def generar_grafico_cobertura(slide, marca_clean, pipeline, df_cov_pipe, df_pen_
                 else: # Penetración
                     bbox_props['facecolor'] = '#FDEAD9' # Amarillo pálido
 
-                ax_cov.annotate(f'{height:.1f}',
+                # Etiqueta: cobertura sin decimales si se activó el redondeo
+                if rect_group is rects1 and globals().get('ROUND_COVERAGE', False):
+                    label_txt = f"{int(np.floor(height + 0.5))}"
+                else:
+                    label_txt = f"{height:.1f}"
+                ax_cov.annotate(label_txt,
                                 xy=(rect.get_x() + rect.get_width() / 2, height),
                                 xytext=(0, 3),  # 3 puntos de offset vertical
                                 textcoords="offset points",
@@ -1104,12 +1142,20 @@ if os.environ.get('AUTO_FILE'):
     selected_files = [excel_file_name]
     cov_type = os.environ.get('AUTO_COV_TYPE', 'Absoluta')
     razon_cobertura = os.environ.get('AUTO_RAZON', 'Otras')
-    tipo_eje_tend = os.environ.get('AUTO_EJE', 'simple')
+    tipo_eje_tend = os.environ.get('AUTO_EJE', 'Simple')
     include_english = os.environ.get('AUTO_ENGLISH', '0')
     include_english = str(include_english).strip().lower() in {"1", "true", "yes", "y", "si", "sí"}
     file_idx = int(os.environ.get('AUTO_INDEX', '1'))
     file_total = int(os.environ.get('AUTO_TOTAL', '1'))
     print_file_header(file_idx, file_total, excel_file_name)
+    # Bandera de redondeo (entero, .5 hacia arriba) desde entorno
+    try:
+        _round_env = os.environ.get('AUTO_ROUND_COV', '0')
+        _round_env_norm = str(_round_env).strip().lower()
+        ROUND_COVERAGE = _round_env_norm in {"1", "true", "yes", "y", "si", "sí"}
+        SELECTIONS['Redondeo Cobertura'] = 'Sí' if ROUND_COVERAGE else 'No'
+    except Exception:
+        ROUND_COVERAGE = False
 else:
     print(Fore.CYAN + "Archivos Excel (.xlsx) encontrados:")
     for i, archivo in enumerate(excel_list, start=1):
@@ -1148,6 +1194,7 @@ if not os.environ.get('AUTO_FILE'):
     razon_cobertura = razao_cov()  # Preguntar razón␊
     tipo_eje_tend = tipo_eje_tendencia()  # Preguntar tipo de eje para tendencia␊
     include_english = include_english_flag()  # Preguntar versión en inglés
+    round_cov = round_coverage_flag()  # Preguntar redondeo de cobertura
 
     total_files = len(selected_files)
     for idx, excel_file_name in enumerate(selected_files, start=1):
@@ -1158,6 +1205,7 @@ if not os.environ.get('AUTO_FILE'):
             'AUTO_RAZON': razon_cobertura,
             'AUTO_EJE': tipo_eje_tend,
             'AUTO_ENGLISH': '1' if include_english else '0',
+            'AUTO_ROUND_COV': '1' if round_cov else '0',
             'AUTO_INDEX': str(idx),
             'AUTO_TOTAL': str(total_files),
             'SHOW_CAT_MSG': '1' if idx == 1 else '0',
@@ -2009,7 +2057,11 @@ with progress:
         if cov_type == "relativa" and pop_val_num > 0:
             df_coverage_py = df_coverage_py / pop_val_num
 
-        df_coverage_py = df_coverage_py.round(1)
+        if ROUND_COVERAGE:
+            # Redondeo entero con umbral .5 (ROUND_HALF_UP)
+            df_coverage_py = df_coverage_py.apply(_round_half_up_series)
+        else:
+            df_coverage_py = df_coverage_py.round(1)
 
         # 2.3) Cálculo de variaciones en Python
         df_variations_py = pd.DataFrame(columns=['Tipo', 'Periodo', 'WP by Numerator'] + [f'Cliente P{p}' for p in range(7)])
@@ -2094,9 +2146,14 @@ with progress:
                     tendencia_alineada = "SI"
 
             # Calcular valores de cobertura y estabilidad para el banco
-            cov_actual_val = round(coverage_actual, 1) if pd.notna(coverage_actual) else 0
-            cov_anterior_val = round(coverage_anterior, 1) if pd.notna(coverage_anterior) else 0
-            estabilidad = round(cov_actual_val - cov_anterior_val, 1)
+            if ROUND_COVERAGE:
+                cov_actual_val = int(np.floor(coverage_actual + 0.5)) if pd.notna(coverage_actual) else 0
+                cov_anterior_val = int(np.floor(coverage_anterior + 0.5)) if pd.notna(coverage_anterior) else 0
+                estabilidad = cov_actual_val - cov_anterior_val
+            else:
+                cov_actual_val = round(coverage_actual, 1) if pd.notna(coverage_actual) else 0
+                cov_anterior_val = round(coverage_anterior, 1) if pd.notna(coverage_anterior) else 0
+                estabilidad = round(cov_actual_val - cov_anterior_val, 1)
 
             # Guardar Periodo como fecha real (día 1 del mes) para formatear en Excel como mmm-yy
             banco_row = {
@@ -2129,9 +2186,9 @@ with progress:
                 labels[(lang_index, 'Summary')][2]: f"{averages_py.get('Penet_MAT_Actual', 0):.1f}%",
                 labels[(lang_index, 'Summary')][3]: f"{var_cliente_anual_y1*100:.1f}%" if pd.notna(var_cliente_anual_y1) else "0.0%",
                 labels[(lang_index, 'Summary')][4]: f"{var_kantar_anual_y1*100:.1f}%" if pd.notna(var_kantar_anual_y1) else "0.0%",
-                labels[(lang_index, 'Summary')][5]: f"{coverage_anterior:.1f}" if pd.notna(coverage_anterior) else "0.0",
-                labels[(lang_index, 'Summary')][6]: f"{coverage_actual:.1f}" if pd.notna(coverage_actual) else "0.0",
-                labels[(lang_index, 'Summary')][7]: f"{estabilidad:.1f}" if pd.notna(estabilidad) else "0.0"
+                labels[(lang_index, 'Summary')][5]: (str(cov_anterior_val) if ROUND_COVERAGE else (f"{coverage_anterior:.1f}" if pd.notna(coverage_anterior) else "0.0")),
+                labels[(lang_index, 'Summary')][6]: (str(cov_actual_val) if ROUND_COVERAGE else (f"{coverage_actual:.1f}" if pd.notna(coverage_actual) else "0.0")),
+                labels[(lang_index, 'Summary')][7]: (str(estabilidad) if ROUND_COVERAGE else (f"{estabilidad:.1f}" if pd.notna(estabilidad) else "0.0"))
             }
              
             df_summary_ppt.loc[len(df_summary_ppt)] = pd.Series(summary_row)
