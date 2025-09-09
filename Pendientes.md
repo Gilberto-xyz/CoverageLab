@@ -44,3 +44,4 @@
 - [x] Se Agrega fecha de ejecución en el archivo Excel para el Banco [Tomar el mes actual donde se esta ejecutando el script y Ajuste formato a fecha (día 1 del mes) para que en Excel se pueda formatear como mmm-yy]
 - [x] Se modifico "periodo" en el archivo Excel para el Banco [Ajuste formato a fecha (día 1 del mes) para que en Excel se pueda formatear como mmm-yy] y sea mes-yy visualmente en Excel
 - [x] Se agrego la opcion de redondear en el gráfico de cobertura y summary los datos a 0 digitos (Implementacion global en el menu del script / como la opcion de graficos en doble eje) 
+- [x] Se acorto el nombre de la categoria solo para nombres de archivos y carpetas delimitado por el primer guion (Ejemplo: "Cuidado del Cabello - Shampoo y Acondicionador" a "Cuidado del Cabello")
