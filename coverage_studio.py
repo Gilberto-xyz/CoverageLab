@@ -1243,6 +1243,22 @@ try:
     cesta_nombre = categ.loc[category_code, 'cest']
     categoria_nombre = categ.loc[category_code, 'cat']
 
+    # Nombre de categoría abreviado para archivos/carpetas:
+    # Si la categoría contiene guiones o variantes de dash ("-", "–", "—", etc.),
+    # usar solo el texto antes del primer dash. Esto reduce rutas muy largas
+    # como "Cremas Faciales y Corporales-Cremas de Belleza - ..." a
+    # "Cremas Faciales y Corporales" para evitar exceder los 259 caracteres de Windows.
+    try:
+        # Separar por cualquier dash común con o sin espacios alrededor
+        # (guion normal, en dash, em dash, no‑break hyphen, minus sign, figure dash).
+        dash_split = re.split(r"\s*[-‑–—−‒]\s*", str(categoria_nombre), maxsplit=1)
+        categoria_nombre_corto = dash_split[0].strip() if dash_split else str(categoria_nombre).strip()
+        # Fallback de seguridad si quedara vacío por algún motivo
+        if not categoria_nombre_corto:
+            categoria_nombre_corto = str(categoria_nombre).strip()
+    except Exception:
+        categoria_nombre_corto = str(categoria_nombre).strip()
+
 except (IndexError, ValueError, KeyError) as e:
     print(f"{Fore.RED}{Style.BRIGHT}Error al procesar metadatos del nombre de archivo '{excel_file_name}': {e}")
     print(f"{Fore.RED}Asegúrese que el nombre siga el formato 'CodigoPais_CodigoCategoria_Fabricante.xlsx'.")
@@ -1780,7 +1796,7 @@ if not ref_month_year:
          os.remove(excel_temp_path)
      exit()
 
-nombre_base_archivo = f"{pais_nombre}-{categoria_nombre}-{fabricante}-{ref_month_year}_{coverage_label}"
+nombre_base_archivo = f"{pais_nombre}-{categoria_nombre_corto}-{fabricante}-{ref_month_year}_{coverage_label}"
 carpeta_salida = os.path.join(root_dir, nombre_base_archivo) # Carpeta con el mismo nombre base
 
 if not os.path.exists(carpeta_salida):
@@ -2464,7 +2480,13 @@ try:
     except Exception as _e:
         print(f"{Fore.YELLOW}Advertencia: No se pudo agregar la columna 'Mes_Ejecucion': {_e}")
 
-    nombre_banco_final = f"Banco_{fabricante}_{categoria_nombre}_{pais_nombre}_{ref_month_year}_{coverage_label}.xlsx"
+    # Usar la versión corta de la categoría para el nombre del banco para evitar rutas largas
+    try:
+        categoria_para_banco = categoria_nombre_corto
+    except NameError:
+        # Si por alguna razón no existe, usar el original
+        categoria_para_banco = categoria_nombre
+    nombre_banco_final = f"Banco_{fabricante}_{categoria_para_banco}_{pais_nombre}_{ref_month_year}_{coverage_label}.xlsx"
     ruta_banco_final = os.path.join(carpeta_salida, nombre_banco_final)
     df_coverage_bank.to_excel(ruta_banco_final, index=False)
     # Aplicar formato visual mmm-yy a las columnas Periodo y Mes_Ejecucion en el archivo guardado
