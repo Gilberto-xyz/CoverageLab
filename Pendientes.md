@@ -46,3 +46,4 @@
 - [x] Se agrego la opcion de redondear en el gráfico de cobertura y summary los datos a 0 digitos (Implementacion global en el menu del script / como la opcion de graficos en doble eje) 
 - [x] Se acorto el nombre de la categoria solo para nombres de archivos y carpetas delimitado por el primer guion (Ejemplo: "Cuidado del Cabello - Shampoo y Acondicionador" a "Cuidado del Cabello") [Solo afecta nombres de archivos/rutas; títulos/textos continúan con la categoría completa.
 Maneja dashes con o sin espacios alrededor]
+- [x] Ampliacion de paises en el mapa de paises (COUNTRY_MAP) y ajuste en la construccion del DataFrame 'pais' para evitar errores si se modifica COUNTRY_MAP, Ajuste en la cobertura relativa en los paises "CAM" [Se muestra cobertura urbana en vez de Poblacional, debido a que los paises de CAM tienen muestras pequeñas y no representan la poblacion total]

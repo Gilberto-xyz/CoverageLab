@@ -61,28 +61,32 @@ def _load_heavy_modules():
     pd.set_option('mode.chained_assignment', None)
     warnings.filterwarnings('ignore')
 
+    # Construir DataFrame 'pais' desde COUNTRY_MAP (una sola fuente)
+    # Evita errores si se modifica COUNTRY_MAP
+    _codes = sorted((int(k), v) for k, v in COUNTRY_MAP.items())
     pais = pd.DataFrame(
-        {'cod' : [10,        54,         91,         55,      12,    56,         57,         93,     52,         51,         69],
-        'pais': ['LatAm', 'Argentina', 'Bolivia', 'Brasil', 'CAM', 'Chile', 'Colombia', 'Ecuador', 'Mexico', 'Peru', 'Republica Dominicana']}
+        {"cod": [c for c, _ in _codes],
+        "pais": [v for _, v in _codes]}
     )
 
+   # Cobertura por país (valores estáticos)
     pop_coverage = {
         "Argentina": "90%",
         "Bolivia": "60%",
         "Brasil": "82%",
-        "CAM": "63%",
         "Chile": "78%",
         "Colombia": "65%",
-        "Costa Rica": "70%",
         "Ecuador": "55%",
-        "El Salvador": "70%",
-        "Guatemala": "70%",
-        "Honduras": "70%",
         "Mexico": "64%",
-        "Nicaragua": "70%",
-        "Panamá": "70%",
         "Perú": "66%",
-        "Republica Dominicana": "63.29%",
+        "CAM": "74%",# Costa Rica, El Salvador, Guatemala, Honduras, Nicaragua, Panamá --Cobertura urbana
+        "Costa Rica": "94%",# idpais 66
+        "El Salvador": "85%",# idpais 63
+        "Guatemala": "69%", # idpais 62
+        "Honduras": "65%", # idpais 64
+        "Nicaragua": "57%", # idpais 65
+        "Panamá": "92%", # idpais 67
+        "Republica Dominicana": "63.29%", # idpais 69
     }
 
 
@@ -440,7 +444,13 @@ COUNTRY_MAP = {
     "93": "Ecuador",
     "52": "Mexico",
     "51": "Peru",
-    "69": "Republica Dominicana"
+    "69": "Republica Dominicana",
+    "62": "Guatemala",
+    "63": "El Salvador",
+    "64": "Honduras",
+    "65": "Nicaragua",
+    "66": "Costa Rica",
+    "67": "Panamá",
 }
 
 CATEGORY_MAP: dict[str, str] = {}
