@@ -250,7 +250,6 @@ LJDR,Alimentos,Jugo de Limon Adereso
 MALT,Alimentos,Maltas
 SEAS,Alimentos,Adobos - Sazonadores
 MAYO,Alimentos,Mayonesa
-MEAT,Alimentos,Cárnicos
 MLKM,Alimentos,Modificadores de Leche-Saborizadores p-leche
 MXCO,Alimentos,Mixta Cereales Infantiles+Avenas
 MXBS,Alimentos,Mixta Caldos + Saborizantes
