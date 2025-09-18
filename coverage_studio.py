@@ -1,174 +1,60 @@
-# --- START OF FILE cobertura_python.py ---
+"""Coverage Studio Ultra
 
-# Bibliotecas necesarias
-# --------------------------------------------------------------------------------------------------
+Refactor mantenible de coverage_studio.py. Conserva la logica original pero
+organiza la generacion de reportes en componentes reutilizables
+"""
+
+from __future__ import annotations
+
+import io
 import os
-import shutil
 import re
+import shutil
+import sys
 import threading
-import subprocess
-import sys
+from dataclasses import dataclass, field
+from datetime import datetime
+from typing import Dict, Iterable, List, Optional, Sequence, Tuple
+
 import colorama
-import subprocess
-import sys
 from colorama import Fore, Style
 from rich.console import Console
 from rich.panel import Panel
-from datetime import datetime
 
 colorama.init(autoreset=True)
 console = Console()
 
-def _load_heavy_modules():
-    """Carga en segundo plano las bibliotecas pesadas y datos estáticos."""
-    global pd, np, dfi, plt, warnings, matplotlib, io, dt, timedelta, pearsonr
-    global Presentation, Inches, get_column_letter, tqdm, mtick, MonthLocator
-    global DateFormatter, matplotlib_style, Progress, BarColumn, TextColumn
-    global TimeElapsedColumn, TimeRemainingColumn, SpinnerColumn, Image, ImageOps
-    global pais, pop_coverage
-
-    import dataframe_image as dfi
-    import pandas as pd
-    import numpy as np
-    import warnings
-    import matplotlib
-    matplotlib.use("Agg")
-    from matplotlib import pyplot as plt
-    import io
-    from datetime import datetime as dt, timedelta
-    from scipy.stats import pearsonr
-    from pptx import Presentation
-    from pptx.util import Inches
-    from openpyxl.utils import get_column_letter
-    from openpyxl import load_workbook
-    from openpyxl.formatting.rule import ColorScaleRule
-    from openpyxl.utils import get_column_letter
-    from tqdm import tqdm
-    import matplotlib.ticker as mtick
-    from matplotlib.dates import MonthLocator, DateFormatter
-    import matplotlib.style as matplotlib_style
-    from rich.progress import (
-        Progress,
-        BarColumn,
-        TextColumn,
-        TimeElapsedColumn,
-        TimeRemainingColumn,
-        SpinnerColumn,
-    )
-    from PIL import Image, ImageOps
-
-    pd.set_option('future.no_silent_downcasting', True)
-    pd.set_option('mode.chained_assignment', None)
-    warnings.filterwarnings('ignore')
-
-    # Construir DataFrame 'pais' desde COUNTRY_MAP (una sola fuente)
-    # Evita errores si se modifica COUNTRY_MAP
-    _codes = sorted((int(k), v) for k, v in COUNTRY_MAP.items())
-    pais = pd.DataFrame(
-        {"cod": [c for c, _ in _codes],
-        "pais": [v for _, v in _codes]}
-    )
-
-   # Cobertura por país (valores estáticos)
-    pop_coverage = {
-        "Argentina": "90%",
-        "Bolivia": "60%",
-        "Brasil": "82%",
-        "Chile": "78%",
-        "Colombia": "65%",
-        "Ecuador": "55%",
-        "Mexico": "64%",
-        "Perú": "66%",
-        "CAM": "74%",# Costa Rica, El Salvador, Guatemala, Honduras, Nicaragua, Panamá --Cobertura urbana
-        "Costa Rica": "94%",# idpais 66
-        "El Salvador": "85%",# idpais 63
-        "Guatemala": "69%", # idpais 62
-        "Honduras": "65%", # idpais 64
-        "Nicaragua": "57%", # idpais 65
-        "Panamá": "92%", # idpais 67
-        "Republica Dominicana": "63.29%", # idpais 69
-    }
-
-
-_loader_thread = threading.Thread(target=_load_heavy_modules)
-_loader_thread.start()
-
-# Instalar las bibliotecas necesarias si no están instaladas
-# pip install pandas numpy matplotlib openpyxl tqdm colorama rich dataframe_image scipy python-pptx
-
-# --- Constantes y Configuración ---
-
-# --- Constantes ---
-PPT_LAYOUT_INDEX = 21 # Layout usado para las diapositivas de gráficos
-DEFAULT_POP_COVERAGE = "100%"
-EXCEL_TEMP_FILENAME = 'file_temp_coverage.xlsx' # Nombre temporal para el Excel
-
-# Nombres de Columnas estándar
-COL_DATA = 'Data'
-COL_SELL_IN = 'Sell_in'
-COL_SELL_OUT = 'Sell_out'
-COL_PENET = 'Penet'
-COL_COMPRA_MEDIA = 'Compra_Media'
-COL_COMPRA_OCA = 'Compra_por_Oca'
-COL_FREQ = 'Freq'
-COL_BUYERS = 'Buyers'
-COL_SELL_IN_SIM = 'Sell_in_sim'
-COL_ACUM_SELL_OUT = 'Acum_Sell_out'
-COL_ACUM_SELL_IN = 'Acum_Sell_in'
-COL_ANO = 'Ano'
-COL_TRI = 'Tri'
-COL_SEM = 'Sem'
-
-# Colores para gráficos
-COLOR_KANTAR_LINE = '#2C3E50'        # Gris azulado oscuro
-COLOR_SELLIN_LINE = '#D4AC0D'        # Dorado
-COLOR_KANTAR_BAR_VAR = '#7F8C8D'    # Gris medio
-COLOR_SELLIN_BAR_VAR = '#F1C40F'    # Dorado más claro
-COLOR_KANTAR_EDGE_VAR = '#2C3E50'
-COLOR_SELLIN_EDGE_VAR = '#B7950B'
-COLOR_COBERTURA_BAR = '#D9D9D9'      # Gris claro (igual que antes)
-COLOR_PENETRACION_BAR = '#FFC000'    # Naranja/Amarillo (igual que antes)
-COLOR_SELLIN_TREND_LINE = '#F8E092'  # Amarillo pálido (igual que antes)
-COLOR_SELLOUT_TREND_LINE = 'black'   # Negro (igual que antes)
-COLOR_POS_LABEL = '#1e8449'          # Verde oscuro
-COLOR_NEG_LABEL = '#8b0000'          # Rojo oscuro
-COLOR_POS_LABEL_ALT = '#27ae60'       # Verde más brillante
-COLOR_NEG_LABEL_ALT = '#c0392b'       # Rojo más brillante
-
-# --- Datos Embebidos (Categorías) ---
-# Conservar todo en el script pero en formato CSV embebido reducirá el ruido visual
-# y seguirá siendo ligero.
 CATEGORIES_CSV_DATA = """cod,cest,cat
-ALCB,Bebidas,Bebidas Alcohólicas
+ALCB,Bebidas,Bebidas Alcoholicas
 BEER,Bebidas,Cervezas
 CARB,Bebidas,Bebidas Gaseosas
 CWAT,Bebidas,Agua Gasificada
-COCW,Bebidas,Água de Coco
-COFF,Bebidas,Café-Consolidado de Café
+COCW,Bebidas,Agua de Coco
+COFF,Bebidas,Cafe-Consolidado de Cafe
 CRBE,Bebidas,Cross Category (Bebidas)
-ENDR,Bebidas,Bebidas Energéticas
+ENDR,Bebidas,Bebidas Energeticas
 FLBE,Bebidas,Bebidas Saborizadas Sin Gas
-GCOF,Bebidas,Café Tostado y Molido
+GCOF,Bebidas,Cafe Tostado y Molido
 HJUI,Bebidas,Jugos Caseros
-ITEA,Bebidas,Té Helado
-ICOF,Bebidas,Café Instantáneo-Café Sucedáneo
+ITEA,Bebidas,Te Helado
+ICOF,Bebidas,Cafe Instantaneo-Cafe Sucedaneo
 JUNE,Bebidas,Jugos y Nectares
 VEJU,Bebidas,Zumos de Vegetales
 WATE,Bebidas,Agua Natural
 CSDW,Bebidas,Gaseosas + Aguas
-MXCM,Bebidas,Mixta Café+Malta
-MXDG,Bebidas,Mixta Dolce Gusto-Mixta Té Helado + Café + Modificadores
+MXCM,Bebidas,Mixta Cafe+Malta
+MXDG,Bebidas,Mixta Dolce Gusto-Mixta Te Helado + Cafe + Modificadores
 MXJM,Bebidas,Mixta Jugos y Leches
-MXJS,Bebidas,Mixta Jugos Líquidos + Bebidas de Soja
-MXTC,Bebidas,Mixta Té+Café
+MXJS,Bebidas,Mixta Jugos Liquidos + Bebidas de Soja
+MXTC,Bebidas,Mixta Te+Cafe
 JUIC,Bebidas,Jugos Liquidos-Jugos Polvo
-PWDJ,Bebidas,Refrescos en Polvo-Jugos - Bebidas Instantáneas En Polvo - Jugos Polvo
+PWDJ,Bebidas,Refrescos en Polvo-Jugos - Bebidas Instantaneas En Polvo - Jugos Polvo
 RFDR,Bebidas,Bebidas Refrescantes
-RTDJ,Bebidas,Refrescos Líquidos-Jugos Líquidos
-RTEA,Bebidas,Té Líquido - Listo para Tomar
+RTDJ,Bebidas,Refrescos Liquidos-Jugos Liquidos
+RTEA,Bebidas,Te Liquido - Listo para Tomar
 SOYB,Bebidas,Bebidas de Soja
-SPDR,Bebidas,Bebidas Isotónicas
-TEAA,Bebidas,Té e Infusiones-Te-Infusión Hierbas
+SPDR,Bebidas,Bebidas Isotonicas
+TEAA,Bebidas,Te e Infusiones-Te-Infusion Hierbas
 YERB,Bebidas,Yerba Mate
 BUTT,Lacteos,Manteca
 CHEE,Lacteos,Queso Fresco y para Untar
@@ -177,27 +63,27 @@ CRCH,Lacteos,Queso Untable
 DYOG,Lacteos,Yoghurt p-beber
 EMLK,Lacteos,Leche Culinaria-Leche Evaporada
 FRMM,Lacteos,Leche Fermentada
-FMLK,Lacteos,Leche Líquida Saborizada-Leche Líquida Con Sabor
-FRMK,Lacteos,Fórmulas Infantiles
-LQDM,Lacteos,Leche Líquida
+FMLK,Lacteos,Leche Liquida Saborizada-Leche Liquida Con Sabor
+FRMK,Lacteos,Formulas Infantiles
+LQDM,Lacteos,Leche Liquida
 LLFM,Lacteos,Leche Larga Vida
 MARG,Lacteos,Margarina
 MCHE,Lacteos,Queso Fundido
 MKCR,Lacteos,Crema de Leche
-MXDI,Lacteos,Mixta Lácteos-Postre+Leches+Yogurt
+MXDI,Lacteos,Mixta Lacteos-Postre+Leches+Yogurt
 MXMI,Lacteos,Mixta Leches
 MXYD,Lacteos,Mixta Yoghurt+Postres
 PTSS,Lacteos,Petit Suisse
 PWDM,Lacteos,Leche en Polvo
 SYOG,Lacteos,Yoghurt p-comer
-MILK,Lacteos,Leche-Leche Líquida Blanca - Leche Liq. Natural
+MILK,Lacteos,Leche-Leche Liquida Blanca - Leche Liq. Natural
 YOGH,Lacteos,Yoghurt
 CLOT,Ropas y Calzados,Ropas
 FOOT,Ropas y Calzados,Calzados
 SOCK,Ropas y Calzados,Medias-Calcetines
 AREP,Alimentos,Arepas
 BCER,Alimentos,Cereales Infantiles
-BABF,Alimentos,Nutrición Infantil-Colados y Picados
+BABF,Alimentos,Nutricion Infantil-Colados y Picados
 BEAN,Alimentos,Frijoles
 BISC,Alimentos,Galletas
 BOUI,Alimentos,Caldos-Caldos y Sazonadores
@@ -216,21 +102,21 @@ CBAR,Alimentos,Barras de Cereal
 CHCK,Alimentos,Pollo
 CHOC,Alimentos,Chocolate
 COCO,Alimentos,Chocolate de Taza-Achocolatados - Cocoas
-COLS,Alimentos,Salsas Frías
+COLS,Alimentos,Salsas Frias
 COMP,Alimentos,Compotas
 SPIC,Alimentos,Condimentos y Especias
 CKCH,Alimentos,Chocolate de Mesa
 COIL,Alimentos,Aceite-Aceites Comestibles
 CSAU,Alimentos,Salsas Listas-Salsas Caseras Envasadas
-CNML,Alimentos,Grano- Harina y Masa de Maíz
-CNST,Alimentos,Fécula de Maíz
-CNFL,Alimentos,Harina De Maíz
+CNML,Alimentos,Grano- Harina y Masa de Maiz
+CNST,Alimentos,Fecula de Maiz
+CNFL,Alimentos,Harina De Maiz
 CAID,Alimentos,Ayudantes Culinarios
 DESS,Alimentos,Postres Preparados
-DHAM,Alimentos,Jamón Endiablado
+DHAM,Alimentos,Jamon Endiablado
 DFNS,Alimentos,Semillas y Frutos Secos
 EBRE,Alimentos,Pan de Pascua
-EEGG,Alimentos,Huevos de Páscua
+EEGG,Alimentos,Huevos de Pascua
 EGGS,Alimentos,Huevos
 FLSS,Alimentos,Flash Cecinas
 FLOU,Alimentos,Harinas
@@ -242,14 +128,15 @@ HCER,Alimentos,Cereales Calientes-Cereales Precocidos
 HOTS,Alimentos,Salsas Picantes
 ICEC,Alimentos,Helados
 IBRE,Alimentos,Pan Industrializado
-IMPO,Alimentos,Puré Instantáneo
-INOO,Alimentos,Fideos Instantáneos
+IMPO,Alimentos,Pure Instantaneo
+INOO,Alimentos,Fideos Instantaneos
 JAMS,Alimentos,Mermeladas
 KETC,Alimentos,Ketchup
 LJDR,Alimentos,Jugo de Limon Adereso
 MALT,Alimentos,Maltas
 SEAS,Alimentos,Adobos - Sazonadores
 MAYO,Alimentos,Mayonesa
+MEAT,Alimentos,Carnicos
 MLKM,Alimentos,Modificadores de Leche-Saborizadores p-leche
 MXCO,Alimentos,Mixta Cereales Infantiles+Avenas
 MXBS,Alimentos,Mixta Caldos + Saborizantes
@@ -260,7 +147,7 @@ MXSN,Alimentos,Galletas - snacks y mini tostadas
 COBT,Alimentos,Aceites + Mantecas
 COCF,Alimentos,Aceites + Conservas De Pescado
 CABB,Alimentos,Ayudantes Culinarios + Bolsa de Hornear
-MXEC,Alimentos,Mixta Huevos de Páscua + Chocolates
+MXEC,Alimentos,Mixta Huevos de Pascua + Chocolates
 MXDP,Alimentos,Mixta Platos Listos Congelados + Pasta
 MXFR,Alimentos,Mixta Platos Congelados y Listos para Comer
 MXFM,Alimentos,Mixta Alimentos Congelados + Margarina
@@ -268,7 +155,7 @@ MXMC,Alimentos,Mixta Modificadores + Cocoa
 MXPS,Alimentos,Mixta Pastas
 MXSO,Alimentos,Mixta Sopas+Cremas+Ramen
 MXSP,Alimentos,Mixta Margarina + Mayonesa + Queso Crema
-MXSW,Alimentos,Mixta Azúcar+Endulzantes
+MXSW,Alimentos,Mixta Azucar+Endulzantes
 MUST,Alimentos,Mostaza
 NDCR,Alimentos,Sustitutos de Crema
 NOOD,Alimentos,Fideos
@@ -276,10 +163,10 @@ NUGG,Alimentos,Nuggets
 OAFL,Alimentos,Avena en hojuelas-liquidas
 OLIV,Alimentos,Aceitunas
 PANC,Alimentos,Tortilla
-PANE,Alimentos,Panetón
+PANE,Alimentos,Paneton
 PAST,Alimentos,Pastas
 PSAU,Alimentos,Salsas para Pasta
-PNOU,Alimentos,Turrón de maní
+PNOU,Alimentos,Turron de mani
 PORK,Alimentos,Carne Porcina
 PPMX,Alimentos,Postres en Polvo-Postres para Preparar - Horneables-Gelificables
 PWSM,Alimentos,Leche de Soya en Polvo
@@ -309,23 +196,23 @@ SWSP,Alimentos,Untables Dulces
 SWEE,Alimentos,Endulzantes
 TOAS,Alimentos,Torradas - Tostadas
 TOMA,Alimentos,Salsas de Tomate
-TUNA,Alimentos,Atún Envasado
+TUNA,Alimentos,Atun Envasado
 VMLK,Alimentos,Leche Vegetal
 WFLO,Alimentos,Harinas de trigo
 AIRC,Cuidado del Hogar,Ambientadores-Desodorante Ambiental
-BARS,Cuidado del Hogar,Jabón en Barra-Jabón de lavar
-BLEA,Cuidado del Hogar,Cloro-Lavandinas-Lejías-Blanqueadores
+BARS,Cuidado del Hogar,Jabon en Barra-Jabon de lavar
+BLEA,Cuidado del Hogar,Cloro-Lavandinas-Lejias-Blanqueadores
 CBLK,Cuidado del Hogar,Pastillas para Inodoro
-CGLO,Cuidado del Hogar,Guantes de látex
-CLSP,Cuidado del Hogar,Esponjas de Limpieza-Esponjas y paños
+CGLO,Cuidado del Hogar,Guantes de latex
+CLSP,Cuidado del Hogar,Esponjas de Limpieza-Esponjas y panos
 CLTO,Cuidado del Hogar,Utensilios de Limpieza
-FILT,Cuidado del Hogar,Filtros de Café
+FILT,Cuidado del Hogar,Filtros de Cafe
 CRHC,Cuidado del Hogar,Cross Category (Limpiadores Domesticos)
-CRLA,Cuidado del Hogar,Cross Category (Lavandería)
+CRLA,Cuidado del Hogar,Cross Category (Lavanderia)
 CRPA,Cuidado del Hogar,Cross Category (Productos de Papel)
 DISH,Cuidado del Hogar,Lavavajillas-Lavaplatos - Lavalozas mano
-DPAC,Cuidado del Hogar,Empaques domésticos-Bolsas plásticas-Plástico Adherente-Papel encerado-Papel aluminio
-DRUB,Cuidado del Hogar,Destapacañerias
+DPAC,Cuidado del Hogar,Empaques domesticos-Bolsas plasticas-Plastico Adherente-Papel encerado-Papel aluminio
+DRUB,Cuidado del Hogar,Destapacanerias
 FBRF,Cuidado del Hogar,Perfumantes para Ropa-Perfumes para Ropa
 FWAX,Cuidado del Hogar,Cera p-pisos
 FDEO,Cuidado del Hogar,Desodorante para Pies
@@ -342,20 +229,20 @@ MXHC,Cuidado del Hogar,Mixta Home Care-Cloro-Limpiadores-Ceras-Ambientadores
 MXCB,Cuidado del Hogar,Mixta Limpiadores + Cloro
 MXLB,Cuidado del Hogar,Mixta Detergentes + Cloro
 MXLD,Cuidado del Hogar,Mixta Detergentes + Lavavajillas
-CRTO,Cuidado del Hogar,Pañitos + Papel Higienico
+CRTO,Cuidado del Hogar,Panitos + Papel Higienico
 NAPK,Cuidado del Hogar,Servilletas
 PLWF,Cuidado del Hogar,Film plastico e papel aluminio
 SCOU,Cuidado del Hogar,Esponjas de Acero
 SOFT,Cuidado del Hogar,Suavizantes de Ropa
 STRM,Cuidado del Hogar,Quitamanchas-Desmanchadores
-TOIP,Cuidado del Hogar,Papel Higiénico
-WIPE,Cuidado del Hogar,Paños de Limpieza
-ANLG,OTC,Analgésicos-Painkillers
+TOIP,Cuidado del Hogar,Papel Higienico
+WIPE,Cuidado del Hogar,Panos de Limpieza
+ANLG,OTC,Analgesicos-Painkillers
 FSUP,OTC,Suplementos alimentares
 GMED,OTC,Gastrointestinales-Efervescentes
 VITA,OTC,Vitaminas y Calcio
-nan,Otros,Categoría Desconocida
-BATT,Otros,Pilas-Baterías
+nan,Otros,Categoria Desconocida
+BATT,Otros,Pilas-Baterias
 CGAS,Otros,Combustible Gas
 PFHH,Otros,Panel Financiero de Hogares
 PFIN,Otros,Panel Financiero de Hogares
@@ -368,39 +255,39 @@ ADIP,Cuidado Personal,Incontinencia de Adultos
 BSHM,Cuidado Personal,Shampoo Infantil
 RAZO,Cuidado Personal,Maquinas de Afeitar
 BDCR,Cuidado Personal,Cremas Corporales
-CWIP,Cuidado Personal,Paños Húmedos
+CWIP,Cuidado Personal,Panos Humedos
 COMB,Cuidado Personal,Cremas para Peinar
-COND,Cuidado Personal,Acondicionador-Bálsamo
+COND,Cuidado Personal,Acondicionador-Balsamo
 CRHY,Cuidado Personal,Cross Category (Higiene)
 CRPC,Cuidado Personal,Cross Category (Personal Care)
 DEOD,Cuidado Personal,Desodorantes
-DIAP,Cuidado Personal,Pañales-Pañales Desechables
+DIAP,Cuidado Personal,Panales-Panales Desechables
 FCCR,Cuidado Personal,Cremas Faciales
-FTIS,Cuidado Personal,Pañuelos Faciales
-FEMI,Cuidado Personal,Protección Femenina-Toallas Femeninas
+FTIS,Cuidado Personal,Panuelos Faciales
+FEMI,Cuidado Personal,Proteccion Femenina-Toallas Femeninas
 FRAG,Cuidado Personal,Fragancias
 HAIR,Cuidado Personal,Cuidado del Cabello-Hair Care
-HRCO,Cuidado Personal,Tintes para el Cabello-Tintes - Tintura - Tintes y Coloración para el cabello
-HREM,Cuidado Personal,Depilación
+HRCO,Cuidado Personal,Tintes para el Cabello-Tintes - Tintura - Tintes y Coloracion para el cabello
+HREM,Cuidado Personal,Depilacion
 HRST,Cuidado Personal,Alisadores para el Cabello
 HSTY,Cuidado Personal,Fijadores para el Cabello-Modeladores-Gel-Fijadores para el cabello
 HRTR,Cuidado Personal,Tratamientos para el Cabello
-LINI,Cuidado Personal,Óleo Calcáreo
-MAKE,Cuidado Personal,Maquillaje-Cosméticos
-MEDS,Cuidado Personal,Jabón Medicinal
-CRDT,Cuidado Personal,Pañitos + Pañales
+LINI,Cuidado Personal,Oleo Calcareo
+MAKE,Cuidado Personal,Maquillaje-Cosmeticos
+MEDS,Cuidado Personal,Jabon Medicinal
+CRDT,Cuidado Personal,Panitos + Panales
 MXMH,Cuidado Personal,Mixta Make Up+Tinturas
 MOWA,Cuidado Personal,Enjuague Bucal-Refrescante Bucal
 ORAL,Cuidado Personal,Cuidado Bucal
 SPAD,Cuidado Personal,Protectores Femeninos
 STOW,Cuidado Personal,Toallas Femininas
 SHAM,Cuidado Personal,Shampoo
-SHAV,Cuidado Personal,Afeitado-Crema afeitar-Loción de afeitar-Pord. Antes del afeitado
+SHAV,Cuidado Personal,Afeitado-Crema afeitar-Locion de afeitar-Pord. Antes del afeitado
 SKCR,Cuidado Personal,Cremas Faciales y Corporales-Cremas de Belleza - Cremas Cuerp y Faciales
-SUNP,Cuidado Personal,Protección Solar
+SUNP,Cuidado Personal,Proteccion Solar
 TALC,Cuidado Personal,Talcos-Talco para pies
 TAMP,Cuidado Personal,Tampones Femeninos
-TOIL,Cuidado Personal,Jabón de Tocador
+TOIL,Cuidado Personal,Jabon de Tocador
 TOOB,Cuidado Personal,Cepillos Dentales
 TOOT,Cuidado Personal,Pastas Dentales
 BAGS,Material Escolar,Morrales y MAletas Escoalres
@@ -408,30 +295,28 @@ CLPC,Material Escolar,Lapices de Colores
 GRPC,Material Escolar,Lapices De Grafito
 MRKR,Material Escolar,Marcadores
 NTBK,Material Escolar,Cuadernos
-SCHS,Material Escolar,Útiles Escolares
-CSTD,Diversos,Estudio de Categorías
+SCHS,Material Escolar,Utiles Escolares
+CSTD,Diversos,Estudio de Categorias
 CORP,Diversos,Corporativa
 CROS,Diversos,Cross Category
-CRBA,Diversos,Cross Category (Bebés)
+CRBA,Diversos,Cross Category (Bebes)
 CRBR,Diversos,Cross Category (Desayuno)-Yogurt - Cereal - Pan y Queso
 CRDT,Diversos,Cross Category (Diet y Light)
 CRDF,Diversos,Cross Category (Alimentos Secos)
 CRFO,Diversos,Cross Category (Alimentos)
-CRSA,Diversos,Cross Category (Salsas)-Mayonesas-Ketchup - Salsas Frías
+CRSA,Diversos,Cross Category (Salsas)-Mayonesas-Ketchup - Salsas Frias
 CRSN,Diversos,Cross Category (Snacks)
 DEMO,Diversos,Demo
 FLSH,Diversos,Flash
 HLVW,Diversos,Holistic View
-COCP,Diversos,Mezcla para café instantaneo y crema no láctea
+COCP,Diversos,Mezcla para cafe instantaneo y crema no lactea
 CRSN,Diversos,Mezclas nutricionales y suplementos
 MULT,Diversos,Consolidado-Multicategory
 PCHK,Diversos,Pantry Check
 STCK,Diversos,Inventario
-MIHC,Diversos,Leche y Cereales Calientes-Cereales Precocidos y Leche Líquida Blanca
+MIHC,Diversos,Leche y Cereales Calientes-Cereales Precocidos y Leche Liquida Blanca
 FLWT,Alimentos,Agua Saborizada
 """
-
-# Mapeos rápidos para países y categorías (evitan cargar pandas al inicio)
 COUNTRY_MAP = {
     "10": "LatAm",
     "54": "Argentina",
@@ -451,12 +336,131 @@ COUNTRY_MAP = {
     "66": "Costa Rica",
     "67": "Panamá",
 }
-
 CATEGORY_MAP: dict[str, str] = {}
 for _line in CATEGORIES_CSV_DATA.splitlines()[1:]:
     _parts = _line.split(',')
     if len(_parts) >= 3:
         CATEGORY_MAP[_parts[0]] = _parts[2]
+
+PPT_LAYOUT_INDEX = 21
+DEFAULT_POP_COVERAGE = "100%"
+EXCEL_TEMP_FILENAME = "file_temp_coverage.xlsx"
+
+COL_DATA = "Data"
+COL_SELL_IN = "Sell_in"
+COL_SELL_OUT = "Sell_out"
+COL_PENET = "Penet"
+COL_COMPRA_MEDIA = "Compra_Media"
+COL_COMPRA_OCA = "Compra_por_Oca"
+COL_FREQ = "Freq"
+COL_BUYERS = "Buyers"
+COL_SELL_IN_SIM = "Sell_in_sim"
+COL_ACUM_SELL_OUT = "Acum_Sell_out"
+COL_ACUM_SELL_IN = "Acum_Sell_in"
+COL_ANO = "Ano"
+COL_TRI = "Tri"
+COL_SEM = "Sem"
+
+COLOR_KANTAR_LINE = "#2C3E50"
+COLOR_SELLIN_LINE = "#D4AC0D"
+COLOR_SELLOUT_LINE = "#1F618D"
+COLOR_TENDENCIA_FILL = "#EBF5FB"
+COLOR_COVERAGE_BAR = "#3498DB"
+COLOR_PENET_LINE = "#E74C3C"
+COLOR_KANTAR_BAR_VAR = '#7F8C8D'
+COLOR_SELLIN_BAR_VAR = '#F1C40F'
+COLOR_KANTAR_EDGE_VAR = '#2C3E50'
+COLOR_SELLIN_EDGE_VAR = '#B7950B'
+COLOR_COBERTURA_BAR = '#D9D9D9'
+COLOR_PENETRACION_BAR = '#FFC000'
+COLOR_POS_LABEL = '#1E8449'
+COLOR_NEG_LABEL = '#8B0000'
+COLOR_POS_LABEL_ALT = '#27AE60'
+COLOR_NEG_LABEL_ALT = '#C0392B'
+COLOR_SELLIN_TREND_LINE = "#D4AC0D"
+COLOR_SELLOUT_TREND_LINE = "#2C3E50"
+
+def _load_heavy_modules() -> None:
+    """Carga en segundo plano las bibliotecas pesadas y datos estaticos."""
+    try:
+        global pd, np, dfi, plt, warnings, matplotlib, dt, timedelta, pearsonr
+        global Presentation, Inches, get_column_letter, tqdm, mtick, MonthLocator
+        global DateFormatter, matplotlib_style, Progress, BarColumn, TextColumn
+        global TimeElapsedColumn, TimeRemainingColumn, SpinnerColumn, Image, ImageOps
+        global RGBColor, Pt, MSO_SHAPE, pais, pop_coverage
+
+        import dataframe_image as dfi
+        import pandas as pd
+        import numpy as np
+        import warnings
+        import matplotlib
+
+        matplotlib.use("Agg")
+        from matplotlib import pyplot as plt
+        from datetime import datetime as dt, timedelta
+        from scipy.stats import pearsonr
+        from pptx import Presentation
+        from pptx.util import Inches, Pt
+        from pptx.enum.shapes import MSO_SHAPE
+        from pptx.dml.color import RGBColor
+        from openpyxl.utils import get_column_letter
+        from openpyxl import load_workbook
+        from openpyxl.formatting.rule import ColorScaleRule
+        from tqdm import tqdm
+        import matplotlib.ticker as mtick
+        from matplotlib.dates import MonthLocator, DateFormatter
+        import matplotlib.style as matplotlib_style
+        from rich.progress import (
+            Progress,
+            BarColumn,
+            TextColumn,
+            TimeElapsedColumn,
+            TimeRemainingColumn,
+            SpinnerColumn,
+        )
+        from PIL import Image, ImageOps
+
+        pd.set_option('future.no_silent_downcasting', True)
+        pd.set_option('mode.chained_assignment', None)
+        warnings.filterwarnings('ignore')
+
+        _codes = sorted((int(k), v) for k, v in COUNTRY_MAP.items())
+        pais = pd.DataFrame({"cod": [c for c, _ in _codes], "pais": [v for _, v in _codes]})
+
+        pop_coverage = {
+            "Argentina": "90%",
+            "Bolivia": "60%",
+            "Brasil": "82%",
+            "Chile": "78%",
+            "Colombia": "65%",
+            "Ecuador": "55%",
+            "Mexico": "64%",
+            "Peru": "66%",
+            "CAM": "74%",
+            "Costa Rica": "94%",
+            "El Salvador": "85%",
+            "Guatemala": "69%",
+            "Honduras": "65%",
+            "Nicaragua": "57%",
+            "Panama": "92%",
+            "Republica Dominicana": "63.29%",
+        }
+    finally:
+        LOADER_READY.set()
+
+
+LOADER_READY = threading.Event()
+
+def wait_for_heavy_modules() -> None:
+    """Bloquea hasta que los módulos pesados hayan terminado de cargarse."""
+    if not LOADER_READY.is_set():
+        _loader_thread.join()
+
+_loader_thread = threading.Thread(target=_load_heavy_modules)
+_loader_thread.start()
+
+SELECTIONS: Dict[str, str] = {}
+ROUND_COVERAGE = False
 
 def quick_file_metadata(filename: str) -> str:
     """Obtiene metadatos básicos del nombre de archivo."""
@@ -489,16 +493,14 @@ def load_categories():
         exit()
 
 # --- Variables Globales y Funciones de Utilidad ---
-SELECTIONS = {} # Para guardar las respuestas interactivas
-
-# Flag global para redondeo de Cobertura (entero, .5 hacia arriba)
-ROUND_COVERAGE = False
+# --- Variables Globales y Funciones de Utilidad ---
+# Nota: SELECTIONS y ROUND_COVERAGE se declaran al inicio del modulo.
 
 def _round_half_up_series(series):
     """Redondea una serie numérica al entero más cercano con umbral .5 (ROUND_HALF_UP).
     Devuelve float con .0 para mantener NaN compatibles.
     """
-    # Requiere numpy/pandas cargados; se usa después de _loader_thread.join()
+    # Requiere numpy/pandas cargados; se usa después de esperar la carga pesada
     arr = series.to_numpy(dtype=float)
     # Usar isfinite para evitar afectar NaN/inf
     mask = np.isfinite(arr)
@@ -704,8 +706,9 @@ def tipo_cobertura():
         print(Fore.WHITE + "Opciones:")
         print(Fore.WHITE + "1 - Cobertura Absoluta")
         print(Fore.WHITE + "2 - Cobertura Relativa")
-        tipos = {'1': "Absoluta", '2': "relativa"}
-        eleccion = input(Fore.GREEN + "Elija 1 o 2: ")
+        print(Fore.WHITE + "3 - AUTO (usar configuración predeterminada)")
+        tipos = {'1': "Absoluta", '2': "relativa", '3': "AUTO"}
+        eleccion = input(Fore.GREEN + "Elija 1, 2 o 3: ")
         tipo_seleccionado = tipos.get(eleccion, "Absoluta")  # Default a 'Absoluta'
     SELECTIONS['Cobertura'] = tipo_seleccionado
     clear_and_print_summary()
@@ -719,29 +722,35 @@ def tipo_eje_tendencia():
         print(Fore.CYAN + "\n¿Desea el gráfico de tendencia con doble eje?")
         print(Fore.WHITE + "1 - Un solo eje (Sell-in y WP by Numerator juntos)")
         print(Fore.WHITE + "2 - Doble eje (WP by Numerator en eje secundario)")
-        opciones = {'1': "Simple", '2': "Doble"}
+        opciones = {'1': "simple", '2': "doble"}
         eleccion = input(Fore.GREEN + "Elija 1 o 2: ")
-        tipo_eje = opciones.get(eleccion, "Simple")
+        tipo_eje = opciones.get(eleccion, "simple")
     SELECTIONS['Eje tendencia'] = tipo_eje
     clear_and_print_summary()
     return tipo_eje
 
-def include_english_flag():
-    """Indica si se incluirá la versión en inglés (EN) de la plantilla.
+def include_english_flag() -> bool:
+    """Determina si se deben generar salidas en inglés.
 
-    Prioriza la variable de entorno AUTO_ENGLISH. Si no está definida, pregunta de forma interactiva.
+    Usa AUTO_ENGLISH cuando está disponible; de lo contrario, solicita al usuario su preferencia.
     """
     env_val = os.environ.get("AUTO_ENGLISH")
     if env_val is not None:
-        env_val_norm = str(env_val).strip().lower()
-        include_en = env_val_norm in {"1", "true", "yes", "y", "si", "sí"}
+        include_en = str(env_val).strip().lower() in {"1", "true", "yes", "y", "si", "sí"}
     else:
         print(Fore.CYAN + "\n¿Desea generar la presentación en inglés?")
         print(Fore.WHITE + "1 - Sí (usar bloque ENGLISH de la plantilla)")
-        print(Fore.WHITE + "2 - No (usar idioma por país: PORTUGUES si Brasil, de lo contrario ESPAÑOL)")
-        opciones = {'1': True, '2': False}
-        eleccion = input(Fore.GREEN + "Elija 1 o 2: ")
-        include_en = opciones.get(eleccion, False)
+        print(Fore.WHITE + "2 - No (usar idioma por país)")
+        opciones = {"1": True, "2": False, "si": True, "no": False, "s": True, "n": False}
+        while True:
+            eleccion = input(Fore.GREEN + "Elija 1 o 2: ").strip().lower()
+            if eleccion in opciones:
+                include_en = opciones[eleccion]
+                break
+            if eleccion in {"", "\n"}:
+                include_en = False
+                break
+            print(Fore.RED + "Entrada inválida. Intente nuevamente.")
     SELECTIONS['Inglés'] = 'Sí' if include_en else 'No'
     clear_and_print_summary()
     return include_en
@@ -966,107 +975,105 @@ def generar_grafico_evolucion_mensual(df_graf, pipeline_meses=0, lang_idx=2):
   
         return fig
 
-def generar_grafico_cobertura(slide, marca_clean, pipeline, df_cov_pipe, df_pen_pipe, lang_idx, cov_type_str, labels_dict):
-    """
-    Genera el gráfico de barras de Cobertura vs Penetración y lo añade al slide.
-
-    Args:
-        slide: Objeto slide de pptx.
-        marca_clean (str): Nombre de la marca sin prefijo de pipeline.
-        pipeline (int): Número de pipeline.
-        df_cov_pipe (pd.Series): Serie con datos de cobertura para el pipeline.
-        df_pen_pipe (pd.Series): Serie con datos de penetración para el mismo período.
-        lang_idx (int): Índice de idioma (1=PT, 2=ES).
-        cov_type_str (str): "Absoluta" o "relativa".
-        labels_dict (dict): Diccionario con etiquetas de idioma.
-    """
-    if df_cov_pipe.empty or df_pen_pipe.empty:
-         print(f"{Fore.YELLOW}Advertencia: Datos insuficientes para gráfico Cobertura/Penetración (Marca: {marca_clean}, P:{pipeline}).")
-         return
-
-    # Crear figura y ejes
-    fig_cov, ax_cov = plt.subplots(figsize=(12, 4.25), dpi=100) # Usar subplots
-
-    # Datos y etiquetas del eje X
-    cov_data = df_cov_pipe.values
-    pen_data = df_pen_pipe.values
-    x_labels = [d.strftime('%m-%y') for d in df_cov_pipe.index] # Asegurar formato mes-año corto
+def generar_grafico_cobertura(slide, marca_clean, pipeline, df_cov_pipe, df_pen_pipe, lang_idx, coverage_label, labels_dict):
+    """Genera el gráfico de barras de Cobertura vs Penetración y lo añade al slide."""
+    cov_series = df_cov_pipe if isinstance(df_cov_pipe, pd.Series) else pd.Series(df_cov_pipe)
+    pen_series = df_pen_pipe if isinstance(df_pen_pipe, pd.Series) else pd.Series(df_pen_pipe)
+    cov_series = cov_series.rename('coverage')
+    pen_series = pen_series.rename('penetracion')
+    combined = pd.concat([cov_series, pen_series], axis=1, join='inner')
+    combined = combined.dropna(subset=['coverage', 'penetracion'])
+    if combined.empty:
+        print(f"{Fore.YELLOW}Advertencia: No hay datos suficientes para el gráfico de cobertura/penetración (Marca: {marca_clean}, P:{pipeline}).")
+        return
+    cov_data = combined['coverage'].to_numpy(dtype=float)
+    pen_data = combined['penetracion'].to_numpy(dtype=float)
+    x_labels = [idx.strftime('%m-%y') if hasattr(idx, 'strftime') else str(idx) for idx in combined.index]
     x_pos = np.arange(len(x_labels))
-    
-
-    # Barras
+    fig_cov, ax_cov = plt.subplots(figsize=(12, 4.25), dpi=100)
     bar_width = 0.35
-    
-    # Desplazamiento para separar las barras
     offset = bar_width / 2
-
-    # Penetración a la izquierda, cobertura a la derecha
-    rects2 = ax_cov.bar(x_pos - offset/1.2, pen_data, bar_width,
-                        label=labels_dict.get((lang_idx, 'Graf cob Penet Men'), 'Penetración Mensual'),
-                        color=COLOR_PENETRACION_BAR, edgecolor='black', zorder=1)
-    rects1 = ax_cov.bar(x_pos + offset, cov_data, bar_width,
-                        label=f"{coverage_label}",
-                        color=COLOR_COBERTURA_BAR, edgecolor='black', linewidth=2, zorder=2, alpha=0.85)
-
-    # Etiquetas de datos sobre las barras
-    for rect_group, offset in [(rects2, 0), (rects1, 0)]:
+    rects2 = ax_cov.bar(
+        x_pos - offset / 1.2,
+        pen_data,
+        bar_width,
+        label=labels_dict.get((lang_idx, 'Graf cob Penet Men'), 'Penetración Mensual'),
+        color=COLOR_PENETRACION_BAR,
+        edgecolor='black',
+        zorder=1,
+    )
+    rects1 = ax_cov.bar(
+        x_pos + offset,
+        cov_data,
+        bar_width,
+        label=coverage_label,
+        color=COLOR_COBERTURA_BAR,
+        edgecolor='black',
+        linewidth=2,
+        zorder=2,
+        alpha=0.85,
+    )
+    for rect_group in (rects2, rects1):
         for i, rect in enumerate(rect_group):
             height = rect.get_height()
-            # Añadir etiqueta solo si la altura es > 0 para evitar solapamiento en cero
-            if height > 0.1: # Umbral pequeño
-                # Decidir color de fondo de etiqueta
-                bbox_props = dict(facecolor='#F2F2F2', edgecolor='black', boxstyle='round,pad=0.3') # Blanco por defecto
-                if rect_group == rects1: # Cobertura
-                    if i % 12 == (len(rect_group) % 12 -1) : # Último mes de cada año móvil (ajustado)
-                         bbox_props['facecolor'] = '#A6A6A6' # Gris
-                         bbox_props['edgecolor'] = 'black'
-                else: # Penetración
-                    bbox_props['facecolor'] = '#FDEAD9' # Amarillo pálido
-
-                # Etiqueta: cobertura sin decimales si se activó el redondeo
-                if rect_group is rects1 and globals().get('ROUND_COVERAGE', False):
-                    label_txt = f"{int(np.floor(height + 0.5))}"
+            if height > 0.1:
+                bbox_props = dict(facecolor='#F2F2F2', edgecolor='black', boxstyle='round,pad=0.3')
+                if rect_group is rects1:
+                    if i % 12 == (len(rect_group) % 12 - 1):
+                        bbox_props['facecolor'] = '#A6A6A6'
+                        bbox_props['edgecolor'] = 'black'
+                    label_txt = f"{int(np.floor(height + 0.5))}" if globals().get('ROUND_COVERAGE', False) else f"{height:.1f}"
                 else:
+                    bbox_props['facecolor'] = '#FDEAD9'
                     label_txt = f"{height:.1f}"
-                ax_cov.annotate(label_txt,
-                                xy=(rect.get_x() + rect.get_width() / 2, height),
-                                xytext=(0, 3),  # 3 puntos de offset vertical
-                                textcoords="offset points",
-                                ha='center', va='bottom', fontsize=8, bbox=bbox_props)
-
-    # Configuración del gráfico
-    ax_cov.set_ylabel(f"{coverage_label} | {labels_dict.get((lang_idx, 'Graf cob Penet Men'), 'Penetración Mensual')}", fontsize=9)
+                ax_cov.annotate(
+                    label_txt,
+                    xy=(rect.get_x() + rect.get_width() / 2, height),
+                    xytext=(0, 3),
+                    textcoords="offset points",
+                    ha='center',
+                    va='bottom',
+                    fontsize=8,
+                    bbox=bbox_props,
+                )
+    ax_cov.set_ylabel(
+        f"{coverage_label} | {labels_dict.get((lang_idx, 'Graf cob Penet Men'), 'Penetración Mensual')}",
+        fontsize=9,
+    )
     title_key = 'Titulo Cob'
     default_title = 'Cobertura Año Móvil' if lang_idx != 3 else 'MOVING YEAR COVERAGE'
-    ax_cov.set_title(f"{labels_dict.get((lang_idx, title_key), default_title)} | {marca_clean} Pipeline {pipeline}", size=16)
+    ax_cov.set_title(
+        f"{labels_dict.get((lang_idx, title_key), default_title)} | {marca_clean} Pipeline {pipeline}",
+        size=16,
+    )
     ax_cov.set_xticks(x_pos)
     ax_cov.set_xticklabels(x_labels, rotation=30, ha='right', fontsize=9)
-    ax_cov.legend(loc='lower center', bbox_to_anchor=(0.5, -0.30), # Ajustar posición leyenda
-                  frameon=False, prop={'size': 11}, ncol=2)
+    ax_cov.legend(
+        loc='lower center',
+        bbox_to_anchor=(0.5, -0.30),
+        frameon=False,
+        prop={'size': 11},
+        ncol=2,
+    )
     ax_cov.grid(axis='y', linestyle='--', alpha=0.6)
     ax_cov.set_axisbelow(True)
     ax_cov.spines['top'].set_visible(False)
     ax_cov.spines['right'].set_visible(False)
     ax_cov.spines['left'].set_visible(False)
-    ax_cov.set_ylim(bottom=0, top=max(np.nanmax(cov_data) if cov_data.size > 0 else 0,
-                                       np.nanmax(pen_data) if pen_data.size > 0 else 0) * 1.15) # Añadir padding arriba
+    max_val = max(np.nanmax(cov_data) if cov_data.size else 0, np.nanmax(pen_data) if pen_data.size else 0)
+    ax_cov.set_ylim(bottom=0, top=max_val * 1.15 if max_val else 1)
     ax_cov.margins(x=0)
-
-    # Guardar y añadir a PPT
-    plt.tight_layout() # Ajustar layout
+    plt.tight_layout()
     img_stream = io.BytesIO()
     fig_cov.savefig(img_stream, format='png', bbox_inches='tight', pad_inches=0.1, transparent=True)
     img_stream.seek(0)
-
-    # --- AGREGAR CONTORNO NEGRO ---
     img_pil = Image.open(img_stream)
-    bordered = ImageOps.expand(img_pil, border=1, fill='black')  # 1 píxel de borde negro
+    bordered = ImageOps.expand(img_pil, border=1, fill='black')
     img_stream_bordered = io.BytesIO()
     bordered.save(img_stream_bordered, format='PNG')
     img_stream_bordered.seek(0)
-
-    slide.shapes.add_picture(img_stream_bordered, Inches(0.5), Inches(2.0), height=Inches(4.2)) # Ajustar posición/tamaño
-    plt.close(fig_cov) # Cerrar figura para liberar memoria
+    slide.shapes.add_picture(img_stream_bordered, Inches(0.5), Inches(2.0), height=Inches(4.2))
+    plt.close(fig_cov)
 
 def generar_grafico_tendencia(slide, marca_clean, pipeline, df_plot, lang_idx, labels_dict, doble_eje=False):
     """
@@ -1130,1310 +1137,359 @@ def generar_grafico_tendencia(slide, marca_clean, pipeline, df_plot, lang_idx, l
     plt.close(fig_trend)
     
 
-# --------------------------------------------------------------------------------------------------
-# INICIO DEL SCRIPT PRINCIPAL
-# --------------------------------------------------------------------------------------------------
+# --- Configuración y estructuras de alto nivel --------------------------------
 
-# --- Configuración de directorio ---
-root_dir = os.path.dirname(os.path.abspath(__file__))
-os.chdir(root_dir)
+@dataclass
+class ExecutionOptions:
+    coverage_type: str
+    coverage_reason: str
+    trend_axis: str
+    include_english: bool
+    round_coverage: bool
+    auto_mode: bool = False
 
-# --- Selección de Archivo y Opciones ---
-
-excel_list = [f for f in os.listdir(root_dir) if f.endswith('.xlsx') and not f.startswith('~$') and f != EXCEL_TEMP_FILENAME]
-
-if not excel_list:
-    print(f"{Fore.RED}{Style.BRIGHT}Error: No se encontraron archivos .xlsx en la carpeta: {root_dir}")
-    exit()
-
-if os.environ.get('AUTO_FILE'):
-    excel_file_name = os.environ['AUTO_FILE']
-    selected_files = [excel_file_name]
-    cov_type = os.environ.get('AUTO_COV_TYPE', 'Absoluta')
-    razon_cobertura = os.environ.get('AUTO_RAZON', 'Otras')
-    tipo_eje_tend = os.environ.get('AUTO_EJE', 'Simple')
-    include_english = os.environ.get('AUTO_ENGLISH', '0')
-    include_english = str(include_english).strip().lower() in {"1", "true", "yes", "y", "si", "sí"}
-    file_idx = int(os.environ.get('AUTO_INDEX', '1'))
-    file_total = int(os.environ.get('AUTO_TOTAL', '1'))
-    print_file_header(file_idx, file_total, excel_file_name)
-    # Bandera de redondeo (entero, .5 hacia arriba) desde entorno
-    try:
-        _round_env = os.environ.get('AUTO_ROUND_COV', '0')
-        _round_env_norm = str(_round_env).strip().lower()
-        ROUND_COVERAGE = _round_env_norm in {"1", "true", "yes", "y", "si", "sí"}
-        SELECTIONS['Redondeo Cobertura'] = 'Sí' if ROUND_COVERAGE else 'No'
-    except Exception:
-        ROUND_COVERAGE = False
-else:
-    print(Fore.CYAN + "Archivos Excel (.xlsx) encontrados:")
-    for i, archivo in enumerate(excel_list, start=1):
-        meta = quick_file_metadata(archivo)
-        if meta:
-            print(Fore.BLUE + f"{i}. {archivo} " + Fore.YELLOW + f"| {meta}")
+    @classmethod
+    def from_environment(cls) -> Optional["ExecutionOptions"]:
+        """Crea las opciones cuando se usa la ejecución en modo automático."""
+        auto_file = os.environ.get("AUTO_FILE")
+        if not auto_file:
+            return None
+        coverage_type = os.environ.get("AUTO_COV_TYPE", "Absoluta")
+        auto_mode = coverage_type.strip().lower() == "auto"
+        if auto_mode:
+            coverage_type = "Absoluta"
+            coverage_reason = "Actualización periódica por contrato"
+            trend_axis = "simple"
+            include_english = False
+            round_cov = False
         else:
-            print(Fore.BLUE + f"{i}. {archivo}")
-
-    while True:
-        opcion = input(
-            Fore.WHITE
-            + f"Seleccione el número de archivo a procesar (1-{len(excel_list)}).\n"
-            + "Puede separar varios con comas o escribir 'all': "
+            coverage_reason = os.environ.get("AUTO_RAZON", "Otras")
+            trend_axis = os.environ.get("AUTO_EJE", "simple")
+            include_english = str(os.environ.get("AUTO_ENGLISH", "0")).strip().lower() in {"1", "true", "yes", "y", "si", "sí"}
+            round_cov = str(os.environ.get("AUTO_ROUND_COV", "0")).strip().lower() in {"1", "true", "yes", "y", "si", "sí"}
+        return cls(
+            coverage_type=coverage_type,
+            coverage_reason=coverage_reason,
+            trend_axis=trend_axis,
+            include_english=include_english,
+            round_coverage=round_cov,
+            auto_mode=auto_mode,
         )
-        opcion = opcion.strip().lower()
-        if opcion in {"all", "todos", "*"}:
-            selected_indices = list(range(1, len(excel_list) + 1))
-        else:
-            try:
-                selected_indices = [int(x) for x in opcion.split(',') if x]
-            except ValueError:
-                print(Fore.RED + Style.BRIGHT + "Entrada inválida. Ingrese números separados por coma o 'all'.")
-                continue
-            if not all(1 <= idx <= len(excel_list) for idx in selected_indices):
-                print(Fore.RED + "Uno o más números están fuera de rango. Intente nuevamente.")
-                continue
-        selected_files = [excel_list[idx - 1] for idx in selected_indices]
-        SELECTIONS['Excel'] = ", ".join(selected_files)
-        clear_and_print_summary()
-        break
 
-categ = None
-if not os.environ.get('AUTO_FILE'):
-    cov_type = tipo_cobertura()  # Preguntar tipo de cobertura␊
-    razon_cobertura = razao_cov()  # Preguntar razón␊
-    tipo_eje_tend = tipo_eje_tendencia()  # Preguntar tipo de eje para tendencia␊
-    include_english = include_english_flag()  # Preguntar versión en inglés
-    round_cov = round_coverage_flag()  # Preguntar redondeo de cobertura
 
-    total_files = len(selected_files)
-    for idx, excel_file_name in enumerate(selected_files, start=1):
-        env = os.environ.copy()
-        env.update({
-            'AUTO_FILE': excel_file_name,
-            'AUTO_COV_TYPE': cov_type,
-            'AUTO_RAZON': razon_cobertura,
-            'AUTO_EJE': tipo_eje_tend,
-            'AUTO_ENGLISH': '1' if include_english else '0',
-            'AUTO_ROUND_COV': '1' if round_cov else '0',
-            'AUTO_INDEX': str(idx),
-            'AUTO_TOTAL': str(total_files),
-            'SHOW_CAT_MSG': '1' if idx == 1 else '0',
-        })
-        subprocess.run([sys.executable, __file__], env=env, check=True)
-    exit()
+@dataclass
+class PipelineAssets:
+    """Recursos calculados para generar las diapositivas de un pipeline."""
 
-# --- Procesamiento del Archivo Excel Seleccionado ---
-_loader_thread.join() #Esperar a que las librerías y datos estén listos
-categ = load_categories()# Cargar categorías después de seleccionar el archivo
+    pipeline: int
+    marca: str
+    coverage_series: "pd.Series"
+    penetration_series: "pd.Series"
+    variation_table: "pd.DataFrame"
+    trend_plot_df: "pd.DataFrame"
+    evolution_figure: Optional["plt.Figure"]
 
-excel_file_path = os.path.join(root_dir, excel_file_name)
-try:
-    excel_file_obj = pd.ExcelFile(excel_file_path)
-    marcas = excel_file_obj.sheet_names
-except FileNotFoundError:
-    print(f"{Fore.RED}{Style.BRIGHT}Error: No se encontró el archivo seleccionado: {excel_file_path}")
-    exit()
-except Exception as e:
-     print(f"{Fore.RED}{Style.BRIGHT}Error al abrir el archivo Excel '{excel_file_name}': {e}")
-     exit()
 
-# --- Obtener Metadatos del Nombre de Archivo ---
-try:
-    parts = os.path.splitext(excel_file_name)[0].split('_')
-    if len(parts) < 3:
-        raise ValueError("El nombre de archivo no contiene suficientes partes separadas por '_' (se esperan pais_cat_fab).")
+    summary_rows: List[Dict[str, str]] = field(default_factory=list)
+    bank_rows: List[Dict[str, object]] = field(default_factory=list)
+    lang_index: int = 2
 
-    country_code_str = parts[0]
-    category_code = parts[1]
-    fabricante = parts[2]
+    def as_summary_df(self, labels: Dict[Tuple[int, str], List[str]]) -> "pd.DataFrame":
+        return pd.DataFrame(self.summary_rows, columns=labels[(self.lang_index, "Summary")])
 
-    country_code = int(country_code_str)
-    pais_nombre = pais.loc[pais.cod == country_code, 'pais'].iloc[0]
-    cesta_nombre = categ.loc[category_code, 'cest']
-    categoria_nombre = categ.loc[category_code, 'cat']
+    summary_rows: List[Dict[str, str]] = field(default_factory=list)
+    bank_rows: List[Dict[str, object]] = field(default_factory=list)
 
-    # Nombre de categoría abreviado para archivos/carpetas:
-    # Si la categoría contiene guiones o variantes de dash ("-", "–", "—", etc.),
-    # usar solo el texto antes del primer dash. Esto reduce rutas muy largas
-    # como "Cremas Faciales y Corporales-Cremas de Belleza - ..." a
-    # "Cremas Faciales y Corporales" para evitar exceder los 259 caracteres de Windows.
-    try:
-        # Separar por cualquier dash común con o sin espacios alrededor
-        # (guion normal, en dash, em dash, no‑break hyphen, minus sign, figure dash).
-        dash_split = re.split(r"\s*[-‑–—−‒]\s*", str(categoria_nombre), maxsplit=1)
-        categoria_nombre_corto = dash_split[0].strip() if dash_split else str(categoria_nombre).strip()
-        # Fallback de seguridad si quedara vacío por algún motivo
-        if not categoria_nombre_corto:
-            categoria_nombre_corto = str(categoria_nombre).strip()
-    except Exception:
-        categoria_nombre_corto = str(categoria_nombre).strip()
+    def as_summary_df(self, labels: Dict[Tuple[int, str], List[str]]) -> "pd.DataFrame":
+        return pd.DataFrame(self.summary_rows, columns=labels[(self._lang_index, "Summary")])
 
-except (IndexError, ValueError, KeyError) as e:
-    print(f"{Fore.RED}{Style.BRIGHT}Error al procesar metadatos del nombre de archivo '{excel_file_name}': {e}")
-    print(f"{Fore.RED}Asegúrese que el nombre siga el formato 'CodigoPais_CodigoCategoria_Fabricante.xlsx'.")
+    def configure(self, lang_index: int) -> None:
+        self._lang_index = lang_index
 
-    # Usar country_code_str (que se define antes de la posible falla de int()) para los mensajes
-    country_code_str_defined = 'country_code_str' in locals()
-    category_code_defined = 'category_code' in locals()
 
-    if isinstance(e, IndexError):
-        print(f"{Fore.YELLOW}El nombre del archivo no tiene las partes esperadas (país_categoría_fabricante).")
-    elif isinstance(e, ValueError):
-        # Si country_code_str se definió, úsalo en el mensaje
-        if country_code_str_defined:
-            print(f"{Fore.RED}El código de país '{country_code_str}' extraído del nombre de archivo no es un número válido.")
-        else:
-            print(f"{Fore.RED}No se pudo extraer o convertir el código de país a número.")
-    elif isinstance(e, KeyError):
-        # Si el error es de clave, verificar si fue por categoría o país (usando str)
-        if category_code_defined and category_code not in categ.index:
-             print(f"{Fore.RED}Verifique que el código de categoría '{category_code}' esté en los datos embebidos.")
-        elif country_code_str_defined:
-             # No podemos verificar directamente 'country_code not in pais['cod']' si falló int()
-             # pero podemos indicar que el código extraído podría ser el problema.
-             print(f"{Fore.RED}Verifique que el código de país '{country_code_str}' exista en la definición de países o que la categoría sea correcta.")
-        else:
-             print(f"{Fore.RED}Ocurrió un error al buscar un código (país o categoría).")
-    else:
-        print(f"{Fore.RED}Ocurrió un error inesperado al procesar los metadatos.")
+# --- Pequeñas utilidades -------------------------------------------------------
 
-    exit()
+def compute_coverage_label(coverage_type: str, include_english: bool) -> str:
+    """Devuelve el texto de cobertura a mostrar en nombres de archivo y títulos."""
+    ctype = coverage_type.strip().lower()
+    if ctype == "auto":
+        ctype = "absoluta"
+    if include_english:
+        return "MOVING YEAR COVERAGE" if ctype == "absoluta" else "MOVING YEAR COVERAGE RELATIVE"
+    return "Cobertura Absoluta" if ctype == "absoluta" else "Cobertura Relativa"
 
-# Etiqueta de cobertura según selección de idioma
-# Si include_english=True, usar traducción al inglés; de lo contrario, español por defecto
-coverage_label = (
-    ("MOVING YEAR COVERAGE" if cov_type == "Absoluta" else "MOVING YEAR COVERAGE RELATIVE")
-    if (os.environ.get('AUTO_ENGLISH', '').strip().lower() in {"1", "true", "yes", "y", "si", "sí"})
-    else ("Cobertura Absoluta" if cov_type == "Absoluta" else "Cobertura Relativa")
-)
-ref_month_year = "" # Se actualizará en el bucle con la última fecha
 
-# --- (1) CREACIÓN DEL TEMPLATE EN EXCEL ---
-print(Fore.CYAN + "\nGenerando archivo Excel temporal...")
-excel_temp_path = os.path.join(root_dir, EXCEL_TEMP_FILENAME)
-try:
-    with pd.ExcelWriter(excel_temp_path) as writer:
-        # Recorrer cada hoja (marca) del archivo
-        for marca_sheet_name in tqdm(marcas, desc="Procesando Hojas Excel"):
 
-            # 1.1) Carga y preprocesa la hoja usando la función refactorizada
-            df_marca, measure_unit = load_and_preprocess_sheet(excel_file_obj, marca_sheet_name)
+def determine_language(include_english: bool, pais_nombre: str) -> Tuple[str, int]:
+    """Determina el código de idioma y el índice numérico usado por la lógica heredada."""
+    if include_english:
+        return "EN", 3
+    pais_norm = (pais_nombre or "").strip().lower()
+    if pais_norm in {"brasil", "brazil"}:
+        return "PT", 1
+    return "ES", 2
 
-            # Si la carga falló, continuar con la siguiente hoja
-            if df_marca is None:
-                continue
 
-            # Guardar número original de filas de datos para fórmulas Excel
-            original_data_rows = len(df_marca)
-            if original_data_rows < 12:
-                print(f"{Fore.YELLOW}Advertencia: Hoja '{marca_sheet_name}' tiene < 12 meses de datos ({original_data_rows}). Algunos cálculos de Excel pueden fallar o dar NaN.")
-                # Continuar de todos modos, pero con precaución
-
-            # Actualizar fecha de referencia global (usará la de la última hoja procesada con éxito)
-            ref_month_year = df_marca[COL_DATA].iloc[-1].strftime('%m-%y')
-
-            # --- 1.5) Creación de columnas con fórmulas Excel ---
-            df_excel = df_marca.copy() # Trabajar sobre una copia para Excel
-            # Hacer los índices basados en 1 y añadir offset de header (fila 1)
-            excel_row_offset = 2
-
-            # Sell_in_sim (Ejemplo - ajustable manualmente en Excel si se necesita)
-            # La fórmula asume que Sell_in está en la columna B
-            df_excel[COL_SELL_IN_SIM] = [f"=B{r}" for r in range(excel_row_offset, original_data_rows + excel_row_offset)] + [np.nan] * (len(df_excel) - original_data_rows)
-
-            # Acumulados (MAT - Moving Annual Total) - comienzan desde la fila 12 de datos
-            # Las fórmulas asumen Sell_out en C y Sell_in_sim en L
-            for i in range(11, original_data_rows):
-                row_excel = i + excel_row_offset
-                df_excel.loc[i, COL_ACUM_SELL_OUT] = f"=SUM(C{row_excel - 11}:C{row_excel})"
-                df_excel.loc[i, COL_ACUM_SELL_IN] = f"=SUM(L{row_excel - 11}:L{row_excel})" # Usa Sell_in_sim (L)
-
-            # --- 1.6) Cálculo de coberturas (pipeline 0 a 6) en Excel ---
-            pop_value_str = pop_coverage.get(pais_nombre, DEFAULT_POP_COVERAGE)
-            cov_formulas_list = []
-            max_rows_excel = original_data_rows + excel_row_offset -1 # Última fila con datos en Excel
-
-            for r_idx in range(original_data_rows): # Iterar sobre índices de datos (0 a N-1)
-                excel_current_row = r_idx + excel_row_offset
-                row_formulas = {}
-                if r_idx >= 11: # Cobertura solo se calcula desde el mes 12
-                    for p in range(7): # Pipelines P0 a P6
-                        # Fila de Excel para el numerador (Acum_Sell_in) - con pipeline
-                        num_row_excel = excel_current_row + p
-                        # Fila de Excel para el denominador (Acum_Sell_out) - sin pipeline
-                        den_row_excel = excel_current_row
-
-                        # Verificar que las filas referenciadas existan
-                        if num_row_excel <= max_rows_excel and den_row_excel <= max_rows_excel:
-                            # La fórmula asume Acum_Sell_in en N y Acum_Sell_out en M
-                            #anterior  m{den_row_excel}/n{num_row_excel}*100
-                            base_formula = f"M{num_row_excel}/N{den_row_excel}*100"
-                            if cov_type == "relativa":
-                                # CORRECCIÓN: Cambiar formato de porcentaje y usar NA()
-                                pop_value_decimal = float(pop_value_str.replace("%", "")) / 100
-                                formula = f"=IFERROR(({base_formula})/{pop_value_decimal},NA())"
-                            else:
-                                formula = f"=IFERROR({base_formula},NA())"
-                            row_formulas[f'P{p}'] = formula
-                        else:
-                             row_formulas[f'P{p}'] = np.nan # O "" o NA()
-                else:
-                    # Rellenar con NaN para las primeras 11 filas
-                    for p in range(7):
-                         row_formulas[f'P{p}'] = np.nan
-
-                cov_formulas_list.append(row_formulas)
-
-            df_cov_excel = pd.DataFrame(cov_formulas_list, index=df_excel.index[:original_data_rows])
-
-            # Escalonar las columnas de cobertura
-            df_cov_excel_scaled = df_cov_excel.copy()
-            escalona(df_cov_excel_scaled) # Escalonar la copia
-
-
-
-
-# -------------------------------------------------------
-            # 1.7 & 1.8) Cálculo de variaciones (Y-1 e Y-2) en Excel
-            # -------------------------------------------------------
-
-            # ► VARIABLES EXTRA que tu código “heredado” sigue ocupando
-            n_data          = original_data_rows                            # filas con datos
-            last_row_excel  = n_data + excel_row_offset - 1                 # última fila real en Excel
-
-            # ---------- Y-1 -------------------------------------------------
-            var = pd.DataFrame([
-                ['Anual',      "MAT " + df_excel.loc[original_data_rows-1, COL_DATA].strftime('%b-%y') +
-                            " x MAT " + df_excel.loc[original_data_rows-1-12, COL_DATA].strftime('%b-%y')],
-                ['Semestral',  "SEM " + df_excel.loc[original_data_rows-1, COL_DATA].strftime('%b-%y') +
-                            " x SEM " + df_excel.loc[original_data_rows-1-6,  COL_DATA].strftime('%b-%y')],
-                ['Trimestral', "TRI " + df_excel.loc[original_data_rows-1, COL_DATA].strftime('%b-%y') +
-                            " x TRI " + df_excel.loc[original_data_rows-1-3,  COL_DATA].strftime('%b-%y')]
-            ], columns=['Tipo', 'Periodo'])
-
-            # Variaciones WP by Numerator
-            var['WP by Numerator'] = [
-                f"=SUM(C{original_data_rows+excel_row_offset-i - 2}:C{original_data_rows+excel_row_offset-1})/"
-                f"SUM(C{original_data_rows+excel_row_offset-2*j -2 }:C{original_data_rows+excel_row_offset-j - 2})-1"
-                for i, j in zip([10, 4, 1], [11, 5, 2])
-            ]
-
-            # Variaciones Cliente
-            for p in range(7):
-                var[f'Cliente P{p}'] = [
-                    f"=SUM(L{original_data_rows+excel_row_offset-i-p -2}:L{original_data_rows+excel_row_offset-p -1})/"
-                    f"SUM(L{original_data_rows+excel_row_offset-2*j-p -2}:L{original_data_rows+excel_row_offset-j-p -2})-1"
-                    for i, j in zip([10, 4, 1], [11, 5, 2])
-                ]
-
-            # ---------- Y-2 -------------------------------------------------
-            # Ventanas: MAT=12, SEM=6, TRI=3  (todas comparadas contra el mismo tamaño W, 24 meses antes)
-            periods = [
-                ('Anual',      12,  24),   # (nombre, meses_ventana, lag_meses)
-                ('Semestral',   6,  24),
-                ('Trimestral',  3,  24),
-            ]
-
-            # Texto de periodo (tu formato actual)
-            aux = pd.DataFrame([
-                ['Anual',      "MAT " + df_excel.loc[original_data_rows-1,     COL_DATA].strftime('%b-%y') +
-                            " x MAT " + df_excel.loc[original_data_rows-1-24, COL_DATA].strftime('%b-%y')],
-                ['Semestral',  "SEM " + df_excel.loc[original_data_rows-1,     COL_DATA].strftime('%b-%y') +
-                            " x SEM " + df_excel.loc[original_data_rows-1-24, COL_DATA].strftime('%b-%y')],
-                ['Trimestral', "TRI " + df_excel.loc[original_data_rows-1,     COL_DATA].strftime('%b-%y') +
-                            " x TRI " + df_excel.loc[original_data_rows-1-24, COL_DATA].strftime('%b-%y')]
-            ], columns=['Tipo', 'Periodo'])
-
-            def rango_excel(end_row: int, meses: int) -> tuple[int, int]:
-                """Devuelve (inicio, fin) inclusivo para una ventana de 'meses' que termina en 'end_row'."""
-                return end_row - (meses - 1), end_row
-
-            def formula_yoy_excel(col: str, end_row: int, meses: int, lag_meses: int) -> str:
-                """
-                = SUM( col[num_ini:num_fin] ) / SUM( col[den_ini:den_fin] ) - 1
-                donde el denominador termina en end_row - lag_meses y tiene el mismo tamaño 'meses'.
-                """
-                # Numerador: ventana actual (tamaño 'meses') que termina en end_row
-                num_ini, num_fin = rango_excel(end_row, meses)
-                # Denominador: misma ventana 'meses', pero que termina 'lag_meses' antes
-                den_fin = end_row - lag_meses
-                den_ini, den_fin = rango_excel(den_fin, meses)
-                return f"=SUM({col}{num_ini}:{col}{num_fin})/SUM({col}{den_ini}:{col}{den_fin})-1"
-
-            # Reglas de suficiencia de datos por ventana para Y-2:
-            #  - MAT (12): requiere >= 12 + 24 = 36 meses
-            #  - SEM (6):  requiere >= 6  + 24 = 30 meses
-            #  - TRI (3):  requiere >= 3  + 24 = 27 meses
-
-            # ► WP by Numerator (columna C)
-            wp_y2_formulas = []
-            for _, meses, lag in periods:
-                required = meses + lag
-                if n_data >= required:
-                    wp_y2_formulas.append(formula_yoy_excel("C", last_row_excel, meses, lag))
-                else:
-                    wp_y2_formulas.append("-")
-            aux['WP by Numerator'] = wp_y2_formulas
-
-            # ► Clientes P0..P6 (columna L), ajustando el fin por 'p'
-            for p in range(7):
-                end_row_p = last_row_excel - p
-                cli_y2 = []
-                for _, meses, lag in periods:
-                    required = meses + lag
-                    # Suficiencia: descontamos 'p' del total disponible para ese cliente
-                    if (n_data - p) >= required:
-                        cli_y2.append(formula_yoy_excel("L", end_row_p, meses, lag))
-                    else:
-                        cli_y2.append("-")
-                aux[f'Cliente P{p}'] = cli_y2
-
-            # Limpiar variaciones sin sentido
-            if 42 - original_data_rows >= 0:
-                for i in range(abs(42 - original_data_rows)):
-                    aux.loc[0, f'Cliente P{6 - i}'] = np.nan
-
-
-            # ---------- Unir Y-1 y Y-2 --------------------------------------
-            df_variations_excel = pd.concat([var, aux], ignore_index=True)
-
-
-
-            # --- 1.9) Cálculo de correlaciones en Excel (MAT) ---
-            # Se genera un diccionario con fórmulas de correlación para cada pipeline (P0 a P6)
-            # Se construyen fórmulas Excel que calculan la correlación Pearson entre dos rangos de 12 filas:
-            #   uno en la columna M y otro en la columna N, considerando el desplazamiento (pipeline).
-            # Los índices son base 1 y se garantiza que cada rango tenga exactamente 12 filas; de lo contrario, se asigna '-'.
-            
-            # ---------- Correlaciones: 12m, 2 años antes (12m terminando hace 24m), 2 años (ventana 24m) ----------
-
-            def _build_correl_row(label: str, window: int, end_offset: int = 0) -> dict:
-                """
-                Genera una fila de correlaciones entre M y N para:
-                - window: tamaño de ventana (12 o 24)
-                - end_offset: 0 = ventana termina en last_row_excel (reciente)
-                                24 = ventana termina 24 meses antes (para '2 años antes')
-                N se alinea con M desplazando p filas hacia arriba (n_start = m_start - p).
-                Si no hay suficientes datos para esa p y esa ventana, devuelve '-'.
-                """
-                row = {'Correlacion': label}
-
-                # ¿Hay datos suficientes para esta ventana y desplazamiento?
-                if n_data >= window + end_offset:
-                    # Ventana base en M
-                    row_ini = last_row_excel - end_offset - (window - 1)
-                    row_fin = last_row_excel - end_offset
-
-                    # Respetar que la fila 1 es encabezado
-                    m_start = max(row_ini, 2)
-                    m_end   = max(row_fin, 2)
-
-                    for p in range(0, 7):  # P0..P6
-                        n_start = max(row_ini - p, 2)
-                        n_end   = max(row_fin - p, 2)
-
-                        # Ambas ventanas deben tener exactamente 'window' filas
-                        if (m_end - m_start + 1 == window) and (n_end - n_start + 1 == window):
-                            # Usa coma ',' en argumentos; función en inglés 'CORREL' como en tu flujo actual
-                            row[f'P{p}'] = f"=CORREL(M{m_start}:M{m_end},N{n_start}:N{n_end})"
-                        else:
-                            row[f'P{p}'] = '-'
-                else:
-                    for p in range(0, 7):
-                        row[f'P{p}'] = '-'
-
-                return row
-
-            # Construye las 3 filas en el orden solicitado
-            rows = [
-                _build_correl_row('Año Actual', 12, end_offset=0),                   # últimos 12 meses
-                _build_correl_row('1 año antes', 12, end_offset=12),           # 12 meses que terminaron hace 12 meses (Año anterior)
-                _build_correl_row('2 años (ventana de 24 meses)', 24, 0),       # últimos 24 meses
-            ]
-
-            # Ordenar columnas: Correlacion, P0..P6 (incluye P6)
-            cols = ['Correlacion'] + [f'P{i}' for i in range(7)]
-            df_correlations_excel = pd.DataFrame(rows)[cols]
-
-
-
-
-            # --- 1.10) Promedio de Penetración y Buyers (MAT) en Excel ---
-            avg_formulas = []
-            # MAT Actual
-            if n_data >= 12:
-                 start_avg_curr = last_row_excel - 11
-                 end_avg_curr = last_row_excel
-                 # Asume Penet en G, Buyers en H
-                 avg_formulas.append({'Media': 'Penet MAT Actual', 'Valor': f"=AVERAGE(G{start_avg_curr}:G{end_avg_curr})"})
-                 avg_formulas.append({'Media': 'Buyers MAT Actual', 'Valor': f"=AVERAGE(H{start_avg_curr}:H{end_avg_curr})"})
-            else:
-                 avg_formulas.append({'Media': 'Penet MAT Actual', 'Valor': f"=AVERAGE(G{excel_row_offset}:G{last_row_excel})"}) # Promedio de lo disponible
-                 avg_formulas.append({'Media': 'Buyers MAT Actual', 'Valor': f"=AVERAGE(H{excel_row_offset}:H{last_row_excel})"})
-
-            # MAT Anterior
-            if n_data >= 24:
-                 start_avg_prev = last_row_excel - 23
-                 end_avg_prev = last_row_excel - 12
-                 avg_formulas.append({'Media': 'Penet MAT Anterior', 'Valor': f"=AVERAGE(G{start_avg_prev}:G{end_avg_prev})"})
-                 avg_formulas.append({'Media': 'Buyers MAT Anterior', 'Valor': f"=AVERAGE(H{start_avg_prev}:H{end_avg_prev})"})
-            else:
-                 avg_formulas.append({'Media': 'Penet MAT Anterior', 'Valor': np.nan}) # O NA()
-                 avg_formulas.append({'Media': 'Buyers MAT Anterior', 'Valor': np.nan})
-
-            df_averages_excel = pd.DataFrame(avg_formulas)
-
-
-            # --- 1.11) Calcular Estabilidad en Excel ---
-            # Diferencia entre última cobertura y cobertura de hace 12 meses
-            estab_data = {"Estabilidad": "Estabilidad"}
-            # Asume Cobertura P0-P6 en columnas O a U (después de escalonar)
-            coverage_start_col_letter = 'O'
-            coverage_start_col_idx = 15 # Col O es la 15
-
-            last_data_row_idx = original_data_rows -1 # Índice base 0
-
-            for p in range(7):
-                 col_letter = get_column_letter(coverage_start_col_idx + p)
-                 row_last_cov = last_row_excel - p
-                 row_prev_cov = row_last_cov - 12
-
-                 # Verificar si las filas son válidas y si hay suficientes datos
-                 if row_last_cov >= excel_row_offset and row_prev_cov >= excel_row_offset and (original_data_rows >= 23+p):
-                     # CORRECCIÓN: Usar IFERROR y NA()
-                     formula = f"=IFERROR({col_letter}{row_last_cov}-{col_letter}{row_prev_cov},NA())"
-                     estab_data[f'P{p}'] = formula
-                 else:
-                     estab_data[f'P{p}'] = np.nan
-            
-            # Crear DataFrame para estabilidad
-            df_stability_excel = pd.DataFrame([estab_data])
-
-            # --- 1.12) Ensamblar DataFrame final para Excel ---
-            # Unir datos originales con coberturas escalonadas
-            df_excel_final = pd.concat([df_excel, df_cov_excel_scaled], axis=1)
-
-            # Crear la sección de resumen (Variaciones, Promedios, Correlación, Estabilidad)
-            # Añadir filas vacías y reorganizar
-            df_variations_excel['spacer1'] = np.nan
-            # df_averages_excel['spacer2'] = np.nan
-            df_correlations_excel['spacer3'] = np.nan
-
-            # Aplanar las tablas de resumen para concatenarlas horizontalmente
-            summary_part1 = df_variations_excel.T.reset_index().T # Variaciones
-            summary_part2 = df_averages_excel.T.reset_index().T   # Promedios
-            summary_part3 = df_correlations_excel.T.reset_index().T # Correlaciones
-            summary_part4 = df_stability_excel.T.reset_index().T  # Estabilidad
-
-            # Crear un DataFrame vacío con el número correcto de columnas para alinear
-            max_cols = df_excel_final.shape[1]
-            summary_placeholder = pd.DataFrame(np.nan, index=range(max(len(summary_part1), len(summary_part2), len(summary_part3), len(summary_part4))), columns=df_excel_final.columns)
-
-            # Rellenar el placeholder (esto requiere manejo cuidadoso de índices y columnas)
-            # Simplificación: Crear el df_excel_summary_part como antes y concatenar al final
-            df_excel_summary_part = pd.concat([df_variations_excel.reset_index(drop=True),
-                                              df_averages_excel.reset_index(drop=True),
-                                              df_correlations_excel.reset_index(drop=True),
-                                              df_stability_excel.reset_index(drop=True)], axis=1)
-
-            # Añadir fila vacía de separación
-            df_excel_final.loc[len(df_excel_final)] = [np.nan] * len(df_excel_final.columns)
-
-            # Añadir nombres de columnas del resumen como cabecera
-            summary_header = pd.DataFrame([df_excel_summary_part.columns], columns=df_excel_summary_part.columns)
-            df_excel_summary_part_with_header = pd.concat([summary_header, df_excel_summary_part], ignore_index=True)
-
-            # Ajustar columnas del resumen para que coincidan con el df principal y concatenar
-            # --- INICIO CAMBIO ---
-            # Si el número de columnas no coincide, agrega columnas vacías
-            n_main_cols = df_excel_final.shape[1]
-            n_summary_cols = df_excel_summary_part_with_header.shape[1]
-            if n_summary_cols < n_main_cols:
-                # Agrega columnas vacías al resumen
-                for i in range(n_summary_cols, n_main_cols):
-                    df_excel_summary_part_with_header[f'empty_{i}'] = np.nan
-            elif n_summary_cols > n_main_cols:
-                # Si el resumen tiene más columnas, recórtalas
-                df_excel_summary_part_with_header = df_excel_summary_part_with_header.iloc[:, :n_main_cols]
-            # Ahora reasigna los nombres de columnas
-            df_excel_summary_part_with_header.columns = df_excel_final.columns
-            # --- FIN CAMBIO ---
-
-            df_excel_final = pd.concat([df_excel_final, df_excel_summary_part_with_header], ignore_index=True)
-
-            # --- 1.13) Exportar a la hoja de Excel ---
-            df_excel_final.to_excel(writer, sheet_name=marca_sheet_name, index=False)
-
-    print(Fore.GREEN + f"Archivo Excel temporal '{EXCEL_TEMP_FILENAME}' generado.")
-
-    # Aplicar formato de color y porcentaje a la sección de Correlaciones (como en excel_color.py)
-    try:
-        def apply_correlation_formatting(xlsx_path: str) -> None:
-            from openpyxl import load_workbook as _load_wb
-            from openpyxl.formatting.rule import ColorScaleRule as _ColorScaleRule
-            from openpyxl.utils import get_column_letter as _get_col_letter
-            wb = _load_wb(xlsx_path)
-            for ws in wb.worksheets:
-                found = False
-                for row in ws.iter_rows(values_only=False):
-                    for cell in row:
-                        if isinstance(cell.value, str) and str(cell.value).strip().lower() == 'correlacion':
-                            header_row = cell.row
-                            header_col = cell.column
-                            start_col = header_col + 1  # P0
-                            end_col = start_col + 6     # P6
-
-                            # Detectar largo dinámico: desde la fila siguiente hasta que la fila esté vacía en P0..P6
-                            r = header_row + 1
-                            last_row = r - 1
-                            while True:
-                                vals = [ws.cell(row=r, column=c).value for c in range(start_col, end_col + 1)]
-                                if all(v is None for v in vals):
-                                    break
-                                last_row = r
-                                r += 1
-
-                            if last_row >= header_row + 1:
-                                # Formato de porcentaje 0.0% en P0..P6
-                                for rr in range(header_row + 1, last_row + 1):
-                                    for cc in range(start_col, end_col + 1):
-                                        ws.cell(row=rr, column=cc).number_format = '0.0%'
-
-                                # Regla de escala de color 3-colores (rojo-amarillo-verde)
-                                rng = f"{_get_col_letter(start_col)}{header_row + 1}:{_get_col_letter(end_col)}{last_row}"
-                                color_scale = _ColorScaleRule(
-                                    start_type='min', start_color='F8696B',
-                                    mid_type='percentile', mid_value=50, mid_color='FFEB84',
-                                    end_type='max', end_color='63BE7B'
-                                )
-                                ws.conditional_formatting.add(rng, color_scale)
-                            found = True
-                            break
-                    if found:
-                        break
-            wb.save(xlsx_path)
-
-        apply_correlation_formatting(excel_temp_path)
-        print(Fore.GREEN + "Formato de correlaciones aplicado (colores y porcentaje).")
-
-        # Variaciones: formato porcentaje y reglas de color rojo(<0)/verde(>0)
-        def apply_variations_formatting(xlsx_path: str) -> None:
-            from openpyxl import load_workbook as _load_wb2
-            from openpyxl.utils import get_column_letter as _col_letter
-            from openpyxl.formatting.rule import Rule as _Rule
-            from openpyxl.styles import PatternFill as _PatternFill, Font as _Font
-            from openpyxl.styles.differential import DifferentialStyle as _Diff
-            wb2 = _load_wb2(xlsx_path)
-            for ws in wb2.worksheets:
-                header_row = None
-                wp_col = None
-                # Buscar el encabezado 'WP by Numerator'
-                for row in ws.iter_rows(values_only=False):
-                    for cell in row:
-                        if isinstance(cell.value, str) and str(cell.value).strip().lower() == 'wp by numerator':
-                            header_row = cell.row
-                            wp_col = cell.column
-                            break
-                    if header_row:
-                        break
-                if not header_row:
-                    continue
-                # Detectar columnas de Cliente P0..P6 consecutivas hacia la derecha
-                end_col = wp_col
-                p = 0
-                while True:
-                    header_cell = ws.cell(row=header_row, column=wp_col + 1 + p)
-                    val = header_cell.value
-                    if isinstance(val, str) and val.strip().lower() == f'cliente p{p}':
-                        end_col = wp_col + 1 + p
-                        p += 1
-                        if p > 20:  # seguridad
-                            break
-                    else:
-                        break
-                # Si no se detectaron clientes, por defecto tomar WP + 7 clientes
-                if end_col == wp_col:
-                    end_col = wp_col + 7
-                # Determinar rango de filas con datos (hasta que todas las columnas estén vacías)
-                r = header_row + 1
-                last_row = r - 1
-                while True:
-                    vals = [ws.cell(row=r, column=c).value for c in range(wp_col, end_col + 1)]
-                    if all(v is None for v in vals):
-                        break
-                    last_row = r
-                    r += 1
-                if last_row < header_row + 1:
-                    continue
-                # Aplicar formato porcentaje
-                for rr in range(header_row + 1, last_row + 1):
-                    for cc in range(wp_col, end_col + 1):
-                        ws.cell(row=rr, column=cc).number_format = '0.0%'
-                data_range = f"{_col_letter(wp_col)}{header_row + 1}:{_col_letter(end_col)}{last_row}"
-                # Regla < 0%: relleno rojo claro (#FFC7CE), texto rojo oscuro (#9C0006)
-                dxf_red = _Diff(
-                    fill=_PatternFill(start_color='FFC7CE', end_color='FFC7CE', fill_type='solid'),
-                    font=_Font(color='9C0006')
-                )
-                rule_red = _Rule(type='cellIs', operator='lessThan', formula=['0'], dxf=dxf_red)
-                ws.conditional_formatting.add(data_range, rule_red)
-
-                # Regla > 0%: relleno verde claro (#C6EFCE), texto verde oscuro (#006100)
-                dxf_green = _Diff(
-                    fill=_PatternFill(start_color='C6EFCE', end_color='C6EFCE', fill_type='solid'),
-                    font=_Font(color='006100')
-                )
-                rule_green = _Rule(type='cellIs', operator='greaterThan', formula=['0'], dxf=dxf_green)
-                ws.conditional_formatting.add(data_range, rule_green)
-
-            wb2.save(xlsx_path)
-        apply_variations_formatting(excel_temp_path)
-        print(Fore.GREEN + "Formato de variaciones aplicado (0.0% + rojo/verde).")
-    except Exception as e:
-        print(Fore.YELLOW + f"No se pudo aplicar el formato de correlaciones: {e}")
-
-except Exception as e:
-    print(f"{Fore.RED}{Style.BRIGHT}Error crítico durante la generación del archivo Excel: {e}")
-    if os.path.exists(excel_temp_path):
-         os.remove(excel_temp_path) # Limpiar si falla
-    exit()
-
-# --- 1.14) Renombrar y mover archivo Excel final ---
-if not ref_month_year:
-     print(f"{Fore.RED}{Style.BRIGHT}No se pudo determinar la fecha de referencia. No se puede renombrar el archivo Excel.")
-     if os.path.exists(excel_temp_path):
-         os.remove(excel_temp_path)
-     exit()
-
-nombre_base_archivo = f"{pais_nombre}-{categoria_nombre_corto}-{fabricante}-{ref_month_year}_{coverage_label}"
-carpeta_salida = os.path.join(root_dir, nombre_base_archivo) # Carpeta con el mismo nombre base
-
-if not os.path.exists(carpeta_salida):
-    try:
-        os.makedirs(carpeta_salida)
-        print(Fore.BLUE + "Carpeta de salida creada")
-    except OSError as e:
-        print(f"{Fore.RED}Error al crear carpeta de salida '{carpeta_salida}': {e}")
-        if os.path.exists(excel_temp_path): os.remove(excel_temp_path)
-        exit()
-else:
-    print(Fore.YELLOW + "Carpeta de salida ya existe, no se creara de nuevo")
-
-nombre_template_final = f"{nombre_base_archivo}.xlsx"
-ruta_template_final = os.path.join(carpeta_salida, nombre_template_final)
-
-try:
-    if os.path.exists(ruta_template_final):
-        print(Fore.YELLOW + f"Archivo Excel ya existe. Se sobrescribirá.")
-        os.remove(ruta_template_final)
-    os.rename(excel_temp_path, ruta_template_final)
-    print(Fore.GREEN + "Archivo Excel final guardado")
-except Exception as e:
-    print(f"{Fore.RED}Error al mover/renombrar archivo Excel final: {e}")
-    if os.path.exists(excel_temp_path): os.remove(excel_temp_path) # Limpiar temporal si falla el renombrado
-    exit()
-
-
-# --------------------------------------------------------------------------------------------------
-# (2) CREACIÓN DE PPT CON GRÁFICOS
-# --------------------------------------------------------------------------------------------------
-
-
-print(Fore.CYAN + "\nGenerando presentación PowerPoint...")
-
-# --- Preparación de plantilla multilenguaje: copiar, podar y reabrir ---
-run_id = os.environ.get('RUN_ID') or datetime.now().strftime('%Y%m%d_%H%M%S')
-tmp_dir = os.path.join(root_dir, 'tmp')
-os.makedirs(tmp_dir, exist_ok=True)
-
-# Determinar idioma a partir de indicador include_english y país
-# Prioridad: EN si include_english=True; si no, PT para Brasil; en otro caso ES
-chosen_lang = 'EN' if include_english else ('PT' if pais_nombre == 'Brasil' else 'ES')
-
-src_template_path = os.path.join(root_dir, 'Modelo_PPT.pptx')
-tmp_ppt_name = f"Modelo_PPT_{run_id}_{chosen_lang}.pptx"
-tmp_ppt_path = os.path.join(tmp_dir, tmp_ppt_name)
-
-try:
-    if not os.path.exists(src_template_path):
-        raise FileNotFoundError(f"No se encontró la plantilla base: {src_template_path}")
-    shutil.copyfile(src_template_path, tmp_ppt_path)
-except Exception as e:
-    print(f"{Fore.RED}{Style.BRIGHT}Error al copiar la plantilla PPT: {e}")
-    exit()
-
-# Abrir la copia y eliminar slides no incluidos según idioma
-ppt = Presentation(tmp_ppt_path)
-
-# Índices a conservar (0-based)
-keep_indices_by_lang = {
-    'ES': {0, 1, 2, 3, 4, 5, 16},
-    'PT': {0, 6, 7, 8, 9, 10, 16},
-    'EN': {0, 11, 12, 13, 14, 15, 16},
-}
-keep_set = keep_indices_by_lang.get(chosen_lang, keep_indices_by_lang['ES'])
-
-def _delete_slide(pres_obj, idx):
-    sldIdLst = pres_obj.slides._sldIdLst  # protected API de python-pptx
-    sldId = sldIdLst[idx]
-    rId = sldId.rId
-    pres_obj.part.drop_rel(rId)
-    sldIdLst.remove(sldId)
-
-try:
-    total_initial = len(ppt.slides)
-    delete_list = sorted([i for i in range(total_initial) if i not in keep_set], reverse=True)
-    for di in delete_list:
-        _delete_slide(ppt, di)
-    if len(ppt.slides) != 7:
-        raise RuntimeError(f"Validación fallida: se esperaban 7 slides tras poda, hay {len(ppt.slides)}")
-    ppt.save(tmp_ppt_path)
-    del ppt
-    ppt = Presentation(tmp_ppt_path)
-except Exception as e:
-    print(f"{Fore.RED}{Style.BRIGHT}Error al podar la plantilla PPT: {e}")
-    try:
-        os.remove(tmp_ppt_path)
-    except Exception:
-        pass
-    exit()
-
-# --- MODIFICACIÓN SLIDE 1: Portada personalizada ---
-from pptx.dml.color import RGBColor
-from pptx.util import Pt
-from pptx.enum.shapes import MSO_SHAPE
-
-
-
-# Editar la primera slide existente (portada) 
-cover_slide = ppt.slides[0]
-
-# Texto dinámico
-line1 = f"{pais_nombre} | {fabricante}"
-try:
+def build_labels(lang_index: int, fabricante: str, ref_month_year: str) -> Dict[Tuple[int, str], List[str] | str]:
+    """Reproduce el diccionario de etiquetas usado por el script original."""
     ref_dt = dt.strptime(ref_month_year, "%m-%y")
-    # Nombres de meses por idioma (evita dependencias de locale)
-    meses_es = [
-        "", "enero", "febrero", "marzo", "abril", "mayo", "junio",
-        "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre"
-    ]
-    meses_pt = [
-        "", "janeiro", "fevereiro", "março", "abril", "maio", "junho",
-        "julho", "agosto", "setembro", "outubro", "novembro", "dezembro"
-    ]
-    meses_en = [
-        "", "January", "February", "March", "April", "May", "June",
-        "July", "August", "September", "October", "November", "December"
-    ]
-    if chosen_lang == 'PT':
-        month_name = meses_pt[ref_dt.month].capitalize()
-        line2 = f"{categoria_nombre} - Corte em {month_name} {ref_dt.year}"
-    elif chosen_lang == 'EN':
-        month_name = meses_en[ref_dt.month]
-        line2 = f"{categoria_nombre} - As of {month_name} {ref_dt.year}"
-    else:  # ES por defecto
-        month_name = meses_es[ref_dt.month].capitalize()
-        line2 = f"{categoria_nombre} - Corte a {month_name} {ref_dt.year}"
-except Exception:
-    if chosen_lang == 'PT':
-        line2 = f"{categoria_nombre} - Corte em {ref_month_year}"
-    elif chosen_lang == 'EN':
-        line2 = f"{categoria_nombre} - As of {ref_month_year}"
-    else:
-        line2 = f"{categoria_nombre} - Corte a {ref_month_year}"
+    previous_dt = ref_dt - timedelta(days=365)
+    return {
+        (1, "S1"): " ",
+        (1, "Summary"): [
+            "Fabricante/Marca",
+            "Pipeline",
+            "Penetração Média Mensal",
+            fabricante,
+            "Worldpanel by Numerator",
+            f"Cobertura {previous_dt.strftime('%b-%y')}",
+            f"Cobertura {ref_dt.strftime('%b-%y')}",
+            "Estabilidade",
+        ],
+        (1, "Graf cob Penet Men"): "Penetração Mensal",
+        (1, "Titulo Cob"): "Cobertura em Ano Móvel",
+        (1, "Var"): "com",
+        (1, "Titulo Vol"): "Tendência em Volumen",
+        (2, "S1"): " ",
+        (2, "Summary"): [
+            "Fabricante/Marca",
+            "Pipeline",
+            "Penetración Media Mensual",
+            f"%VAR {fabricante}",
+            "% VAR Worldpanel by Numerator",
+            f"Cobertura {previous_dt.strftime('%b-%y')}",
+            f"Cobertura {ref_dt.strftime('%b-%y')}",
+            "Estabilidad",
+        ],
+        (2, "Graf cob Penet Men"): "Penetración Mensual",
+        (2, "Titulo Cob"): "Cobertura en Año Móvil",
+        (2, "Var"): "con",
+        (2, "Titulo Vol"): "Tendencia en Volumen",
+        (3, "S1"): " ",
+        (3, "Summary"): [
+            "Manufacturer/Brand",
+            "Pipeline",
+            "Monthly Avg Penetration",
+            f"%VAR {fabricante}",
+            "% VAR Worldpanel by Numerator",
+            f"Coverage {previous_dt.strftime('%b-%y')}",
+            f"Coverage {ref_dt.strftime('%b-%y')}",
+            "Stability",
+        ],
+        (3, "Graf cob Penet Men"): "PENETRATION BY PERIOD",
+        (3, "Titulo Cob"): "MOVING YEAR COVERAGE",
+        (3, "Var"): "with",
+        (3, "Titulo Vol"): "TREND IN VOLUME",
+    }
 
-# Añadir cuadro de texto para ambas líneas
-text_left = Inches(0.5)
-text_top = Inches(2.2)
-text_width = Inches(9)
-text_height = Inches(2.5)
-textbox = cover_slide.shapes.add_textbox(text_left, text_top, text_width, text_height)
-tf = textbox.text_frame
-tf.clear()
-
-# Primera línea (blanco, grande)
-p1 = tf.add_paragraph()
-p1.text = line1
-p1.font.size = Pt(44)
-p1.font.bold = True
-p1.font.color.rgb = RGBColor(255, 255, 255)
-p1.alignment = 1  # Centrado
-
-# Segunda línea (blanco, grande)
-p2 = tf.add_paragraph()
-p2.text = line2
-p2.font.size = Pt(36)
-p2.font.bold = True
-p2.font.color.rgb = RGBColor(255, 255, 255)
-p2.alignment = 1  # Centrado
-
-# Definir etiquetas por idioma: 1=PT, 2=ES, 3=EN
-lang_index = 3 if (os.environ.get('AUTO_ENGLISH', '').strip().lower() in {"1", "true", "yes", "y", "si", "sí"}) else (1 if pais_nombre == 'Brasil' else 2)
-labels = {
-    # PT
-    (1, 'S1'): ' ',
-    (1, 'Summary'): ['Fabricante/Marca', 'Pipeline', 'Penetração Média Mensal', fabricante, 'Worldpanel by Numerator',
-                      f'Cobertura {(dt.strptime(ref_month_year, "%m-%y") - timedelta(days=365)).strftime("%b-%y")}',
-                      f'Cobertura {dt.strptime(ref_month_year, "%m-%y").strftime("%b-%y")}', 'Estabilidade'],
-    (1, 'Graf cob Penet Men'): 'Penetração Mensal',
-    (1, 'Titulo Cob'): 'Cobertura em Ano Móvel',
-    (1, 'Var'): 'com',
-    (1, 'Titulo Vol'): 'Tendência em Volumen',
-
-    # ES
-    (2, 'S1'): ' ',
-    (2, 'Summary'): ['Fabricante/Marca', 'Pipeline', 'Penetración Media Mensual', f'%VAR {fabricante}', '% VAR Worldpanel by Numerator',
-                      f'Cobertura {(dt.strptime(ref_month_year, "%m-%y") - timedelta(days=365)).strftime("%b-%y")}',
-                      f'Cobertura {dt.strptime(ref_month_year, "%m-%y").strftime("%b-%y")}', 'Estabilidad'],
-    (2, 'Graf cob Penet Men'): 'Penetración Mensual',
-    (2, 'Titulo Cob'): 'Cobertura en Año Móvil',
-    (2, 'Var'): 'con',
-    (2, 'Titulo Vol'): 'Tendencia en Volumen',
-
-    # EN
-    (3, 'S1'): ' ',
-    (3, 'Summary'): ['Manufacturer/Brand', 'Pipeline', 'Monthly Avg Penetration', f'%VAR {fabricante}', '% VAR Worldpanel by Numerator',
-                      f'Coverage {(dt.strptime(ref_month_year, "%m-%y") - timedelta(days=365)).strftime("%b-%y")}',
-                      f'Coverage {dt.strptime(ref_month_year, "%m-%y").strftime("%b-%y")}', 'Stability'],
-    (3, 'Graf cob Penet Men'): 'PENETRATION BY PERIOD',
-    (3, 'Titulo Cob'): 'MOVING YEAR COVERAGE',
-    (3, 'Var'): 'with',
-    (3, 'Titulo Vol'): 'TREND IN VOLUME',
-}
-
-# DataFrames para resumen final y banco de coberturas
-df_summary_ppt = pd.DataFrame(columns=labels[(lang_index, 'Summary')])
-df_coverage_bank = pd.DataFrame(
-    columns=['Periodo', 'Fabricante', 'Categoria', 'Fabricante/Marca', 'Cesta', 'Panel', 'Unidade', 'Razon', 'Pais', 'Ampliacion',
-             'Penet Media Ano Mov Atual', 'Penet Media Ano Mov Anterior',
-             'Raw Buyers Media Ano Mov Atual', 'Pipeline',
-             'Cobertura Año Mov Actual', 'Cobertura Año Mov Anterior',
-             '%VAR Cliente', '% VAR WP by Numerator', 'Misma Tendencia', 'Estabilidad']
-)
-
-# --- Bucle principal para generar diapositivas ---
-total_slides_to_generate = 0
-for marca_sheet_name in marcas:
-    df_marca_ppt, _ = load_and_preprocess_sheet(excel_file_obj, marca_sheet_name)
-    if df_marca_ppt is None: continue
-
-    # Determinar pipelines a procesar para esta marca
-    match = re.match(r"(?i)^p([0-6])_", marca_sheet_name)
-    if match:
-        pipelines_to_run = [int(match.group(1))]
-    else:
-        pipelines_to_run = list(range(7)) # P0 a P6
-
-    # Contar cuántos slides se generarán (aprox 3 por pipeline + 1 resumen)
-    n_slides_marca = len(pipelines_to_run) * (2 + (1 if len(df_marca_ppt) >= 24 else 0)) # Cobertura, Tendencia, [Evolución]
-    total_slides_to_generate += n_slides_marca
-
-print(f"Total slides a generar (estimado): {total_slides_to_generate}") # Añade esto para depurar
+def dataframe_to_bordered_stream(df: "pd.DataFrame", hide_index: bool = True, dpi: int = 220) -> io.BytesIO:
+    """Convierte un DataFrame en imagen PNG con borde negro."""
+    styler = df.style.set_table_styles(
+        [
+            {"selector": "*", "props": [("font-size", "10pt"), ("font-family", "Calibri"), ("color", "black"), ("border-style", "solid"), ("border-width", "1px"), ("text-align", "center")]},
+            {"selector": "th", "props": [("background-color", "#D9E1F2"), ("font-weight", "bold"), ("padding", "3px 5px")]},
+            {"selector": "td", "props": [("padding", "2px 4px")]},
+        ]
+    )
+    if hide_index:
+        styler = styler.hide(axis="index")
+    buffer = io.BytesIO()
+    dfi.export(styler, buffer, table_conversion="matplotlib", dpi=dpi)
+    buffer.seek(0)
+    img = Image.open(buffer)
+    bordered = ImageOps.expand(img, border=2, fill="black")
+    final_stream = io.BytesIO()
+    bordered.save(final_stream, format="PNG")
+    final_stream.seek(0)
+    return final_stream
 
 
-# --- INICIO CAMBIO: Usar rich Progress ---
-progress = Progress(
-    SpinnerColumn(),
-    TextColumn("[progress.description]{task.description}"),
-    BarColumn(),
-    TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
-    TextColumn("{task.completed}/{task.total}"),
-    TimeElapsedColumn(),
-    TimeRemainingColumn(),
-    transient=True
-)
-progress_task = None
-# --- FIN CAMBIO ---
-
-# Bucle para cada marca
-with progress:
-    progress_task = progress.add_task("Creando Diapositivas PPT", total=total_slides_to_generate + 1)
-    for marca_sheet_name in marcas:
-
-        # 2.1) Cargar y preprocesar datos para PPT
-        df_marca_ppt, measure_unit_ppt = load_and_preprocess_sheet(excel_file_obj, marca_sheet_name)
-        if df_marca_ppt is None:
-            continue # Saltar si la hoja no se pudo cargar/procesar
-
-        marca_nombre_limpio = re.sub(r"(?i)^p[0-6]_", "", marca_sheet_name)
-
-        # Determinar pipelines a procesar para esta marca
-        match = re.match(r"(?i)^p([0-6])_", marca_sheet_name)
-        if match:
-            pipelines_to_run = [int(match.group(1))]
-        else:
-            pipelines_to_run = list(range(7)) # P0 a P6
-
-        # 2.2) Cálculo de coberturas en Python (rolling 12 meses)
-        acum_sell_out_py = df_marca_ppt[COL_SELL_OUT].rolling(window=12, min_periods=12).sum()
-        acum_sell_in_py = df_marca_ppt[COL_SELL_IN].rolling(window=12, min_periods=12).sum()
-        acum_sell_out_py.index = df_marca_ppt[COL_DATA]
-        acum_sell_in_py.index = df_marca_ppt[COL_DATA]
-
-        df_coverage_py = pd.DataFrame(index=acum_sell_out_py.index)
-        for p in range(7):
-            sell_in_shifted = df_marca_ppt[COL_SELL_IN].shift(p)
-            acum_sell_in_shifted_py = sell_in_shifted.rolling(window=12, min_periods=12).sum()
-            acum_sell_in_shifted_py.index = df_marca_ppt[COL_DATA]
-            coverage_p = (acum_sell_out_py / acum_sell_in_shifted_py) * 100
-            df_coverage_py[f'P{p}'] = coverage_p
-
-        pop_val_num = float(pop_coverage.get(pais_nombre, DEFAULT_POP_COVERAGE).replace("%", "")) / 100.0
-        if cov_type == "relativa" and pop_val_num > 0:
-            df_coverage_py = df_coverage_py / pop_val_num
-
-        if ROUND_COVERAGE:
-            # Redondeo entero con umbral .5 (ROUND_HALF_UP)
-            df_coverage_py = df_coverage_py.apply(_round_half_up_series)
-        else:
-            df_coverage_py = df_coverage_py.round(1)
-
-        # 2.3) Cálculo de variaciones en Python
-        df_variations_py = pd.DataFrame(columns=['Tipo', 'Periodo', 'WP by Numerator'] + [f'Cliente P{p}' for p in range(7)])
-        period_types = ["Anual", "Semestral", "Trimestral"]
-        # Y-1
-        kantar_vars_y1 = calc_var1(df_marca_ppt, COL_SELL_OUT, 0)
-        cliente_vars_y1 = {p: calc_var1(df_marca_ppt, COL_SELL_IN, p) for p in range(7)}
-        for i, p_type in enumerate(period_types):
-            row = {'Tipo': p_type, 'Periodo': f'{p_type} vs Y-1', 'WP by Numerator': kantar_vars_y1[i]}
-            for p in range(7): row[f'Cliente P{p}'] = cliente_vars_y1[p][i]
-            df_variations_py.loc[len(df_variations_py)] = row
-        # Y-2
-        kantar_vars_y2 = calc_var2(df_marca_ppt, COL_SELL_OUT, 0)
-        cliente_vars_y2 = {p: calc_var2(df_marca_ppt, COL_SELL_IN, p) for p in range(7)}
-        for i, p_type in enumerate(period_types):
-            row = {'Tipo': p_type, 'Periodo': f'{p_type} vs Y-2', 'WP by Numerator': kantar_vars_y2[i]}
-            for p in range(7): row[f'Cliente P{p}'] = cliente_vars_y2[p][i]
-            df_variations_py.loc[len(df_variations_py)] = row
-
-        # 2.4) Correlaciones (Pearson entre Sell-Out y Sell-In shifteado, últimos 12m)
-        correlations_py = {"Periodo": "Correlación MAT"}
-        if len(df_marca_ppt) >= 12:
-            sell_out_last12 = df_marca_ppt[COL_SELL_OUT].iloc[-12:]
-            for p in range(7):
-                if len(df_marca_ppt) >= 12 + p:
-                    sell_in_last12_shifted = df_marca_ppt[COL_SELL_IN].iloc[-(12+p):-p] if p > 0 else df_marca_ppt[COL_SELL_IN].iloc[-12:]
-                    if len(sell_out_last12) == 12 and len(sell_in_last12_shifted) == 12 and \
-                        sell_out_last12.notna().all() and sell_in_last12_shifted.notna().all() and \
-                        np.isfinite(sell_out_last12).all() and np.isfinite(sell_in_last12_shifted).all() and \
-                        sell_out_last12.std() > 0 and sell_in_last12_shifted.std() > 0:
-                        corr_val, _ = pearsonr(sell_out_last12, sell_in_last12_shifted)
-                        correlations_py[f'P{p}'] = corr_val
-                    else:
-                        correlations_py[f'P{p}'] = np.nan
-                else:
-                    correlations_py[f'P{p}'] = np.nan
-        else:
-            for p in range(7): correlations_py[f'P{p}'] = np.nan # O NA()
-
-        df_correlations_py = pd.DataFrame([correlations_py])
+def ensure_title_frame(slide: "Presentation"):
+    """Garantiza que el slide tenga un cuadro de título y devuelve su text_frame."""
+    placeholder = slide.shapes.title
+    if placeholder is not None:
+        return placeholder.text_frame
+    textbox = slide.shapes.add_textbox(Inches(0.5), Inches(0.2), Inches(9), Inches(0.8))
+    return textbox.text_frame
 
 
-        # 2.5) Promedios MAT (Penetración, Buyers)
-        averages_py = {}
-        n_data_ppt = len(df_marca_ppt)
-        if n_data_ppt >= 12:
-            averages_py['Penet_MAT_Actual'] = df_marca_ppt[COL_PENET].iloc[-12:].mean()
-            averages_py['Buyers_MAT_Actual'] = df_marca_ppt[COL_BUYERS].iloc[-12:].mean()
-        else:
-            averages_py['Penet_MAT_Actual'] = df_marca_ppt[COL_PENET].mean()
-            averages_py['Buyers_MAT_Actual'] = df_marca_ppt[COL_BUYERS].mean()
+class SlideBuilder:
+    """Encapsula la lógica de creación de slides para mantener el código ordenado."""
 
-        if n_data_ppt >= 24:
-            averages_py['Penet_MAT_Anterior'] = df_marca_ppt[COL_PENET].iloc[-24:-12].mean()
-            averages_py['Buyers_MAT_Anterior'] = df_marca_ppt[COL_BUYERS].iloc[-24:-12].mean()
-        else:
-            averages_py['Penet_MAT_Anterior'] = np.nan
-            averages_py['Buyers_MAT_Anterior'] = np.nan
+    def __init__(
+        self,
+        presentation: "Presentation",
+        lang_index: int,
+        labels: Dict[Tuple[int, str], List[str] | str],
+        coverage_label: str,
+        tipo_eje_tend: str,
+    ) -> None:
+        self.ppt = presentation
+        self.lang_index = lang_index
+        self.labels = labels
+        self.coverage_label = coverage_label
+        self.tipo_eje_tend = tipo_eje_tend
 
-        # 2.6) Preparar DF para gráficos de tendencia (fecha como string)
-        df_trend_plot = df_marca_ppt[[COL_DATA, COL_SELL_IN, COL_SELL_OUT]].copy()
-        df_trend_plot[COL_DATA] = df_trend_plot[COL_DATA].apply(lambda x: x.strftime('%m-%y'))
-
-        # --- Llenar Banco de Coberturas y Resumen PPT ---
-        for p in pipelines_to_run:
-            coverage_series = df_coverage_py[f'P{p}'].dropna()
-            if not coverage_series.empty:
-                coverage_actual = coverage_series.iloc[-1]
-                coverage_anterior = coverage_series.iloc[-13] if len(coverage_series) >= 13 else np.nan
+    # --- Portada -----------------------------------------------------------------
+    def configure_cover(self, pais_nombre: str, fabricante: str, categoria_nombre: str, ref_month_year: str, chosen_lang: str) -> None:
+        cover_slide = self.ppt.slides[0]
+        line1 = f"{pais_nombre} | {fabricante}"
+        try:
+            ref_dt = dt.strptime(ref_month_year, "%m-%y")
+            meses_es = ["", "enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre"]
+            meses_pt = ["", "janeiro", "fevereiro", "março", "abril", "maio", "junho", "julho", "agosto", "setembro", "outubro", "novembro", "dezembro"]
+            meses_en = ["", "January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"]
+            if chosen_lang == "PT":
+                month_name = meses_pt[ref_dt.month].capitalize()
+                line2 = f"{categoria_nombre} - Corte em {month_name} {ref_dt.year}"
+            elif chosen_lang == "EN":
+                month_name = meses_en[ref_dt.month]
+                line2 = f"{categoria_nombre} - As of {month_name} {ref_dt.year}"
             else:
-                coverage_actual = np.nan
-                coverage_anterior = np.nan
-
-            var_cliente_anual_y1 = df_variations_py.loc[df_variations_py['Tipo'] == 'Anual', f'Cliente P{p}'].iloc[0]
-            var_kantar_anual_y1 = df_variations_py.loc[df_variations_py['Tipo'] == 'Anual', 'WP by Numerator'].iloc[0]
-
-            tendencia_alineada = "NO"
-            if pd.notna(var_cliente_anual_y1) and pd.notna(var_kantar_anual_y1):
-                if (var_cliente_anual_y1 * var_kantar_anual_y1) > 0:
-                    tendencia_alineada = "SI"
-                elif var_cliente_anual_y1 == 0 and var_kantar_anual_y1 == 0:
-                    tendencia_alineada = "SI"
-
-            # Calcular valores de cobertura y estabilidad para el banco
-            if ROUND_COVERAGE:
-                cov_actual_val = int(np.floor(coverage_actual + 0.5)) if pd.notna(coverage_actual) else 0
-                cov_anterior_val = int(np.floor(coverage_anterior + 0.5)) if pd.notna(coverage_anterior) else 0
-                estabilidad = cov_actual_val - cov_anterior_val
+                month_name = meses_es[ref_dt.month].capitalize()
+                line2 = f"{categoria_nombre} - Corte a {month_name} {ref_dt.year}"
+        except Exception:
+            if chosen_lang == "PT":
+                line2 = f"{categoria_nombre} - Corte em {ref_month_year}"
+            elif chosen_lang == "EN":
+                line2 = f"{categoria_nombre} - As of {ref_month_year}"
             else:
-                cov_actual_val = round(coverage_actual, 1) if pd.notna(coverage_actual) else 0
-                cov_anterior_val = round(coverage_anterior, 1) if pd.notna(coverage_anterior) else 0
-                estabilidad = round(cov_actual_val - cov_anterior_val, 1)
+                line2 = f"{categoria_nombre} - Corte a {ref_month_year}"
+        textbox = cover_slide.shapes.add_textbox(Inches(0.5), Inches(2.2), Inches(9), Inches(2.5))
+        text_frame = textbox.text_frame
+        text_frame.clear()
+        p1 = text_frame.add_paragraph()
+        p1.text = line1
+        p1.font.size = Pt(44)
+        p1.font.bold = True
+        p1.font.color.rgb = RGBColor(255, 255, 255)
+        p1.alignment = 1
+        p2 = text_frame.add_paragraph()
+        p2.text = line2
+        p2.font.size = Pt(36)
+        p2.font.bold = True
+        p2.font.color.rgb = RGBColor(255, 255, 255)
+        p2.alignment = 1
 
-            # Guardar Periodo como fecha real (día 1 del mes) para formatear en Excel como mmm-yy
-            banco_row = {
-                'Periodo': dt.strptime(ref_month_year, '%m-%y').date(),
-                'Fabricante': fabricante,
-                'Categoria': categoria_nombre,
-                'Fabricante/Marca': marca_nombre_limpio,
-                'Cesta': cesta_nombre,
-                'Panel': 'PNC',
-                'Unidade': measure_unit_ppt,
-                'Razon': razon_cobertura,
-                'Pais': pais_nombre,
-                'Ampliacion': 'SI',
-                'Penet Media Ano Mov Atual': round(averages_py.get('Penet_MAT_Actual', 0), 1),
-                'Penet Media Ano Mov Anterior': round(averages_py.get('Penet_MAT_Anterior', 0), 1),
-                'Raw Buyers Media Ano Mov Atual': round(averages_py.get('Buyers_MAT_Actual', 0), 1),
-                'Pipeline': p,
-                'Cobertura Año Mov Actual': cov_actual_val,
-                'Cobertura Año Mov Anterior': cov_anterior_val,
-                '%VAR Cliente': round(var_cliente_anual_y1 * 100, 1) if pd.notna(var_cliente_anual_y1) else 0,
-                '% VAR WP by Numerator': round(var_kantar_anual_y1 * 100, 1) if pd.notna(var_kantar_anual_y1) else 0,
-                'Misma Tendencia': tendencia_alineada,
-                'Estabilidad': estabilidad
-            }
-            df_coverage_bank.loc[len(df_coverage_bank)] = banco_row
-
-            summary_row = {
-                labels[(lang_index, 'Summary')][0]: marca_nombre_limpio,
-                labels[(lang_index, 'Summary')][1]: p,
-                labels[(lang_index, 'Summary')][2]: f"{averages_py.get('Penet_MAT_Actual', 0):.1f}%",
-                labels[(lang_index, 'Summary')][3]: f"{var_cliente_anual_y1*100:.1f}%" if pd.notna(var_cliente_anual_y1) else "0.0%",
-                labels[(lang_index, 'Summary')][4]: f"{var_kantar_anual_y1*100:.1f}%" if pd.notna(var_kantar_anual_y1) else "0.0%",
-                labels[(lang_index, 'Summary')][5]: (str(cov_anterior_val) if ROUND_COVERAGE else (f"{coverage_anterior:.1f}" if pd.notna(coverage_anterior) else "0.0")),
-                labels[(lang_index, 'Summary')][6]: (str(cov_actual_val) if ROUND_COVERAGE else (f"{coverage_actual:.1f}" if pd.notna(coverage_actual) else "0.0")),
-                labels[(lang_index, 'Summary')][7]: (str(estabilidad) if ROUND_COVERAGE else (f"{estabilidad:.1f}" if pd.notna(estabilidad) else "0.0"))
-            }
-             
-            df_summary_ppt.loc[len(df_summary_ppt)] = pd.Series(summary_row)
-
-        # --- 2.9) Generar Diapositivas ---
-        for p in pipelines_to_run:
-            # A) Slide de Cobertura y Penetración
-            slide_cov = ppt.slides.add_slide(ppt.slide_layouts[PPT_LAYOUT_INDEX])
-            # Añadir título al slide
-            tx_title_cov = slide_cov.shapes.title # Usar placeholder de título si existe
-            if tx_title_cov is None: # Si no hay placeholder de título, añadir textbox
-                 tx_title_cov = slide_cov.shapes.add_textbox(Inches(0.5), Inches(0.2), Inches(9), Inches(0.8)).text_frame # Ajustar tamaño/posición
-            else:
-                 tx_title_cov = tx_title_cov.text_frame # Acceder al text_frame si existe
-            t_cov = tx_title_cov.paragraphs[0]
-            t_cov.text = f"{marca_nombre_limpio} - Pipeline {p}"
-            t_cov.font.bold = True
-            t_cov.font.size = Inches(0.3)
-
-            # Extraer datos para el gráfico P
-            cov_series_p = df_coverage_py[f'P{p}'].dropna()
-            # Asegurar que la penetración tenga el mismo índice que la cobertura
-            pen_series_p = df_marca_ppt.set_index(COL_DATA)[COL_PENET].loc[cov_series_p.index]
-
-            generar_grafico_cobertura(slide_cov, marca_nombre_limpio, p,
-                                  cov_series_p, pen_series_p,
-                                  lang_index, cov_type, labels)
-
-            # B) Añadir tabla de Variación MAT Y-1 al slide de cobertura
-            var_cliente_p_mat = df_variations_py.loc[0, f'Cliente P{p}'] # Fila 0 es Anual Y-1
-            var_kantar_mat = df_variations_py.loc[0, 'WP by Numerator']
-
-            var_mat_data = {
-             " ": [f"VAR % MAT ({ref_month_year})"], # Fila 0, columna 'Tipo'/'Periodo'
-             f"{fabricante} {labels[(lang_index, 'Var')]} Pipeline {p}": [f"{var_cliente_p_mat*100:.1f}%" if pd.notna(var_cliente_p_mat) else "-"],
-             "Worldpanel by Numerator": [f"{var_kantar_mat*100:.1f}%" if pd.notna(var_kantar_mat) else "-"]
-            }
-            df_var_mat_table = pd.DataFrame(var_mat_data)
-
-            try:
-             # Exportar tabla como imagen
-             styler = df_var_mat_table.style
-             styler.set_table_styles([
-                 {'selector': '*',  'props': [('font-size', '10pt'), ('font-family','Calibri'), ('color','black'), ('border-style','solid'), ('border-width','1px'), ('text-align', 'center')]},
-                 {'selector': 'th', 'props': [('background-color','lightgray'), ('font-weight', 'bold')]},
-                 {'selector': 'td', 'props': [('padding', '2px 4px')]} # Añadir padding
-             ]).hide(axis="index") # Ocultar índice numérico
-
-             table_stream = io.BytesIO()
-             # Ajustar dpi y table_conversion según sea necesario
-             dfi.export(styler, table_stream, table_conversion='matplotlib', dpi=200)
-             table_stream.seek(0)
-             # Añadir imagen de la tabla al slide
-             #  slide_cov.shapes.add_picture(table_stream, Inches(0.5), Inches(1.1), height=Inches(0.6)) # Ajustar posición
-             img_pil = Image.open(table_stream)
-             bordered = ImageOps.expand(img_pil, border=2, fill='black')
-             img_stream_bordered = io.BytesIO()
-             bordered.save(img_stream_bordered, format='PNG')
-             img_stream_bordered.seek(0)
-             slide_cov.shapes.add_picture(img_stream_bordered, Inches(0.5), Inches(1.1), height=Inches(0.6))
-
-            except Exception as e:
-                print(f"{Fore.YELLOW}Advertencia: No se pudo generar la tabla de variación MAT para {marca_nombre_limpio} P{p}. Error: {e}")
-
-            # C) Slide de Tendencia (Sell-in vs Sell-out)
-            slide_trend = ppt.slides.add_slide(ppt.slide_layouts[PPT_LAYOUT_INDEX])
-            # Añadir título
-            tx_title_trend = slide_trend.shapes.title # Usar placeholder de título
-            if tx_title_trend is None:
-                 tx_title_trend = slide_trend.shapes.add_textbox(Inches(0.5), Inches(0.2), Inches(9), Inches(0.8)).text_frame
-            else:
-                 tx_title_trend = tx_title_trend.text_frame
-            t_trend = tx_title_trend.paragraphs[0]
-            t_trend.text = f"{marca_nombre_limpio} - Pipeline {p}"
-            t_trend.font.bold = True
-            t_trend.font.size = Inches(0.3)
-
-            generar_grafico_tendencia(
-                slide_trend, marca_nombre_limpio, p,
-                df_trend_plot, lang_index, labels,
-                doble_eje=(tipo_eje_tend == "doble"))
-
-            # D) Slide de Evolución Mensual y Variación YOY (si hay datos)
-            if len(df_marca_ppt) >= 24:
-                df_evol_plot = df_marca_ppt[[COL_DATA, COL_SELL_IN, COL_SELL_OUT]].copy()
-                df_evol_plot[COL_DATA] = pd.to_datetime(df_evol_plot[COL_DATA])
-
-                fig_evol = generar_grafico_evolucion_mensual(df_evol_plot, p, lang_index)
-
-                if fig_evol is not None:
-                    slide_evol = ppt.slides.add_slide(ppt.slide_layouts[PPT_LAYOUT_INDEX])
-                    # Añadir título
-                    tx_title_evol = slide_evol.shapes.title
-                    if tx_title_evol is None:
-                         tx_title_evol = slide_evol.shapes.add_textbox(Inches(0.5), Inches(0.2), Inches(9), Inches(0.8)).text_frame
-                    else:
-                         tx_title_evol = tx_title_evol.text_frame
-                    t_evol = tx_title_evol.paragraphs[0]
-                    if lang_index == 3:  # EN
-                        t_evol.text = f"{marca_nombre_limpio} - Pipeline {p} - Monthly Evolution and YoY Variation"
-                    elif lang_index == 1:  # PT
-                        t_evol.text = f"{marca_nombre_limpio} - Pipeline {p} - Evolução Mensal e Variação"
-                    else:  # ES
-                        t_evol.text = f"{marca_nombre_limpio} - Pipeline {p} - Evolución Mensual y Variación"
-                    t_evol.font.bold = True
-                    t_evol.font.size = Inches(0.3)
-
-                    # Ajustar el tamaño del gráfico                    
-                    # Guardar gráfico en memoria y añadir al slide (ajustando al ANCHO del slide)
-                    img_stream_evol = io.BytesIO()
-                    fig_evol.savefig(img_stream_evol, format='png', dpi=240, bbox_inches='tight', pad_inches=0.08, transparent=True)
-                    img_stream_evol.seek(0)
-
-                    left = Inches(0.1)                     # margen izquierdo (y derecho)
-                    usable_w = ppt.slide_width - 2*left    # ancho útil del slide (en EMUs)
-
-                    slide_evol.shapes.add_picture(
-                        img_stream_evol,
-                        left,
-                        Inches(1.0),                       # top
-                        width=usable_w                     # << clave: ajustar por ancho
-                    )
-
-                    plt.close(fig_evol)
-
-                    progress.update(progress_task, advance=1)
-            progress.update(progress_task, advance=1)
-            progress.update(progress_task, advance=1)
-
-
-# --- 2.10) Creación del slide "Summary" ---
-print(Fore.CYAN + "\nAgregando slide de resumen...")
-slide_summary = ppt.slides.add_slide(ppt.slide_layouts[PPT_LAYOUT_INDEX])
-# Título
-tx_title_summary = slide_summary.shapes.title
-if tx_title_summary is None:
-     tx_title_summary = slide_summary.shapes.add_textbox(Inches(0.5), Inches(0.2), Inches(9), Inches(0.8)).text_frame
-else:
-     tx_title_summary = tx_title_summary.text_frame
-t_summary = tx_title_summary.paragraphs[0]
-t_summary.text = f"Summary - {pais_nombre} {categoria_nombre} - {coverage_label}"
-t_summary.font.bold = True
-t_summary.font.size = Inches(0.35)
-
-# Añadir texto S1 si es necesario
-tx_s1 = slide_summary.shapes.add_textbox(Inches(0.5), Inches(6.8), Inches(9), Inches(0.5)) # Posición inferior
-tf_s1 = tx_s1.text_frame
-t_s1 = tf_s1.add_paragraph()
-t_s1.text = labels.get((lang_index, 'S1'), '')
-t_s1.font.size = Inches(0.18)
-
-# --- AGREGAR CUADRO DE TEXTO PARA COMENTARIOS ---
-# Puedes ajustar la posición y tamaño según lo necesites
-comentarios_box = slide_summary.shapes.add_textbox(Inches(0.5), Inches(6.0), Inches(8.5), Inches(0.7))
-comentarios_frame = comentarios_box.text_frame
-comentarios_frame.word_wrap = True
-comentarios_frame.auto_size = True
-comentarios_frame.text = "Comentarios:"  # Texto inicial, el usuario puede editarlo después en PowerPoint
-
-
-# Crear tabla de resumen como imagen
-if not df_summary_ppt.empty:
-    try:
-        # Aplicar estilo a la tabla resumen
-        styler_summary = df_summary_ppt.style
-        styler_summary.set_table_styles([
-            {'selector': '*', 'props': [('font-size', '9pt'), ('font-family','Calibri'), ('color', 'black'), ('border-style', 'solid'), ('border-width', '1px'), ('text-align', 'center')]},
-            {'selector': 'th', 'props': [('background-color', '#D9E1F2'), ('font-weight', 'bold'), ('border-width', '1px'), ('padding', '3px 5px')]}, # Cabecera azul claro
-            {'selector': 'td', 'props': [('border-width', '1px'), ('padding', '3px 5px')]}
-        ]).hide(axis="index")
-
-        summary_table_stream = io.BytesIO()
-        dfi.export(styler_summary, summary_table_stream, table_conversion='matplotlib', dpi=250) # Aumentar dpi si es necesario
-        summary_table_stream.seek(0)
-
-        # Añadir imagen de la tabla al slide (ajustar tamaño y posición)
-        # Calcular altura necesaria basada en número de filas
-        n_rows_summary = len(df_summary_ppt)
-        img_height_inch = min(5.5, 0.3 + n_rows_summary * 0.25) # Ajustar multiplicador según tamaño de fuente/padding
-        img_width_inch = 9.0 # Ancho
-
-        # Abrir imagen de la tabla y añadir borde
-        img_pil = Image.open(summary_table_stream)
-        bordered = ImageOps.expand(img_pil, border=2, fill='black')
-        img_stream_bordered = io.BytesIO()
-        bordered.save(img_stream_bordered, format='PNG')
-        img_stream_bordered.seek(0)
-
-        # --- INSERTAR TABLA AJUSTADA AL ANCHO DEL SLIDE ---
-        left = Inches(0.5)   # margen lateral mediano - Ajuste equilibrado para no saturar
-        top  = Inches(1.0)
-
-        # ancho útil del slide (EMU), auto-centrado
-        usable_w = ppt.slide_width - 2*left
-        final_left = int((ppt.slide_width - usable_w) // 2)
-
-        slide_summary.shapes.add_picture(
-            img_stream_bordered,
-            final_left,
-            top,
-            width=usable_w        # clave: fijamos solo el ancho; mantiene aspecto
+    # --- Pipelines ---------------------------------------------------------------
+    def add_pipeline_slides(
+        self,
+        assets: PipelineAssets,
+        marca_nombre_limpio: str,
+        lang_index: int,
+        coverage_label: str,
+        progress: Optional["Progress"] = None,
+        task_id: Optional[int] = None,
+    ) -> int:
+        slides_created = 0
+        slide_cov = self.ppt.slides.add_slide(self.ppt.slide_layouts[PPT_LAYOUT_INDEX])
+        tx_title_cov = ensure_title_frame(slide_cov)
+        p_cov = tx_title_cov.paragraphs[0]
+        p_cov.text = f"{marca_nombre_limpio} - Pipeline {assets.pipeline}"
+        p_cov.font.bold = True
+        p_cov.font.size = Pt(24)
+        generar_grafico_cobertura(
+            slide_cov,
+            marca_nombre_limpio,
+            assets.pipeline,
+            assets.coverage_series,
+            assets.penetration_series,
+            lang_index,
+            coverage_label,
+            self.labels,
         )
-    except Exception as e:
-        print(f"{Fore.YELLOW}Advertencia: No se pudo generar la tabla resumen en el PPT. Error: {e}")
-else:
-    print(f"{Fore.YELLOW}Advertencia: No hay datos para generar la tabla resumen en el PPT.")
+        try:
+            table_stream = dataframe_to_bordered_stream(assets.variation_table, hide_index=True, dpi=200)
+            slide_cov.shapes.add_picture(table_stream, Inches(0.5), Inches(1.1), height=Inches(0.6))
+        except Exception as exc:
+            print(f"{Fore.YELLOW}Advertencia: No se pudo generar la tabla de variación MAT para {marca_nombre_limpio} P{assets.pipeline}. Error: {exc}")
+        slides_created += 1
+        if progress and task_id is not None:
+            progress.update(task_id, advance=1)
+        slide_trend = self.ppt.slides.add_slide(self.ppt.slide_layouts[PPT_LAYOUT_INDEX])
+        tx_title_trend = ensure_title_frame(slide_trend)
+        p_trend = tx_title_trend.paragraphs[0]
+        p_trend.text = f"{marca_nombre_limpio} - Pipeline {assets.pipeline}"
+        p_trend.font.bold = True
+        p_trend.font.size = Pt(24)
+        generar_grafico_tendencia(
+            slide_trend,
+            marca_nombre_limpio,
+            assets.pipeline,
+            assets.trend_plot_df,
+            lang_index,
+            self.labels,
+            doble_eje=(self.tipo_eje_tend == "doble"),
+        )
+        slides_created += 1
+        if progress and task_id is not None:
+            progress.update(task_id, advance=1)
+        if assets.evolution_figure is not None:
+            slide_evol = self.ppt.slides.add_slide(self.ppt.slide_layouts[PPT_LAYOUT_INDEX])
+            tx_title_evol = ensure_title_frame(slide_evol)
+            p_evol = tx_title_evol.paragraphs[0]
+            if lang_index == 3:
+                p_evol.text = f"{marca_nombre_limpio} - Pipeline {assets.pipeline} - Monthly Evolution and YoY Variation"
+            elif lang_index == 1:
+                p_evol.text = f"{marca_nombre_limpio} - Pipeline {assets.pipeline} - Evolução Mensal e Variação"
+            else:
+                p_evol.text = f"{marca_nombre_limpio} - Pipeline {assets.pipeline} - Evolución Mensual y Variación"
+            p_evol.font.bold = True
+            p_evol.font.size = Pt(24)
+            buffer = io.BytesIO()
+            assets.evolution_figure.savefig(buffer, format="png", dpi=240, bbox_inches="tight", pad_inches=0.08, transparent=True)
+            plt.close(assets.evolution_figure)
+            buffer.seek(0)
+            left = Inches(0.1)
+            usable_w = self.ppt.slide_width - 2 * left
+            slide_evol.shapes.add_picture(buffer, left, Inches(1.0), width=usable_w)
+            slides_created += 1
+            if progress and task_id is not None:
+                progress.update(task_id, advance=1)
+        return slides_created
 
+    # --- Resumen -----------------------------------------------------------------
+    def add_summary_slide(
+        self,
+        df_summary: "pd.DataFrame",
+        pais_nombre: str,
+        categoria_nombre: str,
+    ) -> None:
+        slide_summary = self.ppt.slides.add_slide(self.ppt.slide_layouts[PPT_LAYOUT_INDEX])
+        title_frame = ensure_title_frame(slide_summary)
+        p = title_frame.paragraphs[0]
+        p.text = f"Summary - {pais_nombre} {categoria_nombre} - {self.coverage_label}"
+        p.font.bold = True
+        p.font.size = Pt(26)
+        tx_s1 = slide_summary.shapes.add_textbox(Inches(0.5), Inches(6.8), Inches(9), Inches(0.5))
+        s1_frame = tx_s1.text_frame
+        s1_frame.text = self.labels.get((self.lang_index, "S1"), "")
+        comentarios_box = slide_summary.shapes.add_textbox(Inches(0.5), Inches(6.0), Inches(8.5), Inches(0.7))
+        comentarios_frame = comentarios_box.text_frame
+        comentarios_frame.word_wrap = True
+        comentarios_frame.auto_size = True
+        comentarios_frame.text = "Comentarios:"
+        if df_summary.empty:
+            print(f"{Fore.YELLOW}Advertencia: No hay datos para generar la tabla de resumen en el PPT.")
+            return
+        try:
+            summary_stream = dataframe_to_bordered_stream(df_summary, hide_index=True, dpi=250)
+            left = Inches(0.5)
+            top = Inches(1.0)
+            usable_w = self.ppt.slide_width - 2 * left
+            final_left = int((self.ppt.slide_width - usable_w) // 2)
+            slide_summary.shapes.add_picture(summary_stream, final_left, top, width=usable_w)
+        except Exception as exc:
+            print(f"{Fore.YELLOW}Advertencia: No se pudo generar la tabla resumen en el PPT. Error: {exc}")
 
-# --- 2.11) Guardar PPT y Banco ---
-try:
-    # Insertar texto de agradecimiento en slide 7 (índice 6) con estilo de portada
-    try:
-        thanks_map = {'ES': 'Gracias', 'PT': 'Obrigado(a)', 'EN': 'Thank you'}
-        thanks_txt = thanks_map.get(chosen_lang, 'Gracias')
-        slide7 = ppt.slides[6]
-        text_left = Inches(0.5)
-        text_top = Inches(2.2)
-        text_width = Inches(9)
-        text_height = Inches(2.5)
-        tb = slide7.shapes.add_textbox(text_left, text_top, text_width, text_height)
+    # --- Post-procesamiento -------------------------------------------------------
+    def insert_thanks_text(self, chosen_lang: str) -> None:
+        thanks_map = {"ES": "Gracias", "PT": "Obrigado(a)", "EN": "Thank you"}
+        thanks_txt = thanks_map.get(chosen_lang, "Gracias")
+        if len(self.ppt.slides) <= 6:
+            return
+        slide7 = self.ppt.slides[6]
+        tb = slide7.shapes.add_textbox(Inches(0.5), Inches(2.2), Inches(9), Inches(2.5))
         tf7 = tb.text_frame
         tf7.clear()
         p = tf7.add_paragraph()
@@ -2442,68 +1498,967 @@ try:
         p.font.bold = True
         p.font.color.rgb = RGBColor(255, 255, 255)
         p.alignment = 1
-        # Validación simple de presencia del texto
-        found_thanks = False
-        for shp in slide7.shapes:
-            try:
-                if getattr(shp, 'has_text_frame', False) and shp.text_frame and shp.text_frame.text:
-                    if shp.text_frame.text.strip() == thanks_txt:
-                        found_thanks = True
-                        break
-            except Exception:
+
+    def reorder_summary_and_credit(self) -> None:
+        if len(self.ppt.slides) > 1:
+            summary_slide_xml = self.ppt.slides._sldIdLst[-1]
+            insert_idx = 7 if len(self.ppt.slides) > 7 else len(self.ppt.slides) - 1
+            self.ppt.slides._sldIdLst.insert(insert_idx, summary_slide_xml)
+        if len(self.ppt.slides) > 7:
+            credit_slide_xml = self.ppt.slides._sldIdLst[6]
+            self.ppt.slides._sldIdLst.append(credit_slide_xml)
+
+
+def parse_file_metadata(excel_file_name: str, categories_df: "pd.DataFrame") -> Tuple[str, str, str, str, str]:
+    """Obtiene país, cesta y categoría a partir del nombre del archivo."""
+    parts = os.path.splitext(excel_file_name)[0].split('_')
+    if len(parts) < 3:
+        raise ValueError("El nombre de archivo no contiene suficientes partes (país_categoria_fabricante)")
+    country_code_str, category_code, fabricante = parts[:3]
+    try:
+        country_code = int(country_code_str)
+    except ValueError as exc:
+        raise ValueError(f"El código de país '{country_code_str}' no es numérico") from exc
+    try:
+        pais_nombre = str(pais.loc[pais.cod == country_code, 'pais'].iloc[0]).strip()
+    except Exception as exc:
+        raise ValueError(f"No se encontró el país para el código {country_code_str}") from exc
+    if category_code not in categories_df.index:
+        raise ValueError(f"El código de categoría '{category_code}' no está en el catálogo")
+    cesta_nombre = categories_df.loc[category_code, 'cest']
+    categoria_nombre = categories_df.loc[category_code, 'cat']
+    try:
+        dash_split = re.split(r"\s*[-‑–—−‒]\s*", str(categoria_nombre), maxsplit=1)
+        categoria_corta = dash_split[0].strip() if dash_split else str(categoria_nombre).strip()
+        if not categoria_corta:
+            categoria_corta = str(categoria_nombre).strip()
+    except Exception:
+        categoria_corta = str(categoria_nombre).strip()
+    return pais_nombre, cesta_nombre, categoria_nombre, categoria_corta, fabricante
+
+
+def ensure_output_folder(root_dir: str, nombre_base_archivo: str) -> str:
+    carpeta_salida = os.path.join(root_dir, nombre_base_archivo)
+    if not os.path.exists(carpeta_salida):
+        os.makedirs(carpeta_salida, exist_ok=True)
+    return carpeta_salida
+
+
+
+def copy_and_prune_template(root_dir: str, chosen_lang: str) -> Tuple["Presentation", str]:
+    """Copia la plantilla base, elimina slides según idioma y devuelve la presentación lista."""
+    run_id = os.environ.get('RUN_ID') or datetime.now().strftime('%Y%m%d_%H%M%S')
+    tmp_dir = os.path.join(root_dir, 'tmp')
+    os.makedirs(tmp_dir, exist_ok=True)
+    src_template_path = os.path.join(root_dir, 'Modelo_PPT.pptx')
+    if not os.path.exists(src_template_path):
+        raise FileNotFoundError(f"No se encontró la plantilla base: {src_template_path}")
+    tmp_ppt_name = f"Modelo_PPT_{run_id}_{chosen_lang}.pptx"
+    tmp_ppt_path = os.path.join(tmp_dir, tmp_ppt_name)
+    shutil.copyfile(src_template_path, tmp_ppt_path)
+    ppt = Presentation(tmp_ppt_path)
+    keep_indices_by_lang = {
+        'ES': {0, 1, 2, 3, 4, 5, 16},
+        'PT': {0, 6, 7, 8, 9, 10, 16},
+        'EN': {0, 11, 12, 13, 14, 15, 16},
+    }
+    keep_set = keep_indices_by_lang.get(chosen_lang, keep_indices_by_lang['ES'])
+    total_initial = len(ppt.slides)
+    delete_list = sorted([i for i in range(total_initial) if i not in keep_set], reverse=True)
+    for di in delete_list:
+        _delete_slide(ppt, di)
+    ppt.save(tmp_ppt_path)
+    return Presentation(tmp_ppt_path), tmp_ppt_path
+
+
+def _delete_slide(pres_obj: "Presentation", idx: int) -> None:
+    """Elimina un slide usando la API protegida de python-pptx."""
+    sldIdLst = pres_obj.slides._sldIdLst  # type: ignore[attr-defined]
+    sldId = sldIdLst[idx]
+    rId = sldId.rId
+    pres_obj.part.drop_rel(rId)
+    sldIdLst.remove(sldId)
+
+
+def generate_excel_template(
+    root_dir: str,
+    excel_file_obj: 'pd.ExcelFile',
+    marcas: Sequence[str],
+    pais_nombre: str,
+    categoria_nombre: str,
+    categoria_nombre_corto: str,
+    fabricante: str,
+    coverage_label: str,
+    coverage_type: str,
+    coverage_reason: str
+) -> Tuple[str, str, str, str]:
+    """Genera el archivo Excel temporal y devuelve datos clave."""
+    print(Fore.CYAN + "\nGenerando archivo Excel temporal...")
+    excel_temp_path = os.path.join(root_dir, EXCEL_TEMP_FILENAME)
+    try:
+        with pd.ExcelWriter(excel_temp_path) as writer:
+            # Recorrer cada hoja (marca) del archivo
+            for marca_sheet_name in tqdm(marcas, desc="Procesando Hojas Excel"):
+
+                # 1.1) Carga y preprocesa la hoja usando la función refactorizada
+                df_marca, measure_unit = load_and_preprocess_sheet(excel_file_obj, marca_sheet_name)
+
+                # Si la carga falló, continuar con la siguiente hoja
+                if df_marca is None:
+                    continue
+
+                # Guardar número original de filas de datos para fórmulas Excel
+                original_data_rows = len(df_marca)
+                if original_data_rows < 12:
+                    print(f"{Fore.YELLOW}Advertencia: Hoja '{marca_sheet_name}' tiene < 12 meses de datos ({original_data_rows}). Algunos cálculos de Excel pueden fallar o dar NaN.")
+                    # Continuar de todos modos, pero con precaución
+
+                # Actualizar fecha de referencia global (usará la de la última hoja procesada con éxito)
+                ref_month_year = df_marca[COL_DATA].iloc[-1].strftime('%m-%y')
+
+                # --- 1.5) Creación de columnas con fórmulas Excel ---
+                df_excel = df_marca.copy() # Trabajar sobre una copia para Excel
+                # Hacer los índices basados en 1 y añadir offset de header (fila 1)
+                excel_row_offset = 2
+
+                # Sell_in_sim (Ejemplo - ajustable manualmente en Excel si se necesita)
+                # La fórmula asume que Sell_in está en la columna B
+                df_excel[COL_SELL_IN_SIM] = [f"=B{r}" for r in range(excel_row_offset, original_data_rows + excel_row_offset)] + [np.nan] * (len(df_excel) - original_data_rows)
+
+                # Acumulados (MAT - Moving Annual Total) - comienzan desde la fila 12 de datos
+                # Las fórmulas asumen Sell_out en C y Sell_in_sim en L
+                for i in range(11, original_data_rows):
+                    row_excel = i + excel_row_offset
+                    df_excel.loc[i, COL_ACUM_SELL_OUT] = f"=SUM(C{row_excel - 11}:C{row_excel})"
+                    df_excel.loc[i, COL_ACUM_SELL_IN] = f"=SUM(L{row_excel - 11}:L{row_excel})" # Usa Sell_in_sim (L)
+
+                # --- 1.6) Cálculo de coberturas (pipeline 0 a 6) en Excel ---
+                pop_value_str = pop_coverage.get(pais_nombre, DEFAULT_POP_COVERAGE)
+                cov_formulas_list = []
+                max_rows_excel = original_data_rows + excel_row_offset -1 # Última fila con datos en Excel
+
+                for r_idx in range(original_data_rows): # Iterar sobre índices de datos (0 a N-1)
+                    excel_current_row = r_idx + excel_row_offset
+                    row_formulas = {}
+                    if r_idx >= 11: # Cobertura solo se calcula desde el mes 12
+                        for p in range(7): # Pipelines P0 a P6
+                            # Fila de Excel para el numerador (Acum_Sell_in) - con pipeline
+                            num_row_excel = excel_current_row + p
+                            # Fila de Excel para el denominador (Acum_Sell_out) - sin pipeline
+                            den_row_excel = excel_current_row
+
+                            # Verificar que las filas referenciadas existan
+                            if num_row_excel <= max_rows_excel and den_row_excel <= max_rows_excel:
+                                # La fórmula asume Acum_Sell_in en N y Acum_Sell_out en M
+                                #anterior  m{den_row_excel}/n{num_row_excel}*100
+                                base_formula = f"M{num_row_excel}/N{den_row_excel}*100"
+                                if coverage_type == "relativa":
+                                    # CORRECCIÓN: Cambiar formato de porcentaje y usar NA()
+                                    pop_value_decimal = float(pop_value_str.replace("%", "")) / 100
+                                    formula = f"=IFERROR(({base_formula})/{pop_value_decimal},NA())"
+                                else:
+                                    formula = f"=IFERROR({base_formula},NA())"
+                                row_formulas[f'P{p}'] = formula
+                            else:
+                                 row_formulas[f'P{p}'] = np.nan # O "" o NA()
+                    else:
+                        # Rellenar con NaN para las primeras 11 filas
+                        for p in range(7):
+                             row_formulas[f'P{p}'] = np.nan
+
+                    cov_formulas_list.append(row_formulas)
+
+                df_cov_excel = pd.DataFrame(cov_formulas_list, index=df_excel.index[:original_data_rows])
+
+                # Escalonar las columnas de cobertura
+                df_cov_excel_scaled = df_cov_excel.copy()
+                escalona(df_cov_excel_scaled) # Escalonar la copia
+
+
+
+
+    # -------------------------------------------------------
+                # 1.7 & 1.8) Cálculo de variaciones (Y-1 e Y-2) en Excel
+                # -------------------------------------------------------
+
+                # ► VARIABLES EXTRA que tu código “heredado” sigue ocupando
+                n_data          = original_data_rows                            # filas con datos
+                last_row_excel  = n_data + excel_row_offset - 1                 # última fila real en Excel
+
+                # ---------- Y-1 -------------------------------------------------
+                var = pd.DataFrame([
+                    ['Anual',      "MAT " + df_excel.loc[original_data_rows-1, COL_DATA].strftime('%b-%y') +
+                                " x MAT " + df_excel.loc[original_data_rows-1-12, COL_DATA].strftime('%b-%y')],
+                    ['Semestral',  "SEM " + df_excel.loc[original_data_rows-1, COL_DATA].strftime('%b-%y') +
+                                " x SEM " + df_excel.loc[original_data_rows-1-6,  COL_DATA].strftime('%b-%y')],
+                    ['Trimestral', "TRI " + df_excel.loc[original_data_rows-1, COL_DATA].strftime('%b-%y') +
+                                " x TRI " + df_excel.loc[original_data_rows-1-3,  COL_DATA].strftime('%b-%y')]
+                ], columns=['Tipo', 'Periodo'])
+
+                # Variaciones WP by Numerator
+                var['WP by Numerator'] = [
+                    f"=SUM(C{original_data_rows+excel_row_offset-i - 2}:C{original_data_rows+excel_row_offset-1})/"
+                    f"SUM(C{original_data_rows+excel_row_offset-2*j -2 }:C{original_data_rows+excel_row_offset-j - 2})-1"
+                    for i, j in zip([10, 4, 1], [11, 5, 2])
+                ]
+
+                # Variaciones Cliente
+                for p in range(7):
+                    var[f'Cliente P{p}'] = [
+                        f"=SUM(L{original_data_rows+excel_row_offset-i-p -2}:L{original_data_rows+excel_row_offset-p -1})/"
+                        f"SUM(L{original_data_rows+excel_row_offset-2*j-p -2}:L{original_data_rows+excel_row_offset-j-p -2})-1"
+                        for i, j in zip([10, 4, 1], [11, 5, 2])
+                    ]
+
+                # ---------- Y-2 -------------------------------------------------
+                # Ventanas: MAT=12, SEM=6, TRI=3  (todas comparadas contra el mismo tamaño W, 24 meses antes)
+                periods = [
+                    ('Anual',      12,  24),   # (nombre, meses_ventana, lag_meses)
+                    ('Semestral',   6,  24),
+                    ('Trimestral',  3,  24),
+                ]
+
+                # Texto de periodo (tu formato actual)
+                aux = pd.DataFrame([
+                    ['Anual',      "MAT " + df_excel.loc[original_data_rows-1,     COL_DATA].strftime('%b-%y') +
+                                " x MAT " + df_excel.loc[original_data_rows-1-24, COL_DATA].strftime('%b-%y')],
+                    ['Semestral',  "SEM " + df_excel.loc[original_data_rows-1,     COL_DATA].strftime('%b-%y') +
+                                " x SEM " + df_excel.loc[original_data_rows-1-24, COL_DATA].strftime('%b-%y')],
+                    ['Trimestral', "TRI " + df_excel.loc[original_data_rows-1,     COL_DATA].strftime('%b-%y') +
+                                " x TRI " + df_excel.loc[original_data_rows-1-24, COL_DATA].strftime('%b-%y')]
+                ], columns=['Tipo', 'Periodo'])
+
+                def rango_excel(end_row: int, meses: int) -> tuple[int, int]:
+                    """Devuelve (inicio, fin) inclusivo para una ventana de 'meses' que termina en 'end_row'."""
+                    return end_row - (meses - 1), end_row
+
+                def formula_yoy_excel(col: str, end_row: int, meses: int, lag_meses: int) -> str:
+                    """
+                    = SUM( col[num_ini:num_fin] ) / SUM( col[den_ini:den_fin] ) - 1
+                    donde el denominador termina en end_row - lag_meses y tiene el mismo tamaño 'meses'.
+                    """
+                    # Numerador: ventana actual (tamaño 'meses') que termina en end_row
+                    num_ini, num_fin = rango_excel(end_row, meses)
+                    # Denominador: misma ventana 'meses', pero que termina 'lag_meses' antes
+                    den_fin = end_row - lag_meses
+                    den_ini, den_fin = rango_excel(den_fin, meses)
+                    return f"=SUM({col}{num_ini}:{col}{num_fin})/SUM({col}{den_ini}:{col}{den_fin})-1"
+
+                # Reglas de suficiencia de datos por ventana para Y-2:
+                #  - MAT (12): requiere >= 12 + 24 = 36 meses
+                #  - SEM (6):  requiere >= 6  + 24 = 30 meses
+                #  - TRI (3):  requiere >= 3  + 24 = 27 meses
+
+                # ► WP by Numerator (columna C)
+                wp_y2_formulas = []
+                for _, meses, lag in periods:
+                    required = meses + lag
+                    if n_data >= required:
+                        wp_y2_formulas.append(formula_yoy_excel("C", last_row_excel, meses, lag))
+                    else:
+                        wp_y2_formulas.append("-")
+                aux['WP by Numerator'] = wp_y2_formulas
+
+                # ► Clientes P0..P6 (columna L), ajustando el fin por 'p'
+                for p in range(7):
+                    end_row_p = last_row_excel - p
+                    cli_y2 = []
+                    for _, meses, lag in periods:
+                        required = meses + lag
+                        # Suficiencia: descontamos 'p' del total disponible para ese cliente
+                        if (n_data - p) >= required:
+                            cli_y2.append(formula_yoy_excel("L", end_row_p, meses, lag))
+                        else:
+                            cli_y2.append("-")
+                    aux[f'Cliente P{p}'] = cli_y2
+
+                # Limpiar variaciones sin sentido
+                if 42 - original_data_rows >= 0:
+                    for i in range(abs(42 - original_data_rows)):
+                        aux.loc[0, f'Cliente P{6 - i}'] = np.nan
+
+
+                # ---------- Unir Y-1 y Y-2 --------------------------------------
+                df_variations_excel = pd.concat([var, aux], ignore_index=True)
+
+
+
+                # --- 1.9) Cálculo de correlaciones en Excel (MAT) ---
+                # Se genera un diccionario con fórmulas de correlación para cada pipeline (P0 a P6)
+                # Se construyen fórmulas Excel que calculan la correlación Pearson entre dos rangos de 12 filas:
+                #   uno en la columna M y otro en la columna N, considerando el desplazamiento (pipeline).
+                # Los índices son base 1 y se garantiza que cada rango tenga exactamente 12 filas; de lo contrario, se asigna '-'.
+            
+                # ---------- Correlaciones: 12m, 2 años antes (12m terminando hace 24m), 2 años (ventana 24m) ----------
+
+                def _build_correl_row(label: str, window: int, end_offset: int = 0) -> dict:
+                    """
+                    Genera una fila de correlaciones entre M y N para:
+                    - window: tamaño de ventana (12 o 24)
+                    - end_offset: 0 = ventana termina en last_row_excel (reciente)
+                                    24 = ventana termina 24 meses antes (para '2 años antes')
+                    N se alinea con M desplazando p filas hacia arriba (n_start = m_start - p).
+                    Si no hay suficientes datos para esa p y esa ventana, devuelve '-'.
+                    """
+                    row = {'Correlacion': label}
+
+                    # ¿Hay datos suficientes para esta ventana y desplazamiento?
+                    if n_data >= window + end_offset:
+                        # Ventana base en M
+                        row_ini = last_row_excel - end_offset - (window - 1)
+                        row_fin = last_row_excel - end_offset
+
+                        # Respetar que la fila 1 es encabezado
+                        m_start = max(row_ini, 2)
+                        m_end   = max(row_fin, 2)
+
+                        for p in range(0, 7):  # P0..P6
+                            n_start = max(row_ini - p, 2)
+                            n_end   = max(row_fin - p, 2)
+
+                            # Ambas ventanas deben tener exactamente 'window' filas
+                            if (m_end - m_start + 1 == window) and (n_end - n_start + 1 == window):
+                                # Usa coma ',' en argumentos; función en inglés 'CORREL' como en tu flujo actual
+                                row[f'P{p}'] = f"=CORREL(M{m_start}:M{m_end},N{n_start}:N{n_end})"
+                            else:
+                                row[f'P{p}'] = '-'
+                    else:
+                        for p in range(0, 7):
+                            row[f'P{p}'] = '-'
+
+                    return row
+
+                # Construye las 3 filas en el orden solicitado
+                rows = [
+                    _build_correl_row('Año Actual', 12, end_offset=0),                   # últimos 12 meses
+                    _build_correl_row('1 año antes', 12, end_offset=12),           # 12 meses que terminaron hace 12 meses (Año anterior)
+                    _build_correl_row('2 años (ventana de 24 meses)', 24, 0),       # últimos 24 meses
+                ]
+
+                # Ordenar columnas: Correlacion, P0..P6 (incluye P6)
+                cols = ['Correlacion'] + [f'P{i}' for i in range(7)]
+                df_correlations_excel = pd.DataFrame(rows)[cols]
+
+
+
+
+                # --- 1.10) Promedio de Penetración y Buyers (MAT) en Excel ---
+                avg_formulas = []
+                # MAT Actual
+                if n_data >= 12:
+                     start_avg_curr = last_row_excel - 11
+                     end_avg_curr = last_row_excel
+                     # Asume Penet en G, Buyers en H
+                     avg_formulas.append({'Media': 'Penet MAT Actual', 'Valor': f"=AVERAGE(G{start_avg_curr}:G{end_avg_curr})"})
+                     avg_formulas.append({'Media': 'Buyers MAT Actual', 'Valor': f"=AVERAGE(H{start_avg_curr}:H{end_avg_curr})"})
+                else:
+                     avg_formulas.append({'Media': 'Penet MAT Actual', 'Valor': f"=AVERAGE(G{excel_row_offset}:G{last_row_excel})"}) # Promedio de lo disponible
+                     avg_formulas.append({'Media': 'Buyers MAT Actual', 'Valor': f"=AVERAGE(H{excel_row_offset}:H{last_row_excel})"})
+
+                # MAT Anterior
+                if n_data >= 24:
+                     start_avg_prev = last_row_excel - 23
+                     end_avg_prev = last_row_excel - 12
+                     avg_formulas.append({'Media': 'Penet MAT Anterior', 'Valor': f"=AVERAGE(G{start_avg_prev}:G{end_avg_prev})"})
+                     avg_formulas.append({'Media': 'Buyers MAT Anterior', 'Valor': f"=AVERAGE(H{start_avg_prev}:H{end_avg_prev})"})
+                else:
+                     avg_formulas.append({'Media': 'Penet MAT Anterior', 'Valor': np.nan}) # O NA()
+                     avg_formulas.append({'Media': 'Buyers MAT Anterior', 'Valor': np.nan})
+
+                df_averages_excel = pd.DataFrame(avg_formulas)
+
+
+                # --- 1.11) Calcular Estabilidad en Excel ---
+                # Diferencia entre última cobertura y cobertura de hace 12 meses
+                estab_data = {"Estabilidad": "Estabilidad"}
+                # Asume Cobertura P0-P6 en columnas O a U (después de escalonar)
+                coverage_start_col_letter = 'O'
+                coverage_start_col_idx = 15 # Col O es la 15
+
+                last_data_row_idx = original_data_rows -1 # Índice base 0
+
+                for p in range(7):
+                     col_letter = get_column_letter(coverage_start_col_idx + p)
+                     row_last_cov = last_row_excel - p
+                     row_prev_cov = row_last_cov - 12
+
+                     # Verificar si las filas son válidas y si hay suficientes datos
+                     if row_last_cov >= excel_row_offset and row_prev_cov >= excel_row_offset and (original_data_rows >= 23+p):
+                         # CORRECCIÓN: Usar IFERROR y NA()
+                         formula = f"=IFERROR({col_letter}{row_last_cov}-{col_letter}{row_prev_cov},NA())"
+                         estab_data[f'P{p}'] = formula
+                     else:
+                         estab_data[f'P{p}'] = np.nan
+            
+                # Crear DataFrame para estabilidad
+                df_stability_excel = pd.DataFrame([estab_data])
+
+                # --- 1.12) Ensamblar DataFrame final para Excel ---
+                # Unir datos originales con coberturas escalonadas
+                df_excel_final = pd.concat([df_excel, df_cov_excel_scaled], axis=1)
+
+                # Crear la sección de resumen (Variaciones, Promedios, Correlación, Estabilidad)
+                # Añadir filas vacías y reorganizar
+                df_variations_excel['spacer1'] = np.nan
+                # df_averages_excel['spacer2'] = np.nan
+                df_correlations_excel['spacer3'] = np.nan
+
+                # Aplanar las tablas de resumen para concatenarlas horizontalmente
+                summary_part1 = df_variations_excel.T.reset_index().T # Variaciones
+                summary_part2 = df_averages_excel.T.reset_index().T   # Promedios
+                summary_part3 = df_correlations_excel.T.reset_index().T # Correlaciones
+                summary_part4 = df_stability_excel.T.reset_index().T  # Estabilidad
+
+                # Crear un DataFrame vacío con el número correcto de columnas para alinear
+                max_cols = df_excel_final.shape[1]
+                summary_placeholder = pd.DataFrame(np.nan, index=range(max(len(summary_part1), len(summary_part2), len(summary_part3), len(summary_part4))), columns=df_excel_final.columns)
+
+                # Rellenar el placeholder (esto requiere manejo cuidadoso de índices y columnas)
+                # Simplificación: Crear el df_excel_summary_part como antes y concatenar al final
+                df_excel_summary_part = pd.concat([df_variations_excel.reset_index(drop=True),
+                                                  df_averages_excel.reset_index(drop=True),
+                                                  df_correlations_excel.reset_index(drop=True),
+                                                  df_stability_excel.reset_index(drop=True)], axis=1)
+
+                # Añadir fila vacía de separación
+                df_excel_final.loc[len(df_excel_final)] = [np.nan] * len(df_excel_final.columns)
+
+                # Añadir nombres de columnas del resumen como cabecera
+                summary_header = pd.DataFrame([df_excel_summary_part.columns], columns=df_excel_summary_part.columns)
+                df_excel_summary_part_with_header = pd.concat([summary_header, df_excel_summary_part], ignore_index=True)
+
+                # Ajustar columnas del resumen para que coincidan con el df principal y concatenar
+                # --- INICIO CAMBIO ---
+                # Si el número de columnas no coincide, agrega columnas vacías
+                n_main_cols = df_excel_final.shape[1]
+                n_summary_cols = df_excel_summary_part_with_header.shape[1]
+                if n_summary_cols < n_main_cols:
+                    # Agrega columnas vacías al resumen
+                    for i in range(n_summary_cols, n_main_cols):
+                        df_excel_summary_part_with_header[f'empty_{i}'] = np.nan
+                elif n_summary_cols > n_main_cols:
+                    # Si el resumen tiene más columnas, recórtalas
+                    df_excel_summary_part_with_header = df_excel_summary_part_with_header.iloc[:, :n_main_cols]
+                # Ahora reasigna los nombres de columnas
+                df_excel_summary_part_with_header.columns = df_excel_final.columns
+                # --- FIN CAMBIO ---
+
+                df_excel_final = pd.concat([df_excel_final, df_excel_summary_part_with_header], ignore_index=True)
+
+                # --- 1.13) Exportar a la hoja de Excel ---
+                df_excel_final.to_excel(writer, sheet_name=marca_sheet_name, index=False)
+
+        print(Fore.GREEN + f"Archivo Excel temporal '{EXCEL_TEMP_FILENAME}' generado.")
+
+        # Aplicar formato de color y porcentaje a la sección de Correlaciones (como en excel_color.py)
+        try:
+            def apply_correlation_formatting(xlsx_path: str) -> None:
+                from openpyxl import load_workbook as _load_wb
+                from openpyxl.formatting.rule import ColorScaleRule as _ColorScaleRule
+                from openpyxl.utils import get_column_letter as _get_col_letter
+                wb = _load_wb(xlsx_path)
+                for ws in wb.worksheets:
+                    found = False
+                    for row in ws.iter_rows(values_only=False):
+                        for cell in row:
+                            if isinstance(cell.value, str) and str(cell.value).strip().lower() == 'correlacion':
+                                header_row = cell.row
+                                header_col = cell.column
+                                start_col = header_col + 1  # P0
+                                end_col = start_col + 6     # P6
+
+                                # Detectar largo dinámico: desde la fila siguiente hasta que la fila esté vacía en P0..P6
+                                r = header_row + 1
+                                last_row = r - 1
+                                while True:
+                                    vals = [ws.cell(row=r, column=c).value for c in range(start_col, end_col + 1)]
+                                    if all(v is None for v in vals):
+                                        break
+                                    last_row = r
+                                    r += 1
+
+                                if last_row >= header_row + 1:
+                                    # Formato de porcentaje 0.0% en P0..P6
+                                    for rr in range(header_row + 1, last_row + 1):
+                                        for cc in range(start_col, end_col + 1):
+                                            ws.cell(row=rr, column=cc).number_format = '0.0%'
+
+                                    # Regla de escala de color 3-colores (rojo-amarillo-verde)
+                                    rng = f"{_get_col_letter(start_col)}{header_row + 1}:{_get_col_letter(end_col)}{last_row}"
+                                    color_scale = _ColorScaleRule(
+                                        start_type='min', start_color='F8696B',
+                                        mid_type='percentile', mid_value=50, mid_color='FFEB84',
+                                        end_type='max', end_color='63BE7B'
+                                    )
+                                    ws.conditional_formatting.add(rng, color_scale)
+                                found = True
+                                break
+                        if found:
+                            break
+                wb.save(xlsx_path)
+
+            apply_correlation_formatting(excel_temp_path)
+            print(Fore.GREEN + "Formato de correlaciones aplicado (colores y porcentaje).")
+
+            # Variaciones: formato porcentaje y reglas de color rojo(<0)/verde(>0)
+            def apply_variations_formatting(xlsx_path: str) -> None:
+                from openpyxl import load_workbook as _load_wb2
+                from openpyxl.utils import get_column_letter as _col_letter
+                from openpyxl.formatting.rule import Rule as _Rule
+                from openpyxl.styles import PatternFill as _PatternFill, Font as _Font
+                from openpyxl.styles.differential import DifferentialStyle as _Diff
+                wb2 = _load_wb2(xlsx_path)
+                for ws in wb2.worksheets:
+                    header_row = None
+                    wp_col = None
+                    # Buscar el encabezado 'WP by Numerator'
+                    for row in ws.iter_rows(values_only=False):
+                        for cell in row:
+                            if isinstance(cell.value, str) and str(cell.value).strip().lower() == 'wp by numerator':
+                                header_row = cell.row
+                                wp_col = cell.column
+                                break
+                        if header_row:
+                            break
+                    if not header_row:
+                        continue
+                    # Detectar columnas de Cliente P0..P6 consecutivas hacia la derecha
+                    end_col = wp_col
+                    p = 0
+                    while True:
+                        header_cell = ws.cell(row=header_row, column=wp_col + 1 + p)
+                        val = header_cell.value
+                        if isinstance(val, str) and val.strip().lower() == f'cliente p{p}':
+                            end_col = wp_col + 1 + p
+                            p += 1
+                            if p > 20:  # seguridad
+                                break
+                        else:
+                            break
+                    # Si no se detectaron clientes, por defecto tomar WP + 7 clientes
+                    if end_col == wp_col:
+                        end_col = wp_col + 7
+                    # Determinar rango de filas con datos (hasta que todas las columnas estén vacías)
+                    r = header_row + 1
+                    last_row = r - 1
+                    while True:
+                        vals = [ws.cell(row=r, column=c).value for c in range(wp_col, end_col + 1)]
+                        if all(v is None for v in vals):
+                            break
+                        last_row = r
+                        r += 1
+                    if last_row < header_row + 1:
+                        continue
+                    # Aplicar formato porcentaje
+                    for rr in range(header_row + 1, last_row + 1):
+                        for cc in range(wp_col, end_col + 1):
+                            ws.cell(row=rr, column=cc).number_format = '0.0%'
+                    data_range = f"{_col_letter(wp_col)}{header_row + 1}:{_col_letter(end_col)}{last_row}"
+                    # Regla < 0%: relleno rojo claro (#FFC7CE), texto rojo oscuro (#9C0006)
+                    dxf_red = _Diff(
+                        fill=_PatternFill(start_color='FFC7CE', end_color='FFC7CE', fill_type='solid'),
+                        font=_Font(color='9C0006')
+                    )
+                    rule_red = _Rule(type='cellIs', operator='lessThan', formula=['0'], dxf=dxf_red)
+                    ws.conditional_formatting.add(data_range, rule_red)
+
+                    # Regla > 0%: relleno verde claro (#C6EFCE), texto verde oscuro (#006100)
+                    dxf_green = _Diff(
+                        fill=_PatternFill(start_color='C6EFCE', end_color='C6EFCE', fill_type='solid'),
+                        font=_Font(color='006100')
+                    )
+                    rule_green = _Rule(type='cellIs', operator='greaterThan', formula=['0'], dxf=dxf_green)
+                    ws.conditional_formatting.add(data_range, rule_green)
+
+                wb2.save(xlsx_path)
+            apply_variations_formatting(excel_temp_path)
+            print(Fore.GREEN + "Formato de variaciones aplicado (0.0% + rojo/verde).")
+        except Exception as e:
+            print(Fore.YELLOW + f"No se pudo aplicar el formato de correlaciones: {e}")
+
+    except Exception as e:
+        print(f"{Fore.RED}{Style.BRIGHT}Error crítico durante la generación del archivo Excel: {e}")
+        if os.path.exists(excel_temp_path):
+             os.remove(excel_temp_path) # Limpiar si falla
+        exit()
+
+    # --- 1.14) Renombrar y mover archivo Excel final ---
+    if not ref_month_year:
+         print(f"{Fore.RED}{Style.BRIGHT}No se pudo determinar la fecha de referencia. No se puede renombrar el archivo Excel.")
+         if os.path.exists(excel_temp_path):
+             os.remove(excel_temp_path)
+         exit()
+
+    nombre_base_archivo = f"{pais_nombre}-{categoria_nombre_corto}-{fabricante}-{ref_month_year}_{coverage_label}"
+    carpeta_salida = os.path.join(root_dir, nombre_base_archivo) # Carpeta con el mismo nombre base
+
+    if not os.path.exists(carpeta_salida):
+        try:
+            os.makedirs(carpeta_salida)
+            print(Fore.BLUE + "Carpeta de salida creada")
+        except OSError as e:
+            print(f"{Fore.RED}Error al crear carpeta de salida '{carpeta_salida}': {e}")
+            if os.path.exists(excel_temp_path): os.remove(excel_temp_path)
+            exit()
+    else:
+        print(Fore.YELLOW + "Carpeta de salida ya existe, no se creara de nuevo")
+
+    nombre_template_final = f"{nombre_base_archivo}.xlsx"
+    ruta_template_final = os.path.join(carpeta_salida, nombre_template_final)
+
+    try:
+        if os.path.exists(ruta_template_final):
+            print(Fore.YELLOW + f"Archivo Excel ya existe. Se sobrescribirá.")
+            os.remove(ruta_template_final)
+        os.rename(excel_temp_path, ruta_template_final)
+        print(Fore.GREEN + "Archivo Excel final guardado")
+    except Exception as e:
+        print(f"{Fore.RED}Error al mover/renombrar archivo Excel final: {e}")
+        if os.path.exists(excel_temp_path): os.remove(excel_temp_path) # Limpiar temporal si falla el renombrado
+        exit()
+
+
+    return ref_month_year, carpeta_salida, nombre_base_archivo, ruta_template_final
+
+def compute_coverage_dataframe(
+    df_marca: "pd.DataFrame",
+    pais_nombre: str,
+    coverage_type: str,
+    round_coverage: bool,
+) -> "pd.DataFrame":
+    """Calcula la cobertura rolling de 12 meses para cada pipeline."""
+    acum_sell_out_py = df_marca[COL_SELL_OUT].rolling(window=12, min_periods=12).sum()
+    acum_sell_out_py.index = df_marca[COL_DATA]
+    df_coverage = pd.DataFrame(index=acum_sell_out_py.index)
+    for p in range(7):
+        sell_in_shifted = df_marca[COL_SELL_IN].shift(p)
+        acum_sell_in_shifted = sell_in_shifted.rolling(window=12, min_periods=12).sum()
+        acum_sell_in_shifted.index = df_marca[COL_DATA]
+        coverage_p = (acum_sell_out_py / acum_sell_in_shifted) * 100
+        df_coverage[f'P{p}'] = coverage_p
+    pop_val_num = float(pop_coverage.get(pais_nombre, DEFAULT_POP_COVERAGE).replace('%', '')) / 100.0
+    if coverage_type.lower() == "relativa" and pop_val_num > 0:
+        df_coverage = df_coverage / pop_val_num
+    if round_coverage:
+        df_coverage = df_coverage.apply(_round_half_up_series)
+    else:
+        df_coverage = df_coverage.round(1)
+    return df_coverage
+
+
+def compute_variations_dataframe(df_marca: "pd.DataFrame") -> "pd.DataFrame":
+    period_types = ["Anual", "Semestral", "Trimestral"]
+    df_variations = pd.DataFrame(columns=['Tipo', 'Periodo', 'WP by Numerator'] + [f'Cliente P{p}' for p in range(7)])
+    kantar_vars_y1 = calc_var1(df_marca, COL_SELL_OUT, 0)
+    cliente_vars_y1 = {p: calc_var1(df_marca, COL_SELL_IN, p) for p in range(7)}
+    for i, p_type in enumerate(period_types):
+        row = {'Tipo': p_type, 'Periodo': f'{p_type} vs Y-1', 'WP by Numerator': kantar_vars_y1[i]}
+        for p in range(7):
+            row[f'Cliente P{p}'] = cliente_vars_y1[p][i]
+        df_variations.loc[len(df_variations)] = row
+    kantar_vars_y2 = calc_var2(df_marca, COL_SELL_OUT, 0)
+    cliente_vars_y2 = {p: calc_var2(df_marca, COL_SELL_IN, p) for p in range(7)}
+    for i, p_type in enumerate(period_types):
+        row = {'Tipo': p_type, 'Periodo': f'{p_type} vs Y-2', 'WP by Numerator': kantar_vars_y2[i]}
+        for p in range(7):
+            row[f'Cliente P{p}'] = cliente_vars_y2[p][i]
+        df_variations.loc[len(df_variations)] = row
+    return df_variations
+
+
+def compute_averages(df_marca: "pd.DataFrame") -> Dict[str, float]:
+    averages = {}
+    n_data = len(df_marca)
+    if n_data >= 12:
+        averages['Penet_MAT_Actual'] = df_marca[COL_PENET].iloc[-12:].mean()
+        averages['Buyers_MAT_Actual'] = df_marca[COL_BUYERS].iloc[-12:].mean()
+    else:
+        averages['Penet_MAT_Actual'] = df_marca[COL_PENET].mean()
+        averages['Buyers_MAT_Actual'] = df_marca[COL_BUYERS].mean()
+    if n_data >= 24:
+        averages['Penet_MAT_Anterior'] = df_marca[COL_PENET].iloc[-24:-12].mean()
+        averages['Buyers_MAT_Anterior'] = df_marca[COL_BUYERS].iloc[-24:-12].mean()
+    else:
+        averages['Penet_MAT_Anterior'] = np.nan
+        averages['Buyers_MAT_Anterior'] = np.nan
+    return averages
+
+
+def compute_trend_plot_df(df_marca: "pd.DataFrame") -> "pd.DataFrame":
+    df_trend_plot = df_marca[[COL_DATA, COL_SELL_IN, COL_SELL_OUT]].copy()
+    df_trend_plot[COL_DATA] = df_trend_plot[COL_DATA].apply(lambda x: x.strftime('%m-%y'))
+    return df_trend_plot
+
+
+def build_variation_table(
+    fabricante: str,
+    labels: Dict[Tuple[int, str], List[str] | str],
+    lang_index: int,
+    pipeline: int,
+    ref_month_year: str,
+    var_cliente_mat: Optional[float],
+    var_kantar_mat: Optional[float],
+) -> "pd.DataFrame":
+    label_var = labels[(lang_index, 'Var')]
+    data = {
+        " ": [f"VAR % MAT ({ref_month_year})"],
+        f"{fabricante} {label_var} Pipeline {pipeline}": [f"{var_cliente_mat*100:.1f}%" if pd.notna(var_cliente_mat) else "-"],
+        "Worldpanel by Numerator": [f"{var_kantar_mat*100:.1f}%" if pd.notna(var_kantar_mat) else "-"],
+    }
+    return pd.DataFrame(data)
+
+
+
+def build_evolution_figure(df_marca: "pd.DataFrame", pipeline: int, lang_index: int) -> Optional["plt.Figure"]:
+    if len(df_marca) < 24:
+        return None
+    df_evol = df_marca[[COL_DATA, COL_SELL_IN, COL_SELL_OUT]].copy()
+    df_evol[COL_DATA] = pd.to_datetime(df_evol[COL_DATA])
+    return generar_grafico_evolucion_mensual(df_evol, pipeline, lang_index)
+
+
+
+def build_summary_and_bank_rows(
+    pipeline: int,
+    marca_nombre_limpio: str,
+    coverage_series: "pd.Series",
+    df_variations: "pd.DataFrame",
+    averages: Dict[str, float],
+    labels: Dict[Tuple[int, str], List[str] | str],
+    lang_index: int,
+    fabricante: str,
+    pais_nombre: str,
+    categoria_nombre: str,
+    cesta_nombre: str,
+    coverage_reason: str,
+    measure_unit: str,
+    coverage_type: str,
+    ref_month_year: str,
+    round_coverage: bool,
+) -> Tuple[Dict[str, str], Dict[str, object], float, float, float, str]:
+    coverage_series = coverage_series.dropna()
+    if not coverage_series.empty:
+        coverage_actual = coverage_series.iloc[-1]
+        coverage_anterior = coverage_series.iloc[-13] if len(coverage_series) >= 13 else np.nan
+    else:
+        coverage_actual = np.nan
+        coverage_anterior = np.nan
+    var_cliente_anual_y1 = df_variations.loc[df_variations['Tipo'] == 'Anual', f'Cliente P{pipeline}'].iloc[0]
+    var_kantar_anual_y1 = df_variations.loc[df_variations['Tipo'] == 'Anual', 'WP by Numerator'].iloc[0]
+    tendencia_alineada = "NO"
+    if pd.notna(var_cliente_anual_y1) and pd.notna(var_kantar_anual_y1):
+        if (var_cliente_anual_y1 * var_kantar_anual_y1) > 0:
+            tendencia_alineada = "SI"
+        elif var_cliente_anual_y1 == 0 and var_kantar_anual_y1 == 0:
+            tendencia_alineada = "SI"
+    if round_coverage:
+        cov_actual_val = int(np.floor(coverage_actual + 0.5)) if pd.notna(coverage_actual) else 0
+        cov_anterior_val = int(np.floor(coverage_anterior + 0.5)) if pd.notna(coverage_anterior) else 0
+        estabilidad = cov_actual_val - cov_anterior_val
+    else:
+        cov_actual_val = round(coverage_actual, 1) if pd.notna(coverage_actual) else 0
+        cov_anterior_val = round(coverage_anterior, 1) if pd.notna(coverage_anterior) else 0
+        estabilidad = round(cov_actual_val - cov_anterior_val, 1)
+    summary_row = {
+        labels[(lang_index, 'Summary')][0]: marca_nombre_limpio,
+        labels[(lang_index, 'Summary')][1]: pipeline,
+        labels[(lang_index, 'Summary')][2]: f"{averages.get('Penet_MAT_Actual', 0):.1f}%",
+        labels[(lang_index, 'Summary')][3]: f"{var_cliente_anual_y1*100:.1f}%" if pd.notna(var_cliente_anual_y1) else "0.0%",
+        labels[(lang_index, 'Summary')][4]: f"{var_kantar_anual_y1*100:.1f}%" if pd.notna(var_kantar_anual_y1) else "0.0%",
+        labels[(lang_index, 'Summary')][5]: (str(cov_anterior_val) if round_coverage else (f"{coverage_anterior:.1f}" if pd.notna(coverage_anterior) else "0.0")),
+        labels[(lang_index, 'Summary')][6]: (str(cov_actual_val) if round_coverage else (f"{coverage_actual:.1f}" if pd.notna(coverage_actual) else "0.0")),
+        labels[(lang_index, 'Summary')][7]: (str(estabilidad) if round_coverage else (f"{estabilidad:.1f}" if pd.notna(estabilidad) else "0.0")),
+    }
+    banco_row = {
+        'Periodo': dt.strptime(ref_month_year, '%m-%y').date(),
+        'Fabricante': fabricante,
+        'Categoria': categoria_nombre,
+        'Fabricante/Marca': marca_nombre_limpio,
+        'Cesta': cesta_nombre,
+        'Panel': 'PNC',
+        'Unidad': measure_unit,
+        'Razon': coverage_reason,
+        'Pais': pais_nombre,
+        'Ampliacion': 'SI',
+        'Penet Media Ano Mov Atual': round(averages.get('Penet_MAT_Actual', 0), 1),
+        'Penet Media Ano Mov Anterior': round(averages.get('Penet_MAT_Anterior', 0), 1),
+        'Raw Buyers Media Ano Mov Atual': round(averages.get('Buyers_MAT_Actual', 0), 1),
+        'Pipeline': pipeline,
+        'Cobertura Año Mov Actual': cov_actual_val,
+        'Cobertura Año Mov Anterior': cov_anterior_val,
+        '%VAR Cliente': round(var_cliente_anual_y1 * 100, 1) if pd.notna(var_cliente_anual_y1) else 0,
+        '% VAR WP by Numerator': round(var_kantar_anual_y1 * 100, 1) if pd.notna(var_kantar_anual_y1) else 0,
+        'Misma Tendencia': tendencia_alineada,
+        'Estabilidad': estabilidad,
+    }
+    return summary_row, banco_row, cov_actual_val, cov_anterior_val, estabilidad, tendencia_alineada
+
+
+COVERAGE_BANK_COLUMNS = [
+    'Periodo', 'Fabricante', 'Categoria', 'Fabricante/Marca', 'Cesta', 'Panel', 'Unidad',
+    'Razon', 'Pais', 'Ampliacion', 'Penet Media Ano Mov Atual', 'Penet Media Ano Mov Anterior',
+    'Raw Buyers Media Ano Mov Atual', 'Pipeline', 'Cobertura Año Mov Actual',
+    'Cobertura Año Mov Anterior', '%VAR Cliente', '% VAR WP by Numerator', 'Misma Tendencia', 'Estabilidad'
+]
+
+def generate_presentation_and_bank(
+    root_dir: str,
+    excel_file_obj: "pd.ExcelFile",
+    marcas: Sequence[str],
+    pais_nombre: str,
+    categoria_nombre: str,
+    categoria_nombre_corto: str,
+    fabricante: str,
+    cesta_nombre: str,
+    coverage_label: str,
+    coverage_type: str,
+    coverage_reason: str,
+    ref_month_year: str,
+    carpeta_salida: str,
+    nombre_base_archivo: str,
+    include_english: bool,
+    trend_axis: str,
+    round_coverage: bool,
+) -> Tuple[str, "pd.DataFrame", "pd.DataFrame"]:
+    chosen_lang, lang_index = determine_language(include_english, pais_nombre)
+    ppt, tmp_ppt_path = copy_and_prune_template(root_dir, chosen_lang)
+    labels = build_labels(lang_index, fabricante, ref_month_year)
+    builder = SlideBuilder(ppt, lang_index, labels, coverage_label, trend_axis)
+    builder.configure_cover(pais_nombre, fabricante, categoria_nombre, ref_month_year, chosen_lang)
+
+    summary_rows: List[Dict[str, str]] = []
+    bank_rows: List[Dict[str, object]] = []
+
+    total_slides_to_generate = 0
+    for marca_sheet_name in marcas:
+        df_marca_ppt, _ = load_and_preprocess_sheet(excel_file_obj, marca_sheet_name)
+        if df_marca_ppt is None:
+            continue
+        match = re.match(r"(?i)^p([0-6])_", marca_sheet_name)
+        pipelines_to_run = [int(match.group(1))] if match else list(range(7))
+        n_slides_marca = len(pipelines_to_run) * (2 + (1 if len(df_marca_ppt) >= 24 else 0))
+        total_slides_to_generate += n_slides_marca
+
+    progress = Progress(
+        SpinnerColumn(),
+        TextColumn("[progress.description]{task.description}"),
+        BarColumn(),
+        TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
+        TextColumn("{task.completed}/{task.total}"),
+        TimeElapsedColumn(),
+        TimeRemainingColumn(),
+        transient=True,
+    )
+
+    with progress:
+        task_id = progress.add_task("Creando Diapositivas PPT", total=total_slides_to_generate + 1)
+        for marca_sheet_name in marcas:
+            df_marca_ppt, measure_unit = load_and_preprocess_sheet(excel_file_obj, marca_sheet_name)
+            if df_marca_ppt is None:
                 continue
-        if not found_thanks:
-            print(f"{Fore.YELLOW}Advertencia: No se encontró el texto de agradecimiento en el slide 7 tras insertarlo.")
-    except Exception as inner_e:
-        print(f"{Fore.YELLOW}Advertencia: No se pudo insertar texto en slide 7: {inner_e}")
+            marca_nombre_limpio = re.sub(r"(?i)^p[0-6]_", "", marca_sheet_name)
+            match = re.match(r"(?i)^p([0-6])_", marca_sheet_name)
+            pipelines_to_run = [int(match.group(1))] if match else list(range(7))
+            df_coverage = compute_coverage_dataframe(df_marca_ppt, pais_nombre, coverage_type, round_coverage)
+            df_variations = compute_variations_dataframe(df_marca_ppt)
+            averages = compute_averages(df_marca_ppt)
+            df_trend_plot = compute_trend_plot_df(df_marca_ppt)
+            for pipeline in pipelines_to_run:
+                coverage_series = df_coverage[f'P{pipeline}']
+                var_cliente_mat = df_variations.loc[df_variations['Tipo'] == 'Anual', f'Cliente P{pipeline}'].iloc[0]
+                var_kantar_mat = df_variations.loc[df_variations['Tipo'] == 'Anual', 'WP by Numerator'].iloc[0]
+                variation_table = build_variation_table(
+                    fabricante,
+                    labels,
+                    lang_index,
+                    pipeline,
+                    ref_month_year,
+                    var_cliente_mat,
+                    var_kantar_mat,
+                )
+                evolution_figure = build_evolution_figure(df_marca_ppt, pipeline, lang_index)
+                assets = PipelineAssets(
+                    pipeline=pipeline,
+                    marca=marca_nombre_limpio,
+                    coverage_series=coverage_series,
+                    penetration_series=df_marca_ppt.set_index(COL_DATA)[COL_PENET].loc[coverage_series.dropna().index],
+                    variation_table=variation_table,
+                    trend_plot_df=df_trend_plot,
+                    evolution_figure=evolution_figure,
+                )
+                builder.add_pipeline_slides(
+                    assets,
+                    marca_nombre_limpio=marca_nombre_limpio,
+                    lang_index=lang_index,
+                    coverage_label=builder.coverage_label,
+                    progress=progress,
+                    task_id=task_id,
+                )
+                summary_row, bank_row, _, _, _, _ = build_summary_and_bank_rows(
+                    pipeline=pipeline,
+                    marca_nombre_limpio=marca_nombre_limpio,
+                    coverage_series=coverage_series,
+                    df_variations=df_variations,
+                    averages=averages,
+                    labels=labels,
+                    lang_index=lang_index,
+                    fabricante=fabricante,
+                    pais_nombre=pais_nombre,
+                    categoria_nombre=categoria_nombre,
+                    cesta_nombre=cesta_nombre,
+                    coverage_reason=coverage_reason,
+                    measure_unit=measure_unit,
+                    coverage_type=coverage_type,
+                    ref_month_year=ref_month_year,
+                    round_coverage=round_coverage,
+                )
+                summary_rows.append(summary_row)
+                bank_rows.append(bank_row)
+        progress.update(task_id, advance=1)
 
-    # Mover slide de resumen a la octava posición (índice 7)
-    if len(ppt.slides) > 1:
-        summary_slide_xml = ppt.slides._sldIdLst[-1]  # El último slide añadido es el resumen
-        insert_idx = 7 if len(ppt.slides) > 7 else len(ppt.slides) - 1
-        ppt.slides._sldIdLst.insert(insert_idx, summary_slide_xml)  # Insertar en la posición deseada
+    df_summary = pd.DataFrame(summary_rows)
+    if not df_summary.empty:
+        df_summary = df_summary[labels[(lang_index, 'Summary')]]
+    df_bank = pd.DataFrame(bank_rows, columns=COVERAGE_BANK_COLUMNS)
 
-    # Mover slide de créditos (índice 6) a la última posición
-    if len(ppt.slides) > 7:
-        credit_slide_xml = ppt.slides._sldIdLst[6]
-        ppt.slides._sldIdLst.append(credit_slide_xml)
+    builder.add_summary_slide(df_summary, pais_nombre, categoria_nombre)
+    builder.insert_thanks_text(chosen_lang)
+    builder.reorder_summary_and_credit()
 
-    nombre_ppt_final = f"{nombre_base_archivo}.pptx"
-    ruta_ppt_final = os.path.join(carpeta_salida, nombre_ppt_final)
+    ruta_ppt_final = os.path.join(carpeta_salida, f"{nombre_base_archivo}.pptx")
     ppt.save(ruta_ppt_final)
-    print(Fore.MAGENTA + "-> Presentación PowerPoint guardada")
-except Exception as e:
-    print(f"{Fore.RED}{Style.BRIGHT}Error al guardar la presentación PowerPoint: {e}")
 
-# --- (3) Guardado del banco de coberturas ---
-try:
-    # Agregar mes de ejecución como primera columna para el Banco
-    # Formato: YYYY-MM (mes de ejecución del script)
+    return ruta_ppt_final, df_summary, df_bank
+
+
+def save_coverage_bank(
+    df_bank: "pd.DataFrame",
+    carpeta_salida: str,
+    nombre_base_archivo: str,
+    fabricante: str,
+    categoria_nombre: str,
+    categoria_nombre_corto: str,
+    pais_nombre: str,
+    ref_month_year: str,
+    coverage_label: str,
+) -> str:
+    df_bank = df_bank.copy()
     try:
         mes_ejecucion_dt = datetime.now().date().replace(day=1)
-        if 'Mes_Ejecucion' not in df_coverage_bank.columns:
-            df_coverage_bank.insert(0, 'Mes_Ejecucion', mes_ejecucion_dt)
+        if 'Mes_Ejecucion' not in df_bank.columns:
+            df_bank.insert(0, 'Mes_Ejecucion', mes_ejecucion_dt)
         else:
-            # Si ya existe, actualizar su valor para todas las filas como fecha
-            df_coverage_bank['Mes_Ejecucion'] = mes_ejecucion_dt
-    except Exception as _e:
-        print(f"{Fore.YELLOW}Advertencia: No se pudo agregar la columna 'Mes_Ejecucion': {_e}")
-
-    # Usar la versión corta de la categoría para el nombre del banco para evitar rutas largas
-    try:
-        categoria_para_banco = categoria_nombre_corto
-    except NameError:
-        # Si por alguna razón no existe, usar el original
-        categoria_para_banco = categoria_nombre
+            df_bank['Mes_Ejecucion'] = mes_ejecucion_dt
+    except Exception as exc:
+        print(f"{Fore.YELLOW}Advertencia: No se pudo agregar la columna 'Mes_Ejecucion': {exc}")
+    categoria_para_banco = categoria_nombre_corto or categoria_nombre
     nombre_banco_final = f"Banco_{fabricante}_{categoria_para_banco}_{pais_nombre}_{ref_month_year}_{coverage_label}.xlsx"
     ruta_banco_final = os.path.join(carpeta_salida, nombre_banco_final)
-    df_coverage_bank.to_excel(ruta_banco_final, index=False)
-    # Aplicar formato visual mmm-yy a las columnas Periodo y Mes_Ejecucion en el archivo guardado
+    df_bank.to_excel(ruta_banco_final, index=False)
     try:
         from openpyxl import load_workbook as _wb_load
         wb_bank = _wb_load(ruta_banco_final)
         for ws in wb_bank.worksheets:
-            # Mapear nombres de encabezado a índice de columna
             header_map = {}
             for cell in ws[1]:
                 if cell.value is not None:
@@ -2512,27 +2467,191 @@ try:
                 col_idx = header_map.get(header_name)
                 if col_idx is None:
                     continue
-                # Formatear todas las celdas de datos como mmm-yy
                 for r in range(2, ws.max_row + 1):
                     c = ws.cell(row=r, column=col_idx)
-                    # Solo aplicar formato; si el valor es string, se mantendrá como texto
                     c.number_format = 'mmm-yy'
         wb_bank.save(ruta_banco_final)
-    except Exception as _fe:
-        print(f"{Fore.YELLOW}Advertencia: No se pudo aplicar formato mmm-yy en Banco: {_fe}")
+    except Exception as exc:
+        print(f"{Fore.YELLOW}Advertencia: No se pudo aplicar formato mmm-yy en Banco: {exc}")
     print(Fore.MAGENTA + "-> Banco de coberturas guardado")
-except Exception as e:
-    print(f"{Fore.RED}{Style.BRIGHT}Error al guardar el banco de coberturas: {e}")
+    return ruta_banco_final
 
-print_file_summary(ruta_template_final, ruta_ppt_final, ruta_banco_final)
 
-# Limpieza de temporales: eliminar carpeta ./tmp al final
-try:
+def cleanup_temp_dir(root_dir: str) -> None:
     tmp_dir = os.path.join(root_dir, 'tmp')
     if os.path.isdir(tmp_dir):
         shutil.rmtree(tmp_dir)
         print(Fore.BLUE + "Carpeta temporal ./tmp eliminada")
-except Exception as e:
-    print(f"{Fore.YELLOW}Advertencia: No se pudo eliminar la carpeta temporal ./tmp: {e}")
 
-# --- END OF FILE ---
+
+class CoverageStudioUltraApp:
+    def __init__(self) -> None:
+        self.root_dir = os.path.dirname(os.path.abspath(__file__))
+        os.chdir(self.root_dir)
+        self.categories: Optional["pd.DataFrame"] = None
+
+    def list_excel_files(self) -> List[str]:
+        return [f for f in os.listdir(self.root_dir) if f.endswith('.xlsx') and not f.startswith('~$') and f != EXCEL_TEMP_FILENAME]
+
+    def ensure_categories_loaded(self) -> None:
+        if self.categories is None:
+            wait_for_heavy_modules()
+            self.categories = load_categories()
+
+    def select_files(self, excel_list: Sequence[str]) -> List[str]:
+        print(Fore.CYAN + "Archivos Excel (.xlsx) encontrados:")
+        for i, archivo in enumerate(excel_list, start=1):
+            meta = quick_file_metadata(archivo)
+            if meta:
+                print(Fore.BLUE + f"{i}. {archivo} " + Fore.YELLOW + f"| {meta}")
+            else:
+                print(Fore.BLUE + f"{i}. {archivo}")
+        while True:
+            opcion = input(
+                Fore.WHITE
+                + f"Seleccione el número de archivo a procesar (1-{len(excel_list)}).\n"
+                + "Puede separar varios con comas o escribir 'all': "
+            )
+            opcion = opcion.strip().lower()
+            if opcion in {"all", "todos", "*"}:
+                selected_indices = list(range(1, len(excel_list) + 1))
+            else:
+                try:
+                    selected_indices = [int(x) for x in opcion.split(',') if x]
+                except ValueError:
+                    print(Fore.RED + Style.BRIGHT + "Entrada inválida. Ingrese números separados por coma o 'all'.")
+                    continue
+                if not all(1 <= idx <= len(excel_list) for idx in selected_indices):
+                    print(Fore.RED + "Uno o más números están fuera de rango. Intente nuevamente.")
+                    continue
+            selected_files = [excel_list[idx - 1] for idx in selected_indices]
+            SELECTIONS['Excel'] = ", ".join(selected_files)
+            clear_and_print_summary()
+            return selected_files
+
+    def gather_interactive_options(self) -> ExecutionOptions:
+        coverage_type = tipo_cobertura()
+        auto_mode = str(coverage_type).strip().lower() == "auto"
+        if auto_mode:
+            coverage_type_value = "Absoluta"
+            coverage_reason = "Actualización periódica por contrato"
+            trend_axis = "simple"
+            include_english = False
+            round_cov = False
+            SELECTIONS['Razón'] = coverage_reason
+            SELECTIONS['Eje tendencia'] = trend_axis
+            SELECTIONS['Idioma PPT'] = 'ESPAÑOL'
+            SELECTIONS['Inglés'] = 'No'
+            SELECTIONS['Redondeo Cobertura'] = 'No'
+            clear_and_print_summary()
+        else:
+            coverage_type_value = coverage_type
+            coverage_reason = razao_cov()
+            trend_axis = tipo_eje_tendencia()
+            include_english = include_english_flag()
+            round_cov = round_coverage_flag()
+        return ExecutionOptions(
+            coverage_type=coverage_type_value,
+            coverage_reason=coverage_reason,
+            trend_axis=trend_axis,
+            include_english=include_english,
+            round_coverage=round_cov,
+            auto_mode=auto_mode,
+        )
+
+
+    def process_file(self, excel_file_name: str, options: ExecutionOptions, idx: int, total: int) -> None:
+        global ROUND_COVERAGE
+        ROUND_COVERAGE = options.round_coverage
+        self.ensure_categories_loaded()
+        print_file_header(idx, total, excel_file_name)
+        excel_file_path = os.path.join(self.root_dir, excel_file_name)
+        try:
+            excel_file_obj = pd.ExcelFile(excel_file_path)
+            marcas = excel_file_obj.sheet_names
+        except FileNotFoundError:
+            print(f"{Fore.RED}{Style.BRIGHT}Error: No se encontró el archivo seleccionado: {excel_file_path}")
+            return
+        except Exception as exc:
+            print(f"{Fore.RED}{Style.BRIGHT}Error al abrir el archivo Excel '{excel_file_name}': {exc}")
+            return
+        try:
+            pais_nombre, cesta_nombre, categoria_nombre, categoria_nombre_corto, fabricante = parse_file_metadata(excel_file_name, self.categories)
+        except ValueError as exc:
+            print(f"{Fore.RED}{Style.BRIGHT}{exc}")
+            return
+        SELECTIONS['Pais'] = pais_nombre
+        coverage_label = compute_coverage_label(options.coverage_type, options.include_english)
+        ref_month_year, carpeta_salida, nombre_base_archivo, ruta_template_final = generate_excel_template(
+            self.root_dir,
+            excel_file_obj,
+            marcas,
+            pais_nombre,
+            categoria_nombre,
+            categoria_nombre_corto,
+            fabricante,
+            coverage_label,
+            options.coverage_type,
+            options.coverage_reason,
+        )
+        ruta_ppt_final, df_summary, df_bank = generate_presentation_and_bank(
+            root_dir=self.root_dir,
+            excel_file_obj=excel_file_obj,
+            marcas=marcas,
+            pais_nombre=pais_nombre,
+            categoria_nombre=categoria_nombre,
+            categoria_nombre_corto=categoria_nombre_corto,
+            fabricante=fabricante,
+            cesta_nombre=cesta_nombre,
+            coverage_label=coverage_label,
+            coverage_type=options.coverage_type,
+            coverage_reason=options.coverage_reason,
+            ref_month_year=ref_month_year,
+            carpeta_salida=carpeta_salida,
+            nombre_base_archivo=nombre_base_archivo,
+            include_english=options.include_english,
+            trend_axis=options.trend_axis,
+            round_coverage=options.round_coverage,
+        )
+        ruta_banco_final = save_coverage_bank(
+            df_bank=df_bank,
+            carpeta_salida=carpeta_salida,
+            nombre_base_archivo=nombre_base_archivo,
+            fabricante=fabricante,
+            categoria_nombre=categoria_nombre,
+            categoria_nombre_corto=categoria_nombre_corto,
+            pais_nombre=pais_nombre,
+            ref_month_year=ref_month_year,
+            coverage_label=coverage_label,
+        )
+        print_file_summary(ruta_template_final, ruta_ppt_final, ruta_banco_final)
+
+    def run(self) -> None:
+        excel_list = self.list_excel_files()
+        if not excel_list:
+            print(f"{Fore.RED}{Style.BRIGHT}Error: No se encontraron archivos .xlsx en la carpeta: {self.root_dir}")
+            return
+        env_options = ExecutionOptions.from_environment()
+        if env_options:
+            excel_file_name = os.environ['AUTO_FILE']
+            idx = int(os.environ.get('AUTO_INDEX', '1'))
+            total = int(os.environ.get('AUTO_TOTAL', '1'))
+            self.process_file(excel_file_name, env_options, idx, total)
+            cleanup_temp_dir(self.root_dir)
+            return
+        selected_files = self.select_files(excel_list)
+        options = self.gather_interactive_options()
+        total = len(selected_files)
+        for idx, excel_file_name in enumerate(selected_files, start=1):
+            self.process_file(excel_file_name, options, idx, total)
+        cleanup_temp_dir(self.root_dir)
+
+
+
+def main() -> None:
+    app = CoverageStudioUltraApp()
+    app.run()
+
+
+if __name__ == "__main__":
+    main()
