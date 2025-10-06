@@ -70,8 +70,34 @@ countries = {
     'chile': '56', 'chl': '56',
     'colombia': '57', 'col': '57',
     'ecuador': '93', 'ecu': '93',
+    'guatemala': '62', 'gt': '62', 'gtm': '62',
+    'el salvador': '63', 'elsalvador': '63', 'slv': '63',
+    'honduras': '64', 'hnd': '64',
+    'nicaragua': '65', 'nic': '65',
+    'costa rica': '66', 'costarica': '66', 'cri': '66',
+    'panama': '67', 'pan': '67',
+    'republica dominicana': '69', 'republicadominicana': '69', 'repdom': '69', 'rd': '69', 'dom': '69',
     'mexico': '52', 'mex': '52', 'mx': '52',
     'peru': '51', 'per': '51'
+}
+
+pop_coverage = {
+    'Argentina': '90%',
+    'Bolivia': '60%',
+    'Brasil': '82%',
+    'Chile': '78%',
+    'Colombia': '65%',
+    'Ecuador': '55%',
+    'Mexico': '64%',
+    'Peru': '66%',
+    'CAM': '74%',
+    'Costa Rica': '94%',
+    'El Salvador': '85%',
+    'Guatemala': '69%',
+    'Honduras': '65%',
+    'Nicaragua': '57%',
+    'Panama': '92%',
+    'Republica Dominicana': '63.29%'
 }
 
 def obtener_nombre_pais(key):
@@ -84,6 +110,14 @@ def obtener_nombre_pais(key):
         'chile': 'Chile', 'chl': 'Chile',
         'colombia': 'Colombia', 'col': 'Colombia',
         'ecuador': 'Ecuador', 'ecu': 'Ecuador',
+        'guatemala': 'Guatemala', 'gt': 'Guatemala', 'gtm': 'Guatemala',
+        'el salvador': 'El Salvador', 'elsalvador': 'El Salvador', 'slv': 'El Salvador',
+        'honduras': 'Honduras', 'hnd': 'Honduras',
+        'nicaragua': 'Nicaragua', 'nic': 'Nicaragua',
+        'costa rica': 'Costa Rica', 'costarica': 'Costa Rica', 'cri': 'Costa Rica',
+        'panama': 'Panama', 'pan': 'Panama',
+        'republica dominicana': 'Republica Dominicana', 'republicadominicana': 'Republica Dominicana',
+        'repdom': 'Republica Dominicana', 'rd': 'Republica Dominicana', 'dom': 'Republica Dominicana',
         'mexico': 'Mexico', 'mex': 'Mexico', 'mx': 'Mexico',
         'peru': 'Peru', 'per': 'Peru'
     }
@@ -530,7 +564,11 @@ def main():
                     continue
                 codigo_pais, nombre_pais = obtener_codigo_pais(input_pais)
                 if codigo_pais:
-                    print(f"{Colors.OKGREEN}País: {nombre_pais} (Código: {codigo_pais}){Colors.ENDC}\n")
+                    print(f"{Colors.OKGREEN}País: {nombre_pais} (Código: {codigo_pais}){Colors.ENDC}")
+                    cobertura = pop_coverage.get(nombre_pais)
+                    if cobertura:
+                        print(f"{Colors.OKCYAN}Cobertura poblacional: {cobertura}{Colors.ENDC}")
+                    print()
                     break
                 else:
                     print(f"{Colors.FAIL}País no encontrado. Intente nuevamente.{Colors.ENDC}\n")
