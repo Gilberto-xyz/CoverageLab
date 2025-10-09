@@ -1,6 +1,6 @@
 # coverage_studio.py
 
-![Bienvenida](welcome.png)
+![Bienvenida](https://i.imgur.com/rZoALwD.jpeg)
 
 ## Descripción General
 

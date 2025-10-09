@@ -47,3 +47,8 @@
 - [x] Se acorto el nombre de la categoria solo para nombres de archivos y carpetas delimitado por el primer guion (Ejemplo: "Cuidado del Cabello - Shampoo y Acondicionador" a "Cuidado del Cabello") [Solo afecta nombres de archivos/rutas; títulos/textos continúan con la categoría completa.
 Maneja dashes con o sin espacios alrededor]
 - [x] Ampliacion de paises en el mapa de paises (COUNTRY_MAP) y ajuste en la construccion del DataFrame 'pais' para evitar errores si se modifica COUNTRY_MAP, Ajuste en la cobertura relativa en los paises "CAM" [Se muestra cobertura urbana en vez de Poblacional, debido a que los paises de CAM tienen muestras pequeñas y no representan la poblacion total]
+
+### Octubre 2025 
+- [x] Ampliacion de los paises y cobertura poblacional en COUNTRY_MAP (Colombia, Ecuador, Peru, Chile, Argentina, Uruguay, Paraguay, Bolivia) en "archivos_studio.py" y ajuste en la construccion del DataFrame 'pais' para evitar errores si se modifica COUNTRY_MAP
+- [x] Limpiamos el contenido base de proyecto y alojamos la imagen de coberturas en internet para que no pese tanto el proyecto
+- [x] Se agrego la tabla de variaciones en el slide de tendencias mensuales. (Reciclando el que ya se implementaba en el excel template)
