@@ -14,7 +14,8 @@ import sys
 import threading
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Dict, Iterable, List, Optional, Sequence, Tuple
+from typing import Dict, Iterable, List, Optional, Sequence, Tuple, Callable
+from calendar import month_abbr
 
 import colorama
 from colorama import Fore, Style
@@ -1187,6 +1188,7 @@ class PipelineAssets:
     penetration_series: "pd.Series"
     variation_table: "pd.DataFrame"
     trend_plot_df: "pd.DataFrame"
+    variations_detail: Optional["pd.DataFrame"]
     evolution_figure: Optional["plt.Figure"]
 
 
@@ -1282,8 +1284,16 @@ def build_labels(lang_index: int, fabricante: str, ref_month_year: str) -> Dict[
         (3, "Titulo Vol"): "TREND IN VOLUME",
     }
 
-def dataframe_to_bordered_stream(df: "pd.DataFrame", hide_index: bool = True, dpi: int = 220) -> io.BytesIO:
-    """Convierte un DataFrame en imagen PNG con borde negro."""
+def dataframe_to_bordered_stream(
+    df: "pd.DataFrame",
+    hide_index: bool = True,
+    dpi: int = 220,
+    styler_fn: Optional[Callable] = None,
+) -> io.BytesIO:
+    """Convierte un DataFrame en imagen PNG con borde negro.
+
+    Permite aplicar personalizaciones adicionales sobre el Styler mediante ``styler_fn``.
+    """
     styler = df.style.set_table_styles(
         [
             {"selector": "*", "props": [("font-size", "10pt"), ("font-family", "Calibri"), ("color", "black"), ("border-style", "solid"), ("border-width", "1px"), ("text-align", "center")]},
@@ -1293,6 +1303,8 @@ def dataframe_to_bordered_stream(df: "pd.DataFrame", hide_index: bool = True, dp
     )
     if hide_index:
         styler = styler.hide(axis="index")
+    if styler_fn is not None:
+        styler = styler_fn(styler)
     buffer = io.BytesIO()
     dfi.export(styler, buffer, table_conversion="matplotlib", dpi=dpi)
     buffer.seek(0)
@@ -1421,6 +1433,63 @@ class SlideBuilder:
             self.labels,
             doble_eje=(self.tipo_eje_tend == "doble"),
         )
+        if assets.variations_detail is not None and not assets.variations_detail.empty:
+            value_columns = [col for col in assets.variations_detail.columns if col not in {'Tipo', 'Periodo'}]
+
+            def _variation_styler(styler):
+                formatter = {}
+                for col in value_columns:
+                    formatter[col] = lambda v, _col=col: "-" if (pd.isna(v) or (isinstance(v, str) and str(v).strip() == "-")) else f"{v*100:.1f}%"
+                if formatter:
+                    styler = styler.format(formatter)
+
+                    def _colorize(val):
+                        if isinstance(val, str):
+                            try:
+                                numeric_val = val.replace('%', '').replace(',', '.')
+                                val = float(numeric_val) / 100 if '%' in val else float(numeric_val)
+                            except ValueError:
+                                return ""
+                        if pd.isna(val):
+                            return ""
+                        if val > 0:
+                            return "background-color: #C6EFCE; color: #006100"
+                        if val < 0:
+                            return "background-color: #FFC7CE; color: #9C0006"
+                        return ""
+
+                    styler = styler.applymap(_colorize, subset=value_columns)
+                text_columns = [col for col in ('Tipo', 'Periodo') if col in assets.variations_detail.columns]
+                if text_columns:
+                    styler = styler.set_properties(subset=text_columns, **{"text-align": "left"})
+                return styler
+
+            table_stream = dataframe_to_bordered_stream(
+                assets.variations_detail,
+                hide_index=True,
+                dpi=200,
+                styler_fn=_variation_styler,
+            )
+            table_stream.seek(0)
+            scale_factor = .6
+            try:
+                with Image.open(table_stream) as img_preview:
+                    base_width_in = img_preview.width / 200
+                    base_height_in = img_preview.height / 200
+            except Exception:
+                base_width_in = 3.4
+                base_height_in = base_width_in * 0.75
+            finally:
+                table_stream.seek(0)
+
+            table_width = Inches(base_width_in * scale_factor)
+            table_height = Inches(base_height_in * scale_factor)
+            right_margin = Inches(0.3)
+            left_pos = self.ppt.slide_width - table_width - right_margin
+            if left_pos < Inches(0.1):
+                left_pos = Inches(0.1)
+            top_pos = Inches(0.4)
+            slide_trend.shapes.add_picture(table_stream, left_pos, top_pos, width=table_width, height=table_height)
         slides_created += 1
         if progress and task_id is not None:
             progress.update(task_id, advance=1)
@@ -2207,6 +2276,56 @@ def build_variation_table(
     }
     return pd.DataFrame(data)
 
+def build_variations_detail_table(
+    df_variations: "pd.DataFrame",
+    pipeline: int,
+    df_marca: "pd.DataFrame",
+) -> "pd.DataFrame":
+    """Construye la tabla de variaciones utilizada en el slide de tendencia."""
+    if df_variations is None or df_variations.empty:
+        return pd.DataFrame()
+    filtered = df_variations[df_variations['Periodo'].astype(str).str.contains('Y-1', na=False)].copy()
+    if filtered.empty:
+        return pd.DataFrame()
+
+    base_columns = [col for col in ['Tipo', 'Periodo', 'WP by Numerator', 'Cliente P0'] if col in filtered.columns]
+    if not base_columns:
+        return pd.DataFrame()
+    detail_df = filtered[base_columns].copy()
+
+    pipeline_col = f'Cliente P{pipeline}'
+    if pipeline_col in df_variations.columns:
+        detail_df[f'Cliente Pipeline (P{pipeline})'] = df_variations.loc[detail_df.index, pipeline_col].values
+
+    def _format_month(dt: "pd.Timestamp") -> str:
+        if pd.isna(dt):
+            return "-"
+        dt = pd.to_datetime(dt)
+        return f"{month_abbr[dt.month]}-{dt.year % 100:02d}"
+
+    if df_marca is not None and not df_marca.empty:
+        try:
+            current_dt = pd.to_datetime(df_marca[COL_DATA].iloc[-1])
+            period_specs = {
+                'Anual': ('MAT', 12),
+                'Semestral': ('SEM', 6),
+                'Trimestral': ('TRI', 3),
+            }
+            formatted_periods: List[str] = []
+            for _, row in detail_df.iterrows():
+                tipo = row.get('Tipo')
+                label, offset = period_specs.get(tipo, ("", None))
+                if offset is None or pd.isna(current_dt):
+                    formatted_periods.append(row.get('Periodo', ''))
+                    continue
+                previous_dt = current_dt - pd.DateOffset(months=offset)
+                formatted_periods.append(f"{label} {_format_month(current_dt)} x {label} {_format_month(previous_dt)}")
+            detail_df['Periodo'] = formatted_periods
+        except Exception:
+            pass
+
+    detail_df.reset_index(drop=True, inplace=True)
+    return detail_df
 
 
 def build_evolution_figure(df_marca: "pd.DataFrame", pipeline: int, lang_index: int) -> Optional["plt.Figure"]:
@@ -2376,6 +2495,7 @@ def generate_presentation_and_bank(
                     var_cliente_mat,
                     var_kantar_mat,
                 )
+                variations_detail = build_variations_detail_table(df_variations, pipeline, df_marca_ppt)
                 evolution_figure = build_evolution_figure(df_marca_ppt, pipeline, lang_index)
                 assets = PipelineAssets(
                     pipeline=pipeline,
@@ -2384,6 +2504,7 @@ def generate_presentation_and_bank(
                     penetration_series=df_marca_ppt.set_index(COL_DATA)[COL_PENET].loc[coverage_series.dropna().index],
                     variation_table=variation_table,
                     trend_plot_df=df_trend_plot,
+                    variations_detail=variations_detail,
                     evolution_figure=evolution_figure,
                 )
                 builder.add_pipeline_slides(
