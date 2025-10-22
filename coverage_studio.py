@@ -343,7 +343,7 @@ for _line in CATEGORIES_CSV_DATA.splitlines()[1:]:
     if len(_parts) >= 3:
         CATEGORY_MAP[_parts[0]] = _parts[2]
 
-PPT_LAYOUT_INDEX = 21
+PPT_LAYOUT_INDEX = 1
 DEFAULT_POP_COVERAGE = "100%"
 EXCEL_TEMP_FILENAME = "file_temp_coverage.xlsx"
 
