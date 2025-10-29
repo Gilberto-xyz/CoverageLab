@@ -50,5 +50,6 @@ Maneja dashes con o sin espacios alrededor]
 
 ### Octubre 2025 
 - [x] Ampliacion de los paises y cobertura poblacional en COUNTRY_MAP (Colombia, Ecuador, Peru, Chile, Argentina, Uruguay, Paraguay, Bolivia) en "archivos_studio.py" y ajuste en la construccion del DataFrame 'pais' para evitar errores si se modifica COUNTRY_MAP
-- [x] Limpiamos el contenido base de proyecto y alojamos la imagen de coberturas en internet para que no pese tanto el proyecto
-- [x] Se agrego la tabla de variaciones en el slide de tendencias mensuales. (Reciclando el que ya se implementaba en el excel template)
+- [x] Se reemplazo la imagen de bienvenida del README por un recurso alojado en linea y eliminamos "welcome.png" para aligerar el repositorio
+- [x] Habilitamos la personalizacion de estilos al crear imagenes de DataFrames y reutilizamos la tabla de variaciones en la slide de tendencias mensuales
+- [x] Optimizamos el Modelo_PPT y ajustamos "PPT_LAYOUT_INDEX" al layout base para evitar desfases en los elementos
