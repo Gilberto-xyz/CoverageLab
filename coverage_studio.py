@@ -14,7 +14,7 @@ import sys
 import threading
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Dict, Iterable, List, Optional, Sequence, Tuple, Callable
+from typing import Dict, Iterable, List, Optional, Sequence, Tuple, Callable, Set
 from calendar import month_abbr
 
 import colorama
@@ -24,6 +24,39 @@ from rich.panel import Panel
 
 colorama.init(autoreset=True)
 console = Console()
+
+BRANDS_WITH_EXCEPTION_WARNING: Set[str] = set()
+
+
+def notify_zero_months_exception(marca_label: Optional[str]) -> None:
+    normalized = (marca_label or "N/D").strip() or "N/D"
+    first_time = normalized not in BRANDS_WITH_EXCEPTION_WARNING
+    BRANDS_WITH_EXCEPTION_WARNING.add(normalized)
+    if first_time:
+        print(f"{Fore.RED}La marca ({Fore.YELLOW}{normalized}{Fore.RED}) contiene 0s en los en algunos meses, graficando con exepcion")
+
+
+def report_zero_months_exceptions() -> None:
+    if not BRANDS_WITH_EXCEPTION_WARNING:
+        return
+    formatted_brands = ", ".join(f"{Fore.YELLOW}{marca}{Fore.RED}" for marca in sorted(BRANDS_WITH_EXCEPTION_WARNING))
+    print(f"{Fore.RED}Marcas con excepción detectada: {formatted_brands}")
+    BRANDS_WITH_EXCEPTION_WARNING.clear()
+
+
+def brand_has_zero_or_dash(df_marca: "pd.DataFrame", window: int = 12) -> bool:
+    if df_marca is None or df_marca.empty:
+        return False
+    cols_to_check = [COL_SELL_IN, COL_SELL_OUT]
+    tail_df = df_marca.tail(window) if window > 0 else df_marca
+    for col in cols_to_check:
+        series = tail_df[col]
+        if series.astype(str).str.strip().eq("-").any():
+            return True
+        numeric = pd.to_numeric(series, errors="coerce")
+        if (numeric == 0).any():
+            return True
+    return False
 
 CATEGORIES_CSV_DATA = """cod,cest,cat
 ALCB,Bebidas,Bebidas Alcoholicas
@@ -869,13 +902,20 @@ def load_and_preprocess_sheet(excel_file_obj, sheet_name):
 
 # --- Funciones de Generación de Gráficos ---
 
-def generar_grafico_evolucion_mensual(df_graf, pipeline_meses=0, lang_idx=2):
+def generar_grafico_evolucion_mensual(
+    df_graf,
+    pipeline_meses: int = 0,
+    lang_idx: int = 2,
+    marca_nombre: Optional[str] = None,
+):
     """
     Genera un gráfico de evolución mensual de WP by Numerator vs Sell-in con variación interanual.
 
     Args:
         df_graf (pd.DataFrame): DataFrame con datos mensuales (col 'Data' debe ser datetime).
         pipeline_meses (int): Número de meses de pipeline para desplazar Sell-in.
+        lang_idx (int): Identificador de idioma (impacta etiquetas).
+        marca_nombre (str, opcional): Nombre de la marca para mensajes de advertencia.
 
     Returns:
         matplotlib.figure.Figure: Figura de matplotlib con el gráfico, o None si no hay datos.
@@ -888,6 +928,17 @@ def generar_grafico_evolucion_mensual(df_graf, pipeline_meses=0, lang_idx=2):
     with matplotlib.style.context('seaborn-v0_8-whitegrid'):
         df_plot = df_graf.copy()
         df_plot[COL_DATA] = pd.to_datetime(df_plot[COL_DATA]) # Asegurar datetime
+        marca_label = (marca_nombre or "N/D").strip() or "N/D"
+        needs_exception_warning = False
+
+        # Detectar '-' en valores numéricos y asegurar tipo float
+        for col in (COL_SELL_IN, COL_SELL_OUT):
+            col_as_str = df_plot[col].astype(str).str.strip()
+            dash_mask = col_as_str.eq("-")
+            if dash_mask.any():
+                needs_exception_warning = True
+                df_plot.loc[dash_mask, col] = 0
+            df_plot[col] = pd.to_numeric(df_plot[col], errors='coerce').fillna(0)
 
         # Si hay pipeline, desplazar Sell-in y guardar original si es necesario
         if pipeline_meses > 0:
@@ -897,8 +948,16 @@ def generar_grafico_evolucion_mensual(df_graf, pipeline_meses=0, lang_idx=2):
         # Calcular sumas móviles y variaciones interanuales
         df_plot["Kantar_12m"] = df_plot[COL_SELL_OUT].rolling(12).sum()
         df_plot["Sellin_12m"] = df_plot[COL_SELL_IN].rolling(12).sum()
-        df_plot["Kantar_yoy"] = ((df_plot["Kantar_12m"] / df_plot["Kantar_12m"].shift(12)) - 1) * 100
-        df_plot["Sellin_yoy"] = ((df_plot["Sellin_12m"] / df_plot["Sellin_12m"].shift(12)) - 1) * 100
+        kantar_prev = df_plot["Kantar_12m"].shift(12)
+        sellin_prev = df_plot["Sellin_12m"].shift(12)
+        zero_prev_kantar = kantar_prev == 0
+        zero_prev_sellin = sellin_prev == 0
+        if zero_prev_kantar.any() or zero_prev_sellin.any():
+            needs_exception_warning = True
+        safe_kantar_prev = kantar_prev.where(~zero_prev_kantar, 1)
+        safe_sellin_prev = sellin_prev.where(~zero_prev_sellin, 1)
+        df_plot["Kantar_yoy"] = ((df_plot["Kantar_12m"] / safe_kantar_prev) - 1) * 100
+        df_plot["Sellin_yoy"] = ((df_plot["Sellin_12m"] / safe_sellin_prev) - 1) * 100
 
         # Filtrar NaNs resultantes de rolling/shift
         df_plot = df_plot.dropna(subset=["Kantar_yoy", "Sellin_yoy"]).copy()
@@ -906,6 +965,9 @@ def generar_grafico_evolucion_mensual(df_graf, pipeline_meses=0, lang_idx=2):
         if df_plot.empty:
             print(f"{Fore.YELLOW}Advertencia: No quedan datos para el gráfico de evolución después de calcular YOY.")
             return None
+
+        if needs_exception_warning:
+            notify_zero_months_exception(marca_label)
 
         # Crear figura y ejes con márgenes personalizados
         fig = plt.figure(figsize=(16.5, 8), dpi=100) # Ajustar tamaño si es necesario
@@ -982,13 +1044,18 @@ def generar_grafico_cobertura(slide, marca_clean, pipeline, df_cov_pipe, df_pen_
     pen_series = df_pen_pipe if isinstance(df_pen_pipe, pd.Series) else pd.Series(df_pen_pipe)
     cov_series = cov_series.rename('coverage')
     pen_series = pen_series.rename('penetracion')
+    cov_series = pd.to_numeric(cov_series, errors='coerce')
+    pen_series = pd.to_numeric(pen_series, errors='coerce')
     combined = pd.concat([cov_series, pen_series], axis=1, join='inner')
+    combined = combined.replace([np.inf, -np.inf], np.nan)
     combined = combined.dropna(subset=['coverage', 'penetracion'])
     if combined.empty:
         print(f"{Fore.YELLOW}Advertencia: No hay datos suficientes para el gráfico de cobertura/penetración (Marca: {marca_clean}, P:{pipeline}).")
         return
     cov_data = combined['coverage'].to_numpy(dtype=float)
     pen_data = combined['penetracion'].to_numpy(dtype=float)
+    cov_data = np.where(np.isfinite(cov_data), cov_data, np.nan)
+    pen_data = np.where(np.isfinite(pen_data), pen_data, np.nan)
     x_labels = [idx.strftime('%m-%y') if hasattr(idx, 'strftime') else str(idx) for idx in combined.index]
     x_pos = np.arange(len(x_labels))
     fig_cov, ax_cov = plt.subplots(figsize=(12, 4.25), dpi=100)
@@ -2194,16 +2261,25 @@ def compute_coverage_dataframe(
     pais_nombre: str,
     coverage_type: str,
     round_coverage: bool,
+    marca_nombre: Optional[str] = None,
 ) -> "pd.DataFrame":
     """Calcula la cobertura rolling de 12 meses para cada pipeline."""
     acum_sell_out_py = df_marca[COL_SELL_OUT].rolling(window=12, min_periods=12).sum()
     acum_sell_out_py.index = df_marca[COL_DATA]
     df_coverage = pd.DataFrame(index=acum_sell_out_py.index)
+    marca_label = (marca_nombre or "N/D").strip() or "N/D"
+    needs_exception_warning = False
     for p in range(7):
         sell_in_shifted = df_marca[COL_SELL_IN].shift(p)
         acum_sell_in_shifted = sell_in_shifted.rolling(window=12, min_periods=12).sum()
         acum_sell_in_shifted.index = df_marca[COL_DATA]
+        zero_mask = acum_sell_in_shifted == 0
+        if zero_mask.any():
+            needs_exception_warning = True
+            acum_sell_in_shifted = acum_sell_in_shifted.copy()
+            acum_sell_in_shifted.loc[zero_mask] = 1
         coverage_p = (acum_sell_out_py / acum_sell_in_shifted) * 100
+        coverage_p = coverage_p.replace([np.inf, -np.inf], np.nan)
         df_coverage[f'P{p}'] = coverage_p
     pop_val_num = float(pop_coverage.get(pais_nombre, DEFAULT_POP_COVERAGE).replace('%', '')) / 100.0
     if coverage_type.lower() == "relativa" and pop_val_num > 0:
@@ -2212,6 +2288,8 @@ def compute_coverage_dataframe(
         df_coverage = df_coverage.apply(_round_half_up_series)
     else:
         df_coverage = df_coverage.round(1)
+    if needs_exception_warning:
+        notify_zero_months_exception(marca_label)
     return df_coverage
 
 
@@ -2328,12 +2406,22 @@ def build_variations_detail_table(
     return detail_df
 
 
-def build_evolution_figure(df_marca: "pd.DataFrame", pipeline: int, lang_index: int) -> Optional["plt.Figure"]:
+def build_evolution_figure(
+    df_marca: "pd.DataFrame",
+    pipeline: int,
+    lang_index: int,
+    marca_nombre: str,
+) -> Optional["plt.Figure"]:
     if len(df_marca) < 24:
         return None
     df_evol = df_marca[[COL_DATA, COL_SELL_IN, COL_SELL_OUT]].copy()
     df_evol[COL_DATA] = pd.to_datetime(df_evol[COL_DATA])
-    return generar_grafico_evolucion_mensual(df_evol, pipeline, lang_index)
+    return generar_grafico_evolucion_mensual(
+        df_evol,
+        pipeline,
+        lang_index,
+        marca_nombre=marca_nombre,
+    )
 
 
 
@@ -2478,7 +2566,15 @@ def generate_presentation_and_bank(
             marca_nombre_limpio = re.sub(r"(?i)^p[0-6]_", "", marca_sheet_name)
             match = re.match(r"(?i)^p([0-6])_", marca_sheet_name)
             pipelines_to_run = [int(match.group(1))] if match else list(range(7))
-            df_coverage = compute_coverage_dataframe(df_marca_ppt, pais_nombre, coverage_type, round_coverage)
+            if brand_has_zero_or_dash(df_marca_ppt, window=0):
+                notify_zero_months_exception(marca_nombre_limpio)
+            df_coverage = compute_coverage_dataframe(
+                df_marca_ppt,
+                pais_nombre,
+                coverage_type,
+                round_coverage,
+                marca_nombre=marca_nombre_limpio,
+            )
             df_variations = compute_variations_dataframe(df_marca_ppt)
             averages = compute_averages(df_marca_ppt)
             df_trend_plot = compute_trend_plot_df(df_marca_ppt)
@@ -2496,7 +2592,12 @@ def generate_presentation_and_bank(
                     var_kantar_mat,
                 )
                 variations_detail = build_variations_detail_table(df_variations, pipeline, df_marca_ppt)
-                evolution_figure = build_evolution_figure(df_marca_ppt, pipeline, lang_index)
+                evolution_figure = build_evolution_figure(
+                    df_marca_ppt,
+                    pipeline,
+                    lang_index,
+                    marca_nombre_limpio,
+                )
                 assets = PipelineAssets(
                     pipeline=pipeline,
                     marca=marca_nombre_limpio,
@@ -2746,6 +2847,7 @@ class CoverageStudioUltraApp:
             coverage_label=coverage_label,
         )
         print_file_summary(ruta_template_final, ruta_ppt_final, ruta_banco_final)
+        report_zero_months_exceptions()
 
     def run(self) -> None:
         excel_list = self.list_excel_files()
