@@ -25,38 +25,72 @@ from rich.panel import Panel
 colorama.init(autoreset=True)
 console = Console()
 
-BRANDS_WITH_EXCEPTION_WARNING: Set[str] = set()
+BRAND_EXCEPTION_REASONS: Dict[str, Set[str]] = {}
+
+EXCEPTION_STYLES: Dict[str, Dict[str, str]] = {
+    "zero_dash": {
+        "brand_color": Fore.YELLOW,
+        "message": "contiene 0s en los en algunos meses, graficando con exepcion",
+        "summary_tag": "0/-",
+    },
+    "negative": {
+        "brand_color": Fore.GREEN,
+        "message": "contiene valores negativos, graficando con exepcion",
+        "summary_tag": "neg",
+    },
+}
+
+
+def _register_brand_exception(marca_label: Optional[str], reason: str) -> None:
+    normalized = (marca_label or "N/D").strip() or "N/D"
+    reason_set = BRAND_EXCEPTION_REASONS.setdefault(normalized, set())
+    if reason in reason_set:
+        return
+    reason_set.add(reason)
+    style = EXCEPTION_STYLES.get(reason, EXCEPTION_STYLES["zero_dash"])
+    print(f"{Fore.RED}La marca ({style['brand_color']}{normalized}{Fore.RED}) {style['message']}")
 
 
 def notify_zero_months_exception(marca_label: Optional[str]) -> None:
-    normalized = (marca_label or "N/D").strip() or "N/D"
-    first_time = normalized not in BRANDS_WITH_EXCEPTION_WARNING
-    BRANDS_WITH_EXCEPTION_WARNING.add(normalized)
-    if first_time:
-        print(f"{Fore.RED}La marca ({Fore.YELLOW}{normalized}{Fore.RED}) contiene 0s en los en algunos meses, graficando con exepcion")
+    _register_brand_exception(marca_label, "zero_dash")
+
+
+def notify_negative_values_exception(marca_label: Optional[str]) -> None:
+    _register_brand_exception(marca_label, "negative")
 
 
 def report_zero_months_exceptions() -> None:
-    if not BRANDS_WITH_EXCEPTION_WARNING:
+    if not BRAND_EXCEPTION_REASONS:
         return
-    formatted_brands = ", ".join(f"{Fore.YELLOW}{marca}{Fore.RED}" for marca in sorted(BRANDS_WITH_EXCEPTION_WARNING))
-    print(f"{Fore.RED}Marcas con excepción detectada: {formatted_brands}")
-    BRANDS_WITH_EXCEPTION_WARNING.clear()
+    formatted_brands: List[str] = []
+    for marca in sorted(BRAND_EXCEPTION_REASONS):
+        tags = "/".join(
+            sorted(
+                {EXCEPTION_STYLES.get(reason, {}).get("summary_tag", reason) for reason in BRAND_EXCEPTION_REASONS[marca]}
+            )
+        )
+        formatted_brands.append(f"{Fore.YELLOW}{marca}{Fore.RED}[{tags}]")
+    print(f"{Fore.RED}Marcas con excepción detectada: {', '.join(formatted_brands)}")
+    BRAND_EXCEPTION_REASONS.clear()
 
 
-def brand_has_zero_or_dash(df_marca: "pd.DataFrame", window: int = 12) -> bool:
+def detect_brand_data_issues(df_marca: "pd.DataFrame", window: int = 12) -> Set[str]:
+    issues: Set[str] = set()
     if df_marca is None or df_marca.empty:
-        return False
+        return issues
     cols_to_check = [COL_SELL_IN, COL_SELL_OUT]
     tail_df = df_marca.tail(window) if window > 0 else df_marca
     for col in cols_to_check:
         series = tail_df[col]
-        if series.astype(str).str.strip().eq("-").any():
-            return True
+        str_series = series.astype(str).str.strip()
+        if str_series.eq("-").any():
+            issues.add("zero_dash")
         numeric = pd.to_numeric(series, errors="coerce")
         if (numeric == 0).any():
-            return True
-    return False
+            issues.add("zero_dash")
+        if (numeric < 0).any():
+            issues.add("negative")
+    return issues
 
 CATEGORIES_CSV_DATA = """cod,cest,cat
 ALCB,Bebidas,Bebidas Alcoholicas
@@ -2566,8 +2600,13 @@ def generate_presentation_and_bank(
             marca_nombre_limpio = re.sub(r"(?i)^p[0-6]_", "", marca_sheet_name)
             match = re.match(r"(?i)^p([0-6])_", marca_sheet_name)
             pipelines_to_run = [int(match.group(1))] if match else list(range(7))
-            if brand_has_zero_or_dash(df_marca_ppt, window=0):
-                notify_zero_months_exception(marca_nombre_limpio)
+            issues_detected = detect_brand_data_issues(df_marca_ppt, window=0)
+            if issues_detected:
+                for issue in issues_detected:
+                    if issue == "zero_dash":
+                        notify_zero_months_exception(marca_nombre_limpio)
+                    elif issue == "negative":
+                        notify_negative_values_exception(marca_nombre_limpio)
             df_coverage = compute_coverage_dataframe(
                 df_marca_ppt,
                 pais_nombre,
