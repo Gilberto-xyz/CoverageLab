@@ -1857,6 +1857,13 @@ def generate_excel_template(
                 min_periods_for_layout = 42                                    # 36 meses + 6 pipelines para mantener layout
                 missing_periods = max(0, min_periods_for_layout - original_data_rows)
 
+                def build_if_no_zero(num_range: str, den_range: str, formula_body: str) -> str:
+                    """
+                    Envuelve una fórmula con validación de ceros: si hay 0 en alguna de las ventanas, devuelve "-".
+                    'formula_body' no debe llevar '=' al inicio.
+                    """
+                    return f"=IF(OR(COUNTIF({num_range},0)>0,COUNTIF({den_range},0)>0),\"-\",{formula_body})"
+
                 # ---------- Y-1 -------------------------------------------------
                 var = pd.DataFrame([
                     ['Anual',      "MAT " + df_excel.loc[original_data_rows-1, COL_DATA].strftime('%b-%y') +
@@ -1868,19 +1875,31 @@ def generate_excel_template(
                 ], columns=['Tipo', 'Periodo'])
 
                 # Variaciones WP by Numerator
-                var['WP by Numerator'] = [
-                    f"=SUM(C{original_data_rows+excel_row_offset-i - 2}:C{original_data_rows+excel_row_offset-1})/"
-                    f"SUM(C{original_data_rows+excel_row_offset-2*j -2 }:C{original_data_rows+excel_row_offset-j - 2})-1"
-                    for i, j in zip([10, 4, 1], [11, 5, 2])
-                ]
+                var_wp = []
+                for i, j in zip([10, 4, 1], [11, 5, 2]):
+                    num_start = original_data_rows + excel_row_offset - i - 2
+                    num_end = original_data_rows + excel_row_offset - 1
+                    den_start = original_data_rows + excel_row_offset - 2 * j - 2
+                    den_end = original_data_rows + excel_row_offset - j - 2
+                    num_range = f"C{num_start}:C{num_end}"
+                    den_range = f"C{den_start}:C{den_end}"
+                    formula_body = f"SUM({num_range})/SUM({den_range})-1"
+                    var_wp.append(build_if_no_zero(num_range, den_range, formula_body))
+                var['WP by Numerator'] = var_wp
 
                 # Variaciones Cliente
                 for p in range(7):
-                    var[f'Cliente P{p}'] = [
-                        f"=SUM(L{original_data_rows+excel_row_offset-i-p -2}:L{original_data_rows+excel_row_offset-p -1})/"
-                        f"SUM(L{original_data_rows+excel_row_offset-2*j-p -2}:L{original_data_rows+excel_row_offset-j-p -2})-1"
-                        for i, j in zip([10, 4, 1], [11, 5, 2])
-                    ]
+                    cli_var = []
+                    for i, j in zip([10, 4, 1], [11, 5, 2]):
+                        num_start = original_data_rows + excel_row_offset - i - p - 2
+                        num_end = original_data_rows + excel_row_offset - p - 1
+                        den_start = original_data_rows + excel_row_offset - 2 * j - p - 2
+                        den_end = original_data_rows + excel_row_offset - j - p - 2
+                        num_range = f"L{num_start}:L{num_end}"
+                        den_range = f"L{den_start}:L{den_end}"
+                        formula_body = f"SUM({num_range})/SUM({den_range})-1"
+                        cli_var.append(build_if_no_zero(num_range, den_range, formula_body))
+                    var[f'Cliente P{p}'] = cli_var
 
                 # ---------- Y-2 -------------------------------------------------
                 # Ventanas: MAT=12, SEM=6, TRI=3  (todas comparadas contra el mismo tamaño W, 24 meses antes)
@@ -1914,7 +1933,10 @@ def generate_excel_template(
                     # Denominador: misma ventana 'meses', pero que termina 'lag_meses' antes
                     den_fin = end_row - lag_meses
                     den_ini, den_fin = rango_excel(den_fin, meses)
-                    return f"=SUM({col}{num_ini}:{col}{num_fin})/SUM({col}{den_ini}:{col}{den_fin})-1"
+                    num_range = f"{col}{num_ini}:{col}{num_fin}"
+                    den_range = f"{col}{den_ini}:{col}{den_fin}"
+                    formula_body = f"SUM({num_range})/SUM({den_range})-1"
+                    return build_if_no_zero(num_range, den_range, formula_body)
 
                 # Reglas de suficiencia de datos por ventana para Y-2:
                 #  - MAT (12): requiere >= 12 + 24 = 36 meses
@@ -1947,12 +1969,6 @@ def generate_excel_template(
                 # Limpiar variaciones sin sentido sin crear columnas negativas
                 if missing_periods > 0:
                     print(Fore.YELLOW + f"Correlaciones/variaciones con periodos incompletos ({original_data_rows}/{min_periods_for_layout}); se calcula la mayor cantidad posible de correlaciones anuales y se rellenan con '-' los faltantes.")
-                    for i, p_col in enumerate(range(6, -1, -1)):
-                        if i >= missing_periods:
-                            break
-                        col_name = f'Cliente P{p_col}'
-                        if col_name in aux.columns:
-                            aux[col_name] = "-"
 
 
                 # ---------- Unir Y-1 y Y-2 --------------------------------------
