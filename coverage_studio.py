@@ -34,7 +34,7 @@ EXCEPTION_STYLES: Dict[str, Dict[str, str]] = {
         "summary_tag": "0/-",
     },
     "negative": {
-        "brand_color": Fore.GREEN,
+        "brand_color": Fore.YELLOW,
         "message": "contiene valores negativos, graficando con exepcion",
         "summary_tag": "neg",
     },
@@ -48,7 +48,8 @@ def _register_brand_exception(marca_label: Optional[str], reason: str) -> None:
         return
     reason_set.add(reason)
     style = EXCEPTION_STYLES.get(reason, EXCEPTION_STYLES["zero_dash"])
-    print(f"{Fore.RED}La marca ({style['brand_color']}{normalized}{Fore.RED}) {style['message']}")
+    # Mensaje en rojo con el nombre de la marca en amarillo al inicio
+    print(f"{Fore.RED}{Fore.YELLOW}{normalized}{Fore.RED} {style['message']}")
 
 
 def notify_zero_months_exception(marca_label: Optional[str]) -> None:
@@ -62,15 +63,17 @@ def notify_negative_values_exception(marca_label: Optional[str]) -> None:
 def report_zero_months_exceptions() -> None:
     if not BRAND_EXCEPTION_REASONS:
         return
-    formatted_brands: List[str] = []
+    print(f"{Fore.RED}Marcas con excepción detectada:")
     for marca in sorted(BRAND_EXCEPTION_REASONS):
         tags = "/".join(
             sorted(
-                {EXCEPTION_STYLES.get(reason, {}).get("summary_tag", reason) for reason in BRAND_EXCEPTION_REASONS[marca]}
+                {
+                    EXCEPTION_STYLES.get(reason, {}).get("summary_tag", reason)
+                    for reason in BRAND_EXCEPTION_REASONS[marca]
+                }
             )
         )
-        formatted_brands.append(f"{Fore.YELLOW}{marca}{Fore.RED}[{tags}]")
-    print(f"{Fore.RED}Marcas con excepción detectada: {', '.join(formatted_brands)}")
+        print(f"{Fore.RED}- {Fore.YELLOW}{marca}{Fore.RED} [{tags}]")
     BRAND_EXCEPTION_REASONS.clear()
 
 
@@ -1968,7 +1971,10 @@ def generate_excel_template(
 
                 # Limpiar variaciones sin sentido sin crear columnas negativas
                 if missing_periods > 0:
-                    print(Fore.YELLOW + f"Correlaciones/variaciones con periodos incompletos ({original_data_rows}/{min_periods_for_layout}); se calcula la mayor cantidad posible de correlaciones anuales y se rellenan con '-' los faltantes.")
+                    print(
+                        Fore.YELLOW
+                        + f"Correlaciones/variaciones con periodos incompletos para {Fore.GREEN}{marca_sheet_name}{Fore.YELLOW} ({original_data_rows}/{min_periods_for_layout}); se calcula la mayor cantidad posible de correlaciones anuales y se rellenan con '-' los falta"
+                    )
 
 
                 # ---------- Unir Y-1 y Y-2 --------------------------------------
