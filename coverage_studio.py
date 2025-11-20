@@ -2036,7 +2036,13 @@ def generate_excel_template(
                                     row[f'P{p}'] = "-"
                                 else:
                                     # Usa coma ',' en argumentos; función en inglés 'CORREL' como en tu flujo actual
-                                    row[f'P{p}'] = f"=CORREL(M{m_start}:M{m_end},N{n_start}:N{n_end})"
+                                    m_range = f"M{m_start}:M{m_end}"
+                                    n_range = f"N{n_start}:N{n_end}"
+                                    row[f'P{p}'] = (
+                                        f"=IF(OR(COUNTBLANK({m_range})>0,COUNTBLANK({n_range})>0,"
+                                        f"COUNTIF({m_range},0)>0,COUNTIF({n_range},0)>0),\"-\","
+                                        f"CORREL({m_range},{n_range}))"
+                                    )
                             else:
                                 row[f'P{p}'] = '-'
                     else:
