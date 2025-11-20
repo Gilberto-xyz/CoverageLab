@@ -1854,6 +1854,8 @@ def generate_excel_template(
                 # ► VARIABLES EXTRA que tu código “heredado” sigue ocupando
                 n_data          = original_data_rows                            # filas con datos
                 last_row_excel  = n_data + excel_row_offset - 1                 # última fila real en Excel
+                min_periods_for_layout = 42                                    # 36 meses + 6 pipelines para mantener layout
+                missing_periods = max(0, min_periods_for_layout - original_data_rows)
 
                 # ---------- Y-1 -------------------------------------------------
                 var = pd.DataFrame([
@@ -1942,10 +1944,15 @@ def generate_excel_template(
                             cli_y2.append("-")
                     aux[f'Cliente P{p}'] = cli_y2
 
-                # Limpiar variaciones sin sentido
-                if 42 - original_data_rows >= 0:
-                    for i in range(abs(42 - original_data_rows)):
-                        aux.loc[0, f'Cliente P{6 - i}'] = np.nan
+                # Limpiar variaciones sin sentido sin crear columnas negativas
+                if missing_periods > 0:
+                    print(Fore.YELLOW + f"Correlaciones/variaciones con periodos incompletos ({original_data_rows}/{min_periods_for_layout}); se calcula la mayor cantidad posible de correlaciones anuales y se rellenan con '-' los faltantes.")
+                    for i, p_col in enumerate(range(6, -1, -1)):
+                        if i >= missing_periods:
+                            break
+                        col_name = f'Cliente P{p_col}'
+                        if col_name in aux.columns:
+                            aux[col_name] = "-"
 
 
                 # ---------- Unir Y-1 y Y-2 --------------------------------------
@@ -1960,6 +1967,21 @@ def generate_excel_template(
                 # Los índices son base 1 y se garantiza que cada rango tenga exactamente 12 filas; de lo contrario, se asigna '-'.
             
                 # ---------- Correlaciones: 12m, 2 años antes (12m terminando hace 24m), 2 años (ventana 24m) ----------
+
+                series_sell_out = pd.to_numeric(df_marca[COL_SELL_OUT], errors="coerce")
+                series_sell_in = pd.to_numeric(df_marca[COL_SELL_IN], errors="coerce")
+
+                def _window_invalid(series: "pd.Series", start_row_excel: int, end_row_excel: int) -> bool:
+                    """
+                    Valida que la ventana exista, no tenga NaN y no tenga ceros.
+                    Devuelve True si la ventana es inválida.
+                    """
+                    start_idx = start_row_excel - excel_row_offset
+                    end_idx = end_row_excel - excel_row_offset
+                    if start_idx < 0 or end_idx >= len(series):
+                        return True
+                    window = series.iloc[start_idx:end_idx+1]
+                    return window.isna().any() or (window == 0).any()
 
                 def _build_correl_row(label: str, window: int, end_offset: int = 0) -> dict:
                     """
@@ -1983,13 +2005,22 @@ def generate_excel_template(
                         m_end   = max(row_fin, 2)
 
                         for p in range(0, 7):  # P0..P6
+                            # Cada pipeline consume filas adicionales; valida que haya datos suficientes
+                            if (n_data - p) < (window + end_offset):
+                                row[f'P{p}'] = '-'
+                                continue
+
                             n_start = max(row_ini - p, 2)
                             n_end   = max(row_fin - p, 2)
 
                             # Ambas ventanas deben tener exactamente 'window' filas
                             if (m_end - m_start + 1 == window) and (n_end - n_start + 1 == window):
-                                # Usa coma ',' en argumentos; función en inglés 'CORREL' como en tu flujo actual
-                                row[f'P{p}'] = f"=CORREL(M{m_start}:M{m_end},N{n_start}:N{n_end})"
+                                # Si hay 0s o NaN en alguna ventana, se considera incompleto y se marca con '-'
+                                if _window_invalid(series_sell_out, m_start, m_end) or _window_invalid(series_sell_in, n_start, n_end):
+                                    row[f'P{p}'] = "-"
+                                else:
+                                    # Usa coma ',' en argumentos; función en inglés 'CORREL' como en tu flujo actual
+                                    row[f'P{p}'] = f"=CORREL(M{m_start}:M{m_end},N{n_start}:N{n_end})"
                             else:
                                 row[f'P{p}'] = '-'
                     else:
