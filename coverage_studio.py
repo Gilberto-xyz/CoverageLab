@@ -840,12 +840,28 @@ def load_and_preprocess_sheet(excel_file_obj, sheet_name):
                Retorna (None, None) si hay un error al cargar o procesar.
     """
     try:
-        df_sheet = excel_file_obj.parse(sheet_name)
+        raw_sheet = excel_file_obj.parse(sheet_name, header=None)
+
+        # Detectar inicio real de la tabla buscando "table" en la primera columna
+        start_idx = 0
+        meta_header_text = None
+        try:
+            first_col = raw_sheet.iloc[:, 0].astype(str)
+            table_mask = first_col.str.contains(r"\btable\b", flags=re.IGNORECASE, na=False)
+            if table_mask.any():
+                start_idx = table_mask[table_mask].index[0]
+                meta_header_text = raw_sheet.iloc[start_idx, 0]
+        except Exception:
+            start_idx = 0
+            meta_header_text = None
+
+        df_sheet = raw_sheet.iloc[start_idx:, :].reset_index(drop=True)
+
         # Validar estructura mínima esperada (al menos 2 filas, 8 columnas)
         rows, cols = df_sheet.shape
         if rows < 2 or cols < 8:
             if cols == 7:
-                # Caso específico: 7 columnas → probablemente falta Sell-in del cliente
+                # Caso específico: 7 columnas – probablemente falta Sell-in del cliente
                 print(
                     f"{Fore.RED}{Style.BRIGHT}Error:{Style.RESET_ALL} "
                     f"La hoja '{sheet_name}' no cumple la estructura mínima "
@@ -871,7 +887,7 @@ def load_and_preprocess_sheet(excel_file_obj, sheet_name):
         # Si existen los 8 encabezados pero no hay datos debajo del encabezado de la columna 8,
         # se omite la hoja para evitar que el programa se rompa más adelante.
         try:
-            _col8 = df_sheet.iloc[1:, 7]  # índice 0-based: 7 es la 8ª columna
+            _col8 = df_sheet.iloc[1:, 7]  # Índice 0-based: 7 es la 8ª columna
             _col8_empty = _col8.isna().all() or (_col8.astype(str).str.strip() == '').all()
         except Exception:
             _col8_empty = True  # si por alguna razón falla, tratamos como vacío
@@ -886,28 +902,28 @@ def load_and_preprocess_sheet(excel_file_obj, sheet_name):
         measure = str(df_sheet.iat[0, 1]).replace('Weighted', '').strip()
 
         # Renombra las columnas al formato estándar
-        df_sheet.columns = [COL_DATA, COL_SELL_OUT, COL_PENET, COL_COMPRA_MEDIA, COL_COMPRA_OCA, COL_FREQ, COL_BUYERS, COL_SELL_IN] + list(df_sheet.columns[8:]) # Mantiene columnas extra si existen
-        df_sheet = df_sheet.loc[:, [COL_DATA, COL_SELL_IN, COL_SELL_OUT, COL_COMPRA_MEDIA, COL_COMPRA_OCA, COL_FREQ, COL_PENET, COL_BUYERS]] # Reordena y selecciona
+        df_sheet.columns = [COL_DATA, COL_SELL_OUT, COL_PENET, COL_COMPRA_MEDIA, COL_COMPRA_OCA, COL_FREQ, COL_BUYERS, COL_SELL_IN] + list(df_sheet.columns[8:])  # Mantiene columnas extra si existen
+        df_sheet = df_sheet.loc[:, [COL_DATA, COL_SELL_IN, COL_SELL_OUT, COL_COMPRA_MEDIA, COL_COMPRA_OCA, COL_FREQ, COL_PENET, COL_BUYERS]]  # Reordena y selecciona
 
         # Elimina la primera fila (encabezados repetidos) y resetea el índice
         df_sheet = df_sheet.iloc[1:].reset_index(drop=True)
 
         # Convierte la columna "Data" a tipo datetime
         # Maneja posibles errores de formato o valores nulos
-        original_dates = df_sheet[COL_DATA].copy() # Guardar original por si falla
+        original_dates = df_sheet[COL_DATA].copy()  # Guardar original por si falla
         try:
             # Intenta convertir primero todos los que sean strings
             is_string = df_sheet[COL_DATA].apply(lambda x: isinstance(x, str))
             if is_string.any():
-                 # Intenta formato específico primero, maneja errores individuales
-                 df_sheet.loc[is_string, COL_DATA] = df_sheet.loc[is_string, COL_DATA].apply(
-                     lambda x: dt.strptime(x, '%b-%y  ') if isinstance(x, str) and re.match(r'\w{3}-\d{2}\s{2}', x) else x
-                 )
+                # Intenta formato específico primero, maneja errores individuales
+                df_sheet.loc[is_string, COL_DATA] = df_sheet.loc[is_string, COL_DATA].apply(
+                    lambda x: dt.strptime(x, '%b-%y  ') if isinstance(x, str) and re.match(r'\w{3}-\d{2}\s{2}', x) else x
+                )
             # Convierte el resto (o los ya convertidos) a datetime
             df_sheet[COL_DATA] = pd.to_datetime(df_sheet[COL_DATA], errors='coerce')
         except Exception as e:
-             print(f"{Fore.YELLOW}Advertencia: Problema al convertir fechas en hoja '{sheet_name}'. Error: {e}. Se usará la columna original si es posible.")
-             df_sheet[COL_DATA] = pd.to_datetime(original_dates, errors='coerce') # Reintentar con la original
+            print(f"{Fore.YELLOW}Advertencia: Problema al convertir fechas en hoja '{sheet_name}'. Error: {e}. Se usará la columna original si es posible.")
+            df_sheet[COL_DATA] = pd.to_datetime(original_dates, errors='coerce')  # Reintentar con la original
 
         # Eliminar filas donde la fecha no se pudo convertir (NaT)
         initial_rows = len(df_sheet)
@@ -928,14 +944,13 @@ def load_and_preprocess_sheet(excel_file_obj, sheet_name):
         df_sheet[COL_ANO] = df_sheet[COL_DATA].dt.year
         df_sheet[COL_TRI] = df_sheet[COL_DATA].dt.quarter
         df_sheet[COL_SEM] = (df_sheet[COL_DATA].dt.month - 1) // 6 + 1
-        df_sheet[COL_DATA] = df_sheet[COL_DATA].dt.date # Convertir a solo fecha al final
+        df_sheet[COL_DATA] = df_sheet[COL_DATA].dt.date  # Convertir a solo fecha al final
 
         return df_sheet, measure
 
     except Exception as e:
         print(f"{Fore.RED}Error crítico al cargar o preprocesar la hoja '{sheet_name}': {e}")
         return None, None
-
 
 # --- Funciones de Generación de Gráficos ---
 
