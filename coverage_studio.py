@@ -2427,9 +2427,11 @@ def compute_averages(df_marca: "pd.DataFrame") -> Dict[str, float]:
     if n_data >= 12:
         averages['Penet_MAT_Actual'] = df_marca[COL_PENET].iloc[-12:].mean()
         averages['Buyers_MAT_Actual'] = df_marca[COL_BUYERS].iloc[-12:].mean()
+        averages['Freq_MAT_Actual'] = df_marca[COL_FREQ].iloc[-12:].mean()
     else:
         averages['Penet_MAT_Actual'] = df_marca[COL_PENET].mean()
         averages['Buyers_MAT_Actual'] = df_marca[COL_BUYERS].mean()
+        averages['Freq_MAT_Actual'] = df_marca[COL_FREQ].mean()
     if n_data >= 24:
         averages['Penet_MAT_Anterior'] = df_marca[COL_PENET].iloc[-24:-12].mean()
         averages['Buyers_MAT_Anterior'] = df_marca[COL_BUYERS].iloc[-24:-12].mean()
@@ -2598,6 +2600,7 @@ def build_summary_and_bank_rows(
         'Penet Media Ano Mov Atual': round(averages.get('Penet_MAT_Actual', 0), 1),
         'Penet Media Ano Mov Anterior': round(averages.get('Penet_MAT_Anterior', 0), 1),
         'Raw Buyers Media Ano Mov Atual': round(averages.get('Buyers_MAT_Actual', 0), 1),
+        'Frecuencia': round(averages.get('Freq_MAT_Actual', 0), 1),
         'Pipeline': pipeline,
         'Cobertura Año Mov Actual': cov_actual_val,
         'Cobertura Año Mov Anterior': cov_anterior_val,
@@ -2612,7 +2615,7 @@ def build_summary_and_bank_rows(
 COVERAGE_BANK_COLUMNS = [
     'Periodo', 'Fabricante', 'Categoria', 'Fabricante/Marca', 'Cesta', 'Panel', 'Unidad',
     'Razon', 'Pais', 'Ampliacion', 'Penet Media Ano Mov Atual', 'Penet Media Ano Mov Anterior',
-    'Raw Buyers Media Ano Mov Atual', 'Pipeline', 'Cobertura Año Mov Actual',
+    'Raw Buyers Media Ano Mov Atual', 'Frecuencia', 'Pipeline', 'Cobertura Año Mov Actual',
     'Cobertura Año Mov Anterior', '%VAR Cliente', '% VAR WP by Numerator', 'Misma Tendencia', 'Estabilidad'
 ]
 
