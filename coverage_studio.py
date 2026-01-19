@@ -60,6 +60,23 @@ def notify_negative_values_exception(marca_label: Optional[str]) -> None:
     _register_brand_exception(marca_label, "negative")
 
 
+def notify_buyers_threshold(marca_label: Optional[str], buyers_value: Optional[float], threshold: float = 200) -> None:
+    if buyers_value is None:
+        return
+    try:
+        if pd.isna(buyers_value):
+            return
+        buyers_num = float(buyers_value)
+    except Exception:
+        return
+    normalized = (marca_label or "N/D").strip() or "N/D"
+    buyers_display = f"{buyers_num:.0f}"
+    if buyers_num < threshold:
+        print(Fore.RED + f"{normalized} cuenta con {buyers_display} compradores promedio, tener precaución")
+    else:
+        print(Fore.GREEN + f"{normalized} si cuenta con al menos {int(threshold)} compradores")
+
+
 def report_zero_months_exceptions() -> None:
     if not BRAND_EXCEPTION_REASONS:
         return
@@ -2693,6 +2710,7 @@ def generate_presentation_and_bank(
             )
             df_variations = compute_variations_dataframe(df_marca_ppt)
             averages = compute_averages(df_marca_ppt)
+            notify_buyers_threshold(marca_nombre_limpio, averages.get('Buyers_MAT_Actual'))
             df_trend_plot = compute_trend_plot_df(df_marca_ppt)
             for pipeline in pipelines_to_run:
                 coverage_series = df_coverage[f'P{pipeline}']
