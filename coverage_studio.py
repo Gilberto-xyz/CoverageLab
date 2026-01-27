@@ -1156,7 +1156,8 @@ def generar_grafico_cobertura(slide, marca_clean, pipeline, df_cov_pipe, df_pen_
             if height > 0.1:
                 bbox_props = dict(facecolor='#F2F2F2', edgecolor='black', boxstyle='round,pad=0.3')
                 if rect_group is rects1:
-                    if i % 12 == (len(rect_group) % 12 - 1):
+                    # Resaltar el último mes y cada 12 meses hacia atrás (evita el caso len%12==0).
+                    if i % 12 == ((len(rect_group) - 1) % 12):
                         bbox_props['facecolor'] = '#A6A6A6'
                         bbox_props['edgecolor'] = 'black'
                     label_txt = f"{int(np.floor(height + 0.5))}" if globals().get('ROUND_COVERAGE', False) else f"{height:.1f}"
