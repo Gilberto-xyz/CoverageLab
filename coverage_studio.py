@@ -12,6 +12,7 @@ import re
 import shutil
 import sys
 import threading
+import unicodedata
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Dict, Iterable, List, Optional, Sequence, Tuple, Callable, Set
@@ -38,6 +39,23 @@ EXCEPTION_STYLES: Dict[str, Dict[str, str]] = {
         "message": "contiene valores negativos, graficando con exepcion",
         "summary_tag": "neg",
     },
+}
+
+SUMMARY_EXTRA_MONTHS_ENV_KEYS: Tuple[str, ...] = ("AUTO_EXTEA", "AUTO_EXTRA_MONTHS")
+SUMMARY_EXTRA_MONTHS_MODE_ENV_KEYS: Tuple[str, ...] = ("AUTO_EXTEA_MODE", "AUTO_EXTRA_MONTHS_MODE")
+MONTH_TOKEN_TO_NUMBER: Dict[str, int] = {
+    "ene": 1, "enero": 1, "jan": 1, "janeiro": 1, "january": 1,
+    "feb": 2, "febrero": 2, "fev": 2, "fevereiro": 2, "february": 2,
+    "mar": 3, "marzo": 3, "marco": 3, "march": 3,
+    "abr": 4, "abril": 4, "apr": 4, "april": 4,
+    "may": 5, "mayo": 5, "maio": 5,
+    "jun": 6, "junio": 6, "junho": 6, "june": 6,
+    "jul": 7, "julio": 7, "julho": 7, "july": 7,
+    "ago": 8, "agosto": 8, "aug": 8, "august": 8,
+    "sep": 9, "sept": 9, "set": 9, "septiembre": 9, "setiembre": 9, "setembro": 9, "september": 9,
+    "oct": 10, "octubre": 10, "out": 10, "outubro": 10, "october": 10,
+    "nov": 11, "noviembre": 11, "novembro": 11, "november": 11,
+    "dic": 12, "diciembre": 12, "dez": 12, "dezembro": 12, "dec": 12, "december": 12,
 }
 
 
@@ -612,6 +630,123 @@ def round_coverage_flag():
     clear_and_print_summary()
     return do_round
 
+def _normalize_month_token(token: str) -> str:
+    token = (token or "").strip().lower()
+    if not token:
+        return ""
+    normalized = unicodedata.normalize("NFKD", token)
+    return "".join(ch for ch in normalized if not unicodedata.combining(ch))
+
+def parse_summary_extra_months(raw_value: Optional[str]) -> List[int]:
+    """Convierte una entrada como '8,ago,12' en meses [8, 12]."""
+    if raw_value is None:
+        return []
+    tokens = [t for t in re.split(r"[,\s;/|]+", str(raw_value).strip()) if t]
+    if not tokens:
+        return []
+    months: List[int] = []
+    invalid: List[str] = []
+    for token in tokens:
+        normalized = _normalize_month_token(token)
+        if normalized.isdigit():
+            month_num = int(normalized)
+        else:
+            month_num = MONTH_TOKEN_TO_NUMBER.get(normalized, 0)
+        if 1 <= month_num <= 12:
+            if month_num not in months:
+                months.append(month_num)
+        else:
+            invalid.append(token)
+    if invalid:
+        raise ValueError(f"Mes(es) inválido(s): {', '.join(invalid)}")
+    return months
+
+def parse_summary_extra_months_mode(raw_value: Optional[str]) -> str:
+    if raw_value is None:
+        return "recent"
+    normalized = str(raw_value).strip().lower()
+    recent_values = {"recent", "actual", "current", "solo", "ultimo", "último", "ultimo_mes", "single", "one", "1"}
+    both_values = {"both", "ambos", "dos", "doble", "dual", "2", "two", "all"}
+    if normalized in recent_values:
+        return "recent"
+    if normalized in both_values:
+        return "both"
+    raise ValueError(f"Modo de meses extra inválido: {raw_value}")
+
+def format_summary_extra_months(months: Sequence[int]) -> str:
+    if not months:
+        return "Ninguno"
+    return ", ".join(month_abbr[m].capitalize() for m in months if 1 <= m <= 12)
+
+def get_summary_extra_months_from_env() -> List[int]:
+    for key in SUMMARY_EXTRA_MONTHS_ENV_KEYS:
+        raw = os.environ.get(key)
+        if raw is None:
+            continue
+        try:
+            return parse_summary_extra_months(raw)
+        except ValueError as exc:
+            print(Fore.YELLOW + f"Advertencia: {exc}. Se ignora {key}.")
+            return []
+    return []
+
+def get_summary_extra_months_mode_from_env() -> Optional[str]:
+    for key in SUMMARY_EXTRA_MONTHS_MODE_ENV_KEYS:
+        raw = os.environ.get(key)
+        if raw is None:
+            continue
+        try:
+            return parse_summary_extra_months_mode(raw)
+        except ValueError as exc:
+            print(Fore.YELLOW + f"Advertencia: {exc}. Se ignora {key}.")
+            return None
+    return None
+
+def summary_extra_months_option() -> List[int]:
+    """Obtiene meses extra a mostrar en la tabla summary de cobertura."""
+    for key in SUMMARY_EXTRA_MONTHS_ENV_KEYS:
+        raw = os.environ.get(key)
+        if raw is not None:
+            months = get_summary_extra_months_from_env()
+            SELECTIONS['Meses extra summary'] = format_summary_extra_months(months)
+            clear_and_print_summary()
+            return months
+
+    print(Fore.CYAN + "\n¿Desea agregar meses extra al summary de cobertura?")
+    print(Fore.WHITE + "Ingrese mes(es) (1-12 o nombre, separados por coma). Ej: 8,ago,nov")
+    print(Fore.WHITE + "Presione ENTER para continuar sin meses extra.")
+    while True:
+        raw = input(Fore.GREEN + "Mes(es) extra: ").strip()
+        if not raw:
+            months = []
+            break
+        try:
+            months = parse_summary_extra_months(raw)
+            break
+        except ValueError as exc:
+            print(Fore.RED + str(exc) + ". Intente nuevamente.")
+    SELECTIONS['Meses extra summary'] = format_summary_extra_months(months)
+    clear_and_print_summary()
+    return months
+
+def summary_extra_months_mode_option(has_extra_months: bool) -> str:
+    env_mode = get_summary_extra_months_mode_from_env()
+    if env_mode:
+        SELECTIONS['Modo meses extra summary'] = "Mes más reciente" if env_mode == "recent" else "Año actual y anterior"
+        clear_and_print_summary()
+        return env_mode
+    if not has_extra_months:
+        return "recent"
+    print(Fore.CYAN + "\n¿Modo de meses extra en summary?")
+    print(Fore.WHITE + "1 - Solo mes más reciente (año actual)")
+    print(Fore.WHITE + "2 - Dos meses (año actual y año anterior)")
+    opciones = {"1": "recent", "2": "both"}
+    eleccion = input(Fore.GREEN + "Elija 1 o 2: ").strip()
+    modo = opciones.get(eleccion, "recent")
+    SELECTIONS['Modo meses extra summary'] = "Mes más reciente" if modo == "recent" else "Año actual y anterior"
+    clear_and_print_summary()
+    return modo
+
 def clear_and_print_summary():
     """Limpia la terminal y muestra un resumen de las selecciones del usuario."""
     os.system('cls' if os.name == 'nt' else 'clear') # Compatible con Windows y Linux/Mac
@@ -630,6 +765,10 @@ def clear_and_print_summary():
         print(Fore.BLUE + "Idioma PPT: " + Fore.YELLOW + ("ENGLISH" if SELECTIONS['Inglés'] == 'Sí' else ("PORTUGUES" if SELECTIONS.get('Pais') == 'Brasil' else "ESPAÑOL")))
     if 'Redondeo Cobertura' in SELECTIONS:
         print(Fore.BLUE + "Redondeo de Cobertura: " + Fore.YELLOW + f"{SELECTIONS['Redondeo Cobertura']}")
+    if 'Meses extra summary' in SELECTIONS:
+        print(Fore.BLUE + "Meses extra summary: " + Fore.YELLOW + f"{SELECTIONS['Meses extra summary']}")
+    if 'Modo meses extra summary' in SELECTIONS:
+        print(Fore.BLUE + "Modo meses extra summary: " + Fore.YELLOW + f"{SELECTIONS['Modo meses extra summary']}")
     print("\n" + "-"*50 + "\n")
 
 def print_file_header(idx: int, total: int, filename: str) -> None:
@@ -1284,6 +1423,8 @@ class ExecutionOptions:
     trend_axis: str
     include_english: bool
     round_coverage: bool
+    summary_extra_months: List[int] = field(default_factory=list)
+    summary_extra_months_mode: str = "recent"
     auto_mode: bool = False
 
     @classmethod
@@ -1293,6 +1434,8 @@ class ExecutionOptions:
         if not auto_file:
             return None
         coverage_type = os.environ.get("AUTO_COV_TYPE", "Absoluta")
+        summary_extra_months = get_summary_extra_months_from_env()
+        summary_extra_months_mode = get_summary_extra_months_mode_from_env() or "recent"
         auto_mode = coverage_type.strip().lower() == "auto"
         if auto_mode:
             coverage_type = "Absoluta"
@@ -1311,6 +1454,8 @@ class ExecutionOptions:
             trend_axis=trend_axis,
             include_english=include_english,
             round_coverage=round_cov,
+            summary_extra_months=summary_extra_months,
+            summary_extra_months_mode=summary_extra_months_mode,
             auto_mode=auto_mode,
         )
 
@@ -1369,52 +1514,108 @@ def determine_language(include_english: bool, pais_nombre: str) -> Tuple[str, in
     return "ES", 2
 
 
-def build_labels(lang_index: int, fabricante: str, ref_month_year: str) -> Dict[Tuple[int, str], List[str] | str]:
-    """Reproduce el diccionario de etiquetas usado por el script original."""
-    ref_dt = dt.strptime(ref_month_year, "%m-%y")
-    previous_dt = ref_dt - timedelta(days=365)
-    return {
-        (1, "S1"): " ",
-        (1, "Summary"): [
+def build_summary_coverage_periods(
+    ref_dt: datetime,
+    summary_extra_months: Sequence[int],
+    extra_months_mode: str,
+) -> Tuple[List[datetime], List[datetime], datetime, datetime]:
+    """Arma los periodos de cobertura ordenados e identifica los extras."""
+    months_to_compare: List[int] = []
+    for month_num in summary_extra_months:
+        if 1 <= int(month_num) <= 12 and int(month_num) != ref_dt.month and int(month_num) not in months_to_compare:
+            months_to_compare.append(int(month_num))
+
+    base_prev = datetime(ref_dt.year - 1, ref_dt.month, 1)
+    base_curr = datetime(ref_dt.year, ref_dt.month, 1)
+
+    extras_prev = [datetime(ref_dt.year - 1, month_num, 1) for month_num in months_to_compare] if extra_months_mode == "both" else []
+    extras_curr = [datetime(ref_dt.year, month_num, 1) for month_num in months_to_compare]
+
+    if extra_months_mode == "both":
+        ordered_periods = extras_prev + [base_prev] + extras_curr + [base_curr]
+        extra_periods = extras_prev + extras_curr
+    else:
+        ordered_periods = [base_prev] + extras_curr + [base_curr]
+        extra_periods = extras_curr
+
+    return ordered_periods, extra_periods, base_prev, base_curr
+
+def build_summary_columns(
+    lang_index: int,
+    fabricante: str,
+    ref_dt: datetime,
+    summary_extra_months: Sequence[int],
+    summary_extra_months_mode: str,
+) -> Tuple[List[str], List[datetime], List[str]]:
+    coverage_periods, extra_periods, _, _ = build_summary_coverage_periods(
+        ref_dt,
+        summary_extra_months,
+        summary_extra_months_mode,
+    )
+    summary_base_columns: Dict[int, List[str]] = {
+        1: [
             "Fabricante/Marca",
             "Pipeline",
             "Penetração Média Mensal",
             fabricante,
             "Worldpanel by Numerator",
-            f"Cobertura {previous_dt.strftime('%b-%y')}",
-            f"Cobertura {ref_dt.strftime('%b-%y')}",
-            "Estabilidade",
         ],
-        (1, "Graf cob Penet Men"): "Penetração Mensal",
-        (1, "Titulo Cob"): "Cobertura em Ano Móvel",
-        (1, "Var"): "com",
-        (1, "Titulo Vol"): "Tendência em Volumen",
-        (2, "S1"): " ",
-        (2, "Summary"): [
+        2: [
             "Fabricante/Marca",
             "Pipeline",
             "Penetración Media Mensual",
             f"%VAR {fabricante}",
             "% VAR Worldpanel by Numerator",
-            f"Cobertura {previous_dt.strftime('%b-%y')}",
-            f"Cobertura {ref_dt.strftime('%b-%y')}",
-            "Estabilidad",
         ],
-        (2, "Graf cob Penet Men"): "Penetración Mensual",
-        (2, "Titulo Cob"): "Cobertura en Año Móvil",
-        (2, "Var"): "con",
-        (2, "Titulo Vol"): "Tendencia en Volumen",
-        (3, "S1"): " ",
-        (3, "Summary"): [
+        3: [
             "Manufacturer/Brand",
             "Pipeline",
             "Monthly Avg Penetration",
             f"%VAR {fabricante}",
             "% VAR Worldpanel by Numerator",
-            f"Coverage {previous_dt.strftime('%b-%y')}",
-            f"Coverage {ref_dt.strftime('%b-%y')}",
-            "Stability",
         ],
+    }
+    coverage_prefix = "Coverage" if lang_index == 3 else "Cobertura"
+    stability_label = {1: "Estabilidade", 2: "Estabilidad", 3: "Stability"}[lang_index]
+    summary_columns = list(summary_base_columns[lang_index])
+    for period_dt in coverage_periods:
+        summary_columns.append(f"{coverage_prefix} {period_dt.strftime('%b-%y')}")
+    summary_columns.append(stability_label)
+    extra_columns = [f"{coverage_prefix} {period_dt.strftime('%b-%y')}" for period_dt in extra_periods]
+    return summary_columns, coverage_periods, extra_columns
+
+def build_labels(
+    lang_index: int,
+    fabricante: str,
+    ref_month_year: str,
+    summary_extra_months: Optional[Sequence[int]] = None,
+    summary_extra_months_mode: str = "recent",
+) -> Dict[Tuple[int, str], List[str] | str]:
+    """Reproduce el diccionario de etiquetas usado por el script original."""
+    ref_dt = dt.strptime(ref_month_year, "%m-%y")
+    extra_months = list(summary_extra_months or [])
+    summary_pt, _, extra_cols_pt = build_summary_columns(1, fabricante, ref_dt, extra_months, summary_extra_months_mode)
+    summary_es, _, extra_cols_es = build_summary_columns(2, fabricante, ref_dt, extra_months, summary_extra_months_mode)
+    summary_en, _, extra_cols_en = build_summary_columns(3, fabricante, ref_dt, extra_months, summary_extra_months_mode)
+
+    return {
+        (1, "S1"): " ",
+        (1, "Summary"): summary_pt,
+        (1, "SummaryExtraCoverageCols"): extra_cols_pt,
+        (1, "Graf cob Penet Men"): "Penetração Mensal",
+        (1, "Titulo Cob"): "Cobertura em Ano Móvel",
+        (1, "Var"): "com",
+        (1, "Titulo Vol"): "Tendência em Volumen",
+        (2, "S1"): " ",
+        (2, "Summary"): summary_es,
+        (2, "SummaryExtraCoverageCols"): extra_cols_es,
+        (2, "Graf cob Penet Men"): "Penetración Mensual",
+        (2, "Titulo Cob"): "Cobertura en Año Móvil",
+        (2, "Var"): "con",
+        (2, "Titulo Vol"): "Tendencia en Volumen",
+        (3, "S1"): " ",
+        (3, "Summary"): summary_en,
+        (3, "SummaryExtraCoverageCols"): extra_cols_en,
         (3, "Graf cob Penet Men"): "PENETRATION BY PERIOD",
         (3, "Titulo Cob"): "MOVING YEAR COVERAGE",
         (3, "Var"): "with",
@@ -1679,7 +1880,33 @@ class SlideBuilder:
             print(f"{Fore.YELLOW}Advertencia: No hay datos para generar la tabla de resumen en el PPT.")
             return
         try:
-            summary_stream = dataframe_to_bordered_stream(df_summary, hide_index=True, dpi=250)
+            extra_cov_cols = [
+                col for col in self.labels.get((self.lang_index, "SummaryExtraCoverageCols"), [])
+                if col in df_summary.columns
+            ]
+
+            def _summary_styler(styler):
+                if not extra_cov_cols:
+                    return styler
+                extra_header_styles = []
+                for col_name in extra_cov_cols:
+                    col_idx = df_summary.columns.get_loc(col_name)
+                    extra_header_styles.append(
+                        {
+                            "selector": f"th.col_heading.level0.col{col_idx}",
+                            "props": [("font-weight", "normal")],
+                        }
+                    )
+                if extra_header_styles:
+                    styler = styler.set_table_styles(extra_header_styles, overwrite=False)
+                return styler
+
+            summary_stream = dataframe_to_bordered_stream(
+                df_summary,
+                hide_index=True,
+                dpi=250,
+                styler_fn=_summary_styler,
+            )
             left = Inches(0.5)
             top = Inches(1.0)
             usable_w = self.ppt.slide_width - 2 * left
@@ -2552,6 +2779,33 @@ def build_evolution_figure(
     )
 
 
+def _coverage_value_for_year_month(coverage_series: "pd.Series", year: int, month: int) -> float:
+    if coverage_series is None or coverage_series.empty:
+        return np.nan
+    idx = pd.to_datetime(coverage_series.index, errors="coerce")
+    values = pd.to_numeric(coverage_series, errors="coerce")
+    clean_series = pd.Series(values.to_numpy(dtype=float), index=idx).dropna()
+    clean_series = clean_series[~clean_series.index.isna()]
+    if clean_series.empty:
+        return np.nan
+    matched = clean_series[(clean_series.index.year == year) & (clean_series.index.month == month)]
+    if matched.empty:
+        return np.nan
+    return float(matched.iloc[-1])
+
+
+def _coverage_value_to_number(value: float, round_coverage: bool) -> float | int:
+    if pd.notna(value):
+        return int(np.floor(float(value) + 0.5)) if round_coverage else round(float(value), 1)
+    return 0
+
+
+def _coverage_value_to_text(value: float, round_coverage: bool) -> str:
+    if pd.notna(value):
+        return str(int(np.floor(float(value) + 0.5))) if round_coverage else f"{float(value):.1f}"
+    return "0" if round_coverage else "0.0"
+
+
 
 def build_summary_and_bank_rows(
     pipeline: int,
@@ -2570,14 +2824,25 @@ def build_summary_and_bank_rows(
     coverage_type: str,
     ref_month_year: str,
     round_coverage: bool,
+    summary_extra_months: Sequence[int],
+    summary_extra_months_mode: str,
 ) -> Tuple[Dict[str, str], Dict[str, object], float, float, float, str]:
-    coverage_series = coverage_series.dropna()
-    if not coverage_series.empty:
-        coverage_actual = coverage_series.iloc[-1]
-        coverage_anterior = coverage_series.iloc[-13] if len(coverage_series) >= 13 else np.nan
-    else:
-        coverage_actual = np.nan
-        coverage_anterior = np.nan
+    ref_dt = dt.strptime(ref_month_year, '%m-%y')
+    summary_columns, coverage_periods, _ = build_summary_columns(
+        lang_index=lang_index,
+        fabricante=fabricante,
+        ref_dt=ref_dt,
+        summary_extra_months=summary_extra_months,
+        summary_extra_months_mode=summary_extra_months_mode,
+    )
+    _, _, base_prev, base_curr = build_summary_coverage_periods(
+        ref_dt,
+        summary_extra_months,
+        summary_extra_months_mode,
+    )
+    coverage_anterior = _coverage_value_for_year_month(coverage_series, base_prev.year, base_prev.month)
+    coverage_actual = _coverage_value_for_year_month(coverage_series, base_curr.year, base_curr.month)
+
     var_cliente_anual_y1 = df_variations.loc[df_variations['Tipo'] == 'Anual', f'Cliente P{pipeline}'].iloc[0]
     var_kantar_anual_y1 = df_variations.loc[df_variations['Tipo'] == 'Anual', 'WP by Numerator'].iloc[0]
     tendencia_alineada = "NO"
@@ -2586,26 +2851,28 @@ def build_summary_and_bank_rows(
             tendencia_alineada = "SI"
         elif var_cliente_anual_y1 == 0 and var_kantar_anual_y1 == 0:
             tendencia_alineada = "SI"
-    if round_coverage:
-        cov_actual_val = int(np.floor(coverage_actual + 0.5)) if pd.notna(coverage_actual) else 0
-        cov_anterior_val = int(np.floor(coverage_anterior + 0.5)) if pd.notna(coverage_anterior) else 0
-        estabilidad = cov_actual_val - cov_anterior_val
-    else:
-        cov_actual_val = round(coverage_actual, 1) if pd.notna(coverage_actual) else 0
-        cov_anterior_val = round(coverage_anterior, 1) if pd.notna(coverage_anterior) else 0
-        estabilidad = round(cov_actual_val - cov_anterior_val, 1)
+
+    cov_actual_val = _coverage_value_to_number(coverage_actual, round_coverage)
+    cov_anterior_val = _coverage_value_to_number(coverage_anterior, round_coverage)
+    estabilidad = (cov_actual_val - cov_anterior_val) if round_coverage else round(cov_actual_val - cov_anterior_val, 1)
+
     summary_row = {
-        labels[(lang_index, 'Summary')][0]: marca_nombre_limpio,
-        labels[(lang_index, 'Summary')][1]: pipeline,
-        labels[(lang_index, 'Summary')][2]: f"{averages.get('Penet_MAT_Actual', 0):.1f}%",
-        labels[(lang_index, 'Summary')][3]: f"{var_cliente_anual_y1*100:.1f}%" if pd.notna(var_cliente_anual_y1) else "0.0%",
-        labels[(lang_index, 'Summary')][4]: f"{var_kantar_anual_y1*100:.1f}%" if pd.notna(var_kantar_anual_y1) else "0.0%",
-        labels[(lang_index, 'Summary')][5]: (str(cov_anterior_val) if round_coverage else (f"{coverage_anterior:.1f}" if pd.notna(coverage_anterior) else "0.0")),
-        labels[(lang_index, 'Summary')][6]: (str(cov_actual_val) if round_coverage else (f"{coverage_actual:.1f}" if pd.notna(coverage_actual) else "0.0")),
-        labels[(lang_index, 'Summary')][7]: (str(estabilidad) if round_coverage else (f"{estabilidad:.1f}" if pd.notna(estabilidad) else "0.0")),
+        summary_columns[0]: marca_nombre_limpio,
+        summary_columns[1]: pipeline,
+        summary_columns[2]: f"{averages.get('Penet_MAT_Actual', 0):.1f}%",
+        summary_columns[3]: f"{var_cliente_anual_y1*100:.1f}%" if pd.notna(var_cliente_anual_y1) else "0.0%",
+        summary_columns[4]: f"{var_kantar_anual_y1*100:.1f}%" if pd.notna(var_kantar_anual_y1) else "0.0%",
     }
+
+    coverage_col_idx = 5
+    for period_dt in coverage_periods:
+        cov_value = _coverage_value_for_year_month(coverage_series, period_dt.year, period_dt.month)
+        summary_row[summary_columns[coverage_col_idx]] = _coverage_value_to_text(cov_value, round_coverage)
+        coverage_col_idx += 1
+    summary_row[summary_columns[-1]] = str(estabilidad) if round_coverage else f"{estabilidad:.1f}"
+
     banco_row = {
-        'Periodo': dt.strptime(ref_month_year, '%m-%y').date(),
+        'Periodo': ref_dt.date(),
         'Fabricante': fabricante,
         'Categoria': categoria_nombre,
         'Fabricante/Marca': marca_nombre_limpio,
@@ -2655,10 +2922,12 @@ def generate_presentation_and_bank(
     include_english: bool,
     trend_axis: str,
     round_coverage: bool,
+    summary_extra_months: Sequence[int],
+    summary_extra_months_mode: str,
 ) -> Tuple[str, "pd.DataFrame", "pd.DataFrame"]:
     chosen_lang, lang_index = determine_language(include_english, pais_nombre)
     ppt, tmp_ppt_path = copy_and_prune_template(root_dir, chosen_lang)
-    labels = build_labels(lang_index, fabricante, ref_month_year)
+    labels = build_labels(lang_index, fabricante, ref_month_year, summary_extra_months, summary_extra_months_mode)
     builder = SlideBuilder(ppt, lang_index, labels, coverage_label, trend_axis)
     builder.configure_cover(pais_nombre, fabricante, categoria_nombre, ref_month_year, chosen_lang)
 
@@ -2768,6 +3037,8 @@ def generate_presentation_and_bank(
                     coverage_type=coverage_type,
                     ref_month_year=ref_month_year,
                     round_coverage=round_coverage,
+                    summary_extra_months=summary_extra_months,
+                    summary_extra_months_mode=summary_extra_months_mode,
                 )
                 summary_rows.append(summary_row)
                 bank_rows.append(bank_row)
@@ -2900,6 +3171,10 @@ class CoverageStudioUltraApp:
             SELECTIONS['Idioma PPT'] = 'ESPAÑOL'
             SELECTIONS['Inglés'] = 'No'
             SELECTIONS['Redondeo Cobertura'] = 'No'
+            summary_extra_months = get_summary_extra_months_from_env()
+            SELECTIONS['Meses extra summary'] = format_summary_extra_months(summary_extra_months)
+            summary_extra_months_mode = get_summary_extra_months_mode_from_env() or "recent"
+            SELECTIONS['Modo meses extra summary'] = "Mes más reciente" if summary_extra_months_mode == "recent" else "Año actual y anterior"
             clear_and_print_summary()
         else:
             coverage_type_value = coverage_type
@@ -2907,12 +3182,16 @@ class CoverageStudioUltraApp:
             trend_axis = tipo_eje_tendencia()
             include_english = include_english_flag()
             round_cov = round_coverage_flag()
+            summary_extra_months = summary_extra_months_option()
+            summary_extra_months_mode = summary_extra_months_mode_option(bool(summary_extra_months))
         return ExecutionOptions(
             coverage_type=coverage_type_value,
             coverage_reason=coverage_reason,
             trend_axis=trend_axis,
             include_english=include_english,
             round_coverage=round_cov,
+            summary_extra_months=summary_extra_months,
+            summary_extra_months_mode=summary_extra_months_mode,
             auto_mode=auto_mode,
         )
 
@@ -2969,6 +3248,8 @@ class CoverageStudioUltraApp:
             include_english=options.include_english,
             trend_axis=options.trend_axis,
             round_coverage=options.round_coverage,
+            summary_extra_months=options.summary_extra_months,
+            summary_extra_months_mode=options.summary_extra_months_mode,
         )
         ruta_banco_final = save_coverage_bank(
             df_bank=df_bank,
