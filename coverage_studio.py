@@ -2357,36 +2357,11 @@ def generate_excel_template(
                 df_averages_excel = pd.DataFrame(avg_formulas)
 
 
-                # --- 1.11) Calcular Estabilidad en Excel ---
-                # Diferencia entre última cobertura y cobertura de hace 12 meses
-                estab_data = {"Estabilidad": "Estabilidad"}
-                # Asume Cobertura P0-P6 en columnas O a U (después de escalonar)
-                coverage_start_col_letter = 'O'
-                coverage_start_col_idx = 15 # Col O es la 15
-
-                last_data_row_idx = original_data_rows -1 # Índice base 0
-
-                for p in range(7):
-                     col_letter = get_column_letter(coverage_start_col_idx + p)
-                     row_last_cov = last_row_excel - p
-                     row_prev_cov = row_last_cov - 12
-
-                     # Verificar si las filas son válidas y si hay suficientes datos
-                     if row_last_cov >= excel_row_offset and row_prev_cov >= excel_row_offset and (original_data_rows >= 23+p):
-                         # CORRECCIÓN: Usar IFERROR y NA()
-                         formula = f"=IFERROR({col_letter}{row_last_cov}-{col_letter}{row_prev_cov},NA())"
-                         estab_data[f'P{p}'] = formula
-                     else:
-                         estab_data[f'P{p}'] = np.nan
-            
-                # Crear DataFrame para estabilidad
-                df_stability_excel = pd.DataFrame([estab_data])
-
-                # --- 1.12) Ensamblar DataFrame final para Excel ---
+                # --- 1.11) Ensamblar DataFrame final para Excel ---
                 # Unir datos originales con coberturas escalonadas
                 df_excel_final = pd.concat([df_excel, df_cov_excel_scaled], axis=1)
 
-                # Crear la sección de resumen (Variaciones, Promedios, Correlación, Estabilidad)
+                # Crear la sección de resumen (Variaciones, Promedios, Correlación + Estabilidad)
                 # Añadir filas vacías y reorganizar
                 df_variations_excel['spacer1'] = np.nan
                 # df_averages_excel['spacer2'] = np.nan
@@ -2396,25 +2371,52 @@ def generate_excel_template(
                 summary_part1 = df_variations_excel.T.reset_index().T # Variaciones
                 summary_part2 = df_averages_excel.T.reset_index().T   # Promedios
                 summary_part3 = df_correlations_excel.T.reset_index().T # Correlaciones
-                summary_part4 = df_stability_excel.T.reset_index().T  # Estabilidad
 
                 # Crear un DataFrame vacío con el número correcto de columnas para alinear
                 max_cols = df_excel_final.shape[1]
-                summary_placeholder = pd.DataFrame(np.nan, index=range(max(len(summary_part1), len(summary_part2), len(summary_part3), len(summary_part4))), columns=df_excel_final.columns)
+                summary_placeholder = pd.DataFrame(np.nan, index=range(max(len(summary_part1), len(summary_part2), len(summary_part3))), columns=df_excel_final.columns)
 
                 # Rellenar el placeholder (esto requiere manejo cuidadoso de índices y columnas)
                 # Simplificación: Crear el df_excel_summary_part como antes y concatenar al final
                 df_excel_summary_part = pd.concat([df_variations_excel.reset_index(drop=True),
                                                   df_averages_excel.reset_index(drop=True),
-                                                  df_correlations_excel.reset_index(drop=True),
-                                                  df_stability_excel.reset_index(drop=True)], axis=1)
+                                                  df_correlations_excel.reset_index(drop=True)], axis=1)
 
                 # Añadir fila vacía de separación
                 df_excel_final.loc[len(df_excel_final)] = [np.nan] * len(df_excel_final.columns)
 
+                # Poner "Estabilidad" 2 filas arriba de la fila de encabezado "Correlacion":
+                #   Estabilidad
+                #   (fila en blanco)
+                #   Correlacion / P0..P6 (encabezado)
+                stab_row = {c: np.nan for c in df_excel_summary_part.columns}
+                if "Correlacion" in stab_row:
+                    stab_row["Correlacion"] = "Estabilidad"
+                    # Asume Cobertura P0-P6 en columnas O a U (después de escalonar)
+                    coverage_start_col_idx = 15  # Col O es la 15 (1-based)
+                    for p in range(7):
+                        key = f"P{p}"
+                        if key not in stab_row:
+                            continue
+                        col_letter = get_column_letter(coverage_start_col_idx + p)
+                        # OJO: estos valores ya vienen "escalonados" (pipeline aplicado) por `escalona()`,
+                        # así que la estabilidad se calcula con la misma fila para todos los pipelines (como P0).
+                        row_last_cov = last_row_excel
+                        row_prev_cov = last_row_excel - 12
+                        # Requiere 12 meses hacia atrás y suficiente historia para que ambas coberturas existan
+                        if row_last_cov >= excel_row_offset and row_prev_cov >= excel_row_offset and (original_data_rows >= (24 + p)):
+                            stab_row[key] = f"=IFERROR({col_letter}{row_last_cov}-{col_letter}{row_prev_cov},NA())"
+                        else:
+                            stab_row[key] = "-"
+
+                df_stability_above = pd.DataFrame([stab_row], columns=df_excel_summary_part.columns)
+
                 # Añadir nombres de columnas del resumen como cabecera
                 summary_header = pd.DataFrame([df_excel_summary_part.columns], columns=df_excel_summary_part.columns)
-                df_excel_summary_part_with_header = pd.concat([summary_header, df_excel_summary_part], ignore_index=True)
+                df_excel_summary_part_with_header = pd.concat(
+                    [df_stability_above, summary_header, df_excel_summary_part],
+                    ignore_index=True,
+                )
 
                 # Ajustar columnas del resumen para que coincidan con el df principal y concatenar
                 # --- INICIO CAMBIO ---
@@ -2558,6 +2560,36 @@ def generate_excel_template(
                     )
                     rule_green = _Rule(type='cellIs', operator='greaterThan', formula=['0'], dxf=dxf_green)
                     ws.conditional_formatting.add(data_range, rule_green)
+
+                    # Estabilidad (2 decimales + mismos colores rojo/verde que variaciones)
+                    # La fila "Estabilidad" queda justo arriba del header "Correlacion".
+                    stab_cell = None
+                    for row in ws.iter_rows(values_only=False):
+                        for cell in row:
+                            if isinstance(cell.value, str) and cell.value.strip().lower() == "estabilidad":
+                                # Validar que debajo esté el header 'Correlacion' para evitar falsos positivos
+                                below = ws.cell(row=cell.row + 1, column=cell.column).value
+                                if isinstance(below, str) and below.strip().lower() == "correlacion":
+                                    stab_cell = cell
+                                    break
+                        if stab_cell:
+                            break
+
+                    if stab_cell:
+                        stab_row = stab_cell.row
+                        start_col = stab_cell.column + 1  # P0
+                        end_col = start_col + 6           # P6
+                        for cc in range(start_col, end_col + 1):
+                            ws.cell(row=stab_row, column=cc).number_format = "0.00"
+                        stab_range = f"{_col_letter(start_col)}{stab_row}:{_col_letter(end_col)}{stab_row}"
+                        ws.conditional_formatting.add(
+                            stab_range,
+                            _Rule(type="cellIs", operator="lessThan", formula=["0"], dxf=dxf_red),
+                        )
+                        ws.conditional_formatting.add(
+                            stab_range,
+                            _Rule(type="cellIs", operator="greaterThan", formula=["0"], dxf=dxf_green),
+                        )
 
                 wb2.save(xlsx_path)
             apply_variations_formatting(excel_temp_path)
