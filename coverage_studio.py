@@ -1380,7 +1380,21 @@ def generar_grafico_cobertura(slide, marca_clean, pipeline, df_cov_pipe, df_pen_
     slide.shapes.add_picture(img_stream_bordered, Inches(0.5), Inches(2.0), height=Inches(4.2))
     plt.close(fig_cov)
 
-def generar_grafico_tendencia(slide, marca_clean, pipeline, df_plot, lang_idx, labels_dict, doble_eje=False):
+def generar_grafico_tendencia(
+    slide,
+    marca_clean,
+    pipeline,
+    df_plot,
+    lang_idx,
+    labels_dict,
+    doble_eje: bool = False,
+    box_left=None,
+    box_top=None,
+    box_width=None,
+    box_height=None,
+    figsize: Tuple[float, float] = (13, 5),
+    legend_y: float = -0.28,
+):
     """
     Genera el gráfico de líneas de Tendencia (Sell-in vs Sell-out) y lo añade al slide.
     Si doble_eje=True, WP by Numerator (Sell-out) va en eje secundario.
@@ -1389,7 +1403,7 @@ def generar_grafico_tendencia(slide, marca_clean, pipeline, df_plot, lang_idx, l
          print(f"{Fore.YELLOW}Advertencia: Datos insuficientes para gráfico de Tendencia (Marca: {marca_clean}, P:{pipeline}).")
          return
 
-    fig_trend, ax_trend = plt.subplots(figsize=(13, 5), dpi=100)
+    fig_trend, ax_trend = plt.subplots(figsize=figsize, dpi=100)
 
     sell_out_data = df_plot[COL_SELL_OUT].iloc[pipeline:].values
     sell_in_data = df_plot[COL_SELL_IN].iloc[:len(df_plot)-pipeline].values
@@ -1411,7 +1425,7 @@ def generar_grafico_tendencia(slide, marca_clean, pipeline, df_plot, lang_idx, l
         ax2.set_ylim(bottom=0)
         lns = lns1 + lns2
         labs = [l.get_label() for l in lns]
-        ax2.legend(lns, labs, loc='lower center', bbox_to_anchor=(0.5, -0.28), frameon=False, prop={'size': 11}, ncol=2)
+        ax2.legend(lns, labs, loc='lower center', bbox_to_anchor=(0.5, legend_y), frameon=False, prop={'size': 11}, ncol=2)
     else:
         lns1 = ax_trend.plot(x_labels, sell_in_data, color=COLOR_SELLIN_TREND_LINE, linewidth=4, label=f'{COL_SELL_IN} (P:{pipeline})')
         lns2 = ax_trend.plot(x_labels, sell_out_data, color=COLOR_SELLOUT_TREND_LINE, linewidth=4, label=COL_SELL_OUT)
@@ -1419,7 +1433,7 @@ def generar_grafico_tendencia(slide, marca_clean, pipeline, df_plot, lang_idx, l
         ax_trend.set_ylim(bottom=0)
         lns = lns1 + lns2
         labs = [l.get_label() for l in lns]
-        ax_trend.legend(lns, labs, loc='lower center', bbox_to_anchor=(0.5, -0.28), frameon=False, prop={'size': 11}, ncol=2)
+        ax_trend.legend(lns, labs, loc='lower center', bbox_to_anchor=(0.5, legend_y), frameon=False, prop={'size': 11}, ncol=2)
 
     ax_trend.tick_params(axis='x', rotation=30, labelsize=9)
     for label in ax_trend.get_xticklabels():
@@ -1434,11 +1448,51 @@ def generar_grafico_tendencia(slide, marca_clean, pipeline, df_plot, lang_idx, l
     fig_trend.savefig(img_stream, format='png', bbox_inches='tight', pad_inches=0.1, transparent=True)
     img_stream.seek(0)
     img_pil = Image.open(img_stream)
-    bordered = ImageOps.expand(img_pil, border=2, fill='black')
+    # Sin contorno: el slide ya maneja el layout, y el borde negro se ve pesado.
     img_stream_bordered = io.BytesIO()
-    bordered.save(img_stream_bordered, format='PNG')
+    img_pil.save(img_stream_bordered, format='PNG')
     img_stream_bordered.seek(0)
-    slide.shapes.add_picture(img_stream_bordered, Inches(0.5), Inches(1.8), height=Inches(4.5))
+    # Ubicación por defecto (layout clásico)
+    if box_left is None:
+        box_left = Inches(0.5)
+    if box_top is None:
+        box_top = Inches(1.8)
+
+    # Si no se pasa un "box", mantenemos el comportamiento anterior (solo altura).
+    if box_width is None and box_height is None:
+        slide.shapes.add_picture(img_stream_bordered, box_left, box_top, height=Inches(4.5))
+        plt.close(fig_trend)
+        return
+
+    # Fit dentro del rectángulo manteniendo aspect ratio.
+    if box_width is None:
+        box_width = Inches(100)  # sin limite real, se acota por altura
+    if box_height is None:
+        box_height = Inches(100)  # sin limite real, se acota por ancho
+
+    img_stream_bordered.seek(0)
+    try:
+        with Image.open(img_stream_bordered) as _img:
+            px_w, px_h = _img.size
+    except Exception:
+        px_w, px_h = (1, 1)
+    finally:
+        img_stream_bordered.seek(0)
+
+    aspect = (px_w / px_h) if px_h else 1.0
+    box_w_in = float(box_width) / 914400.0
+    box_h_in = float(box_height) / 914400.0
+    placed_w_in = box_w_in
+    placed_h_in = placed_w_in / aspect if aspect else box_h_in
+    if placed_h_in > box_h_in:
+        placed_h_in = box_h_in
+        placed_w_in = placed_h_in * aspect
+
+    placed_w = Inches(max(0.1, placed_w_in))
+    placed_h = Inches(max(0.1, placed_h_in))
+    left = box_left + int((box_width - placed_w) / 2)
+    top = box_top + int((box_height - placed_h) / 2)
+    slide.shapes.add_picture(img_stream_bordered, left, top, width=placed_w, height=placed_h)
     plt.close(fig_trend)
     
 
@@ -1765,6 +1819,10 @@ class SlideBuilder:
         variations_detail: "pd.DataFrame",
         pipeline: int,
         trend_plot_df: "pd.DataFrame",
+        container_left=None,
+        container_top=None,
+        container_width=None,
+        container_height=None,
     ) -> None:
         """Renderiza el cuadro de variaciones en estilo 'bonito' (shapes, no imagen)."""
         if variations_detail is None or variations_detail.empty:
@@ -1779,12 +1837,21 @@ class SlideBuilder:
 
         show_pipeline_group = int(pipeline) > 0 and px_col is not None
 
-        # Ubicación (más arriba para no tapar el gráfico de tendencias)
-        # Nota: el cuadro se dibuja a la derecha y puede superponerse con el título,
-        # pero evita solaparse con el gráfico (que empieza aprox en y=1.8).
-        row_h = Inches(0.50)
-        right_margin = Inches(0.15)
-        top = Inches(0.22)
+        # Ubicación: si se pasa un contenedor (layout lado derecho), se usa; si no, fallback.
+        if container_left is None:
+            container_left = Inches(6.8)
+        if container_top is None:
+            container_top = Inches(1.15)
+        if container_width is None:
+            container_width = Inches(6.0)
+        if container_height is None:
+            container_height = Inches(5.8)
+
+        # Row heights dentro del contenedor.
+        row_gap = Inches(0.12)
+        row_h = int((container_height - (2 * row_gap)) / 3)
+        if row_h <= 0:
+            row_h = Inches(0.50)
 
         # Intentar derivar el mes base del gráfico (mm-yy) para construir periodos por pipeline.
         base_year = None
@@ -1808,29 +1875,31 @@ class SlideBuilder:
         grey = RGBColor(120, 120, 120)
         red = RGBColor(208, 2, 27)
 
-        # Columnas: TIPO | (Sem pipeline: VAR + KANTAR + SELL-IN) | (Pipeline p: VAR + SELL-IN)
-        if show_pipeline_group:
-            col_tipo_w = Inches(1.15)
-            col_var0_w = Inches(1.10)
-            col_kantar_w = Inches(0.95)
-            col_sell0_w = Inches(1.00)
-            col_varp_w = Inches(1.10)
-            col_sellp_w = Inches(1.05)
-        else:
-            col_tipo_w = Inches(1.15)
-            col_var0_w = Inches(1.25)
-            col_kantar_w = Inches(1.00)
-            col_sell0_w = Inches(1.15)
+        # Columnas (se escalan para llenar el ancho del contenedor).
+        def _emu_to_in(v) -> float:
+            return float(v) / 914400.0
 
-        # Ancho total real en función de las columnas (para que el borde envuelva todo).
+        base_cols = {
+            "tipo": 1.20,
+            "var0": 1.10,
+            "wp": 1.10,
+            "sell0": 1.20,
+        }
         if show_pipeline_group:
-            total_w = col_tipo_w + col_var0_w + col_kantar_w + col_sell0_w + col_varp_w + col_sellp_w
-        else:
-            total_w = col_tipo_w + col_var0_w + col_kantar_w + col_sell0_w
+            base_cols.update({"varp": 1.10, "sellp": 1.25})
+        base_total = sum(base_cols.values())
+        scale = _emu_to_in(container_width) / base_total if base_total else 1.0
 
-        left = self.ppt.slide_width - total_w - right_margin
-        if left < Inches(0.1):
-            left = Inches(0.1)
+        col_tipo_w = Inches(base_cols["tipo"] * scale)
+        col_var0_w = Inches(base_cols["var0"] * scale)
+        col_kantar_w = Inches(base_cols["wp"] * scale)
+        col_sell0_w = Inches(base_cols["sell0"] * scale)
+        col_varp_w = Inches(base_cols.get("varp", 0.0) * scale)
+        col_sellp_w = Inches(base_cols.get("sellp", 0.0) * scale)
+
+        left = container_left
+        top = container_top
+        total_w = container_width
 
         def _add_row_box(y):
             box = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, left, y, total_w, row_h)
@@ -1849,7 +1918,7 @@ class SlideBuilder:
             p = tf.paragraphs[0]
             p.text = text
             p.font.bold = True
-            p.font.size = Pt(11)
+            p.font.size = Pt(12)
             p.font.color.rgb = black
             p.alignment = 1
 
@@ -1915,7 +1984,7 @@ class SlideBuilder:
 
             p2 = tf.add_paragraph()
             p2.text = value
-            p2.font.size = Pt(18)
+            p2.font.size = Pt(22)
             p2.font.bold = True
             p2.font.color.rgb = white
             p2.alignment = 1
@@ -1959,7 +2028,7 @@ class SlideBuilder:
 
         tipo_order = ["Anual", "Semestral", "Trimestral"]
         for idx, tipo in enumerate(tipo_order):
-            y = top + (row_h * idx)
+            y = top + (idx * (row_h + row_gap))
             _add_row_box(y)
 
             row = variations_detail[variations_detail["Tipo"].astype(str).str.lower().str.startswith(tipo[:3].lower())]
@@ -2085,18 +2154,83 @@ class SlideBuilder:
         p_trend.text = f"{marca_nombre_limpio} - Pipeline {assets.pipeline}"
         p_trend.font.bold = True
         p_trend.font.size = Pt(24)
-        generar_grafico_tendencia(
-            slide_trend,
-            marca_nombre_limpio,
-            assets.pipeline,
-            assets.trend_plot_df,
-            lang_index,
-            self.labels,
-            doble_eje=(self.tipo_eje_tend == "doble"),
-        )
-        if assets.variations_detail is not None and not assets.variations_detail.empty:
+        has_variations = assets.variations_detail is not None and not assets.variations_detail.empty
+        if self.variations_box_style == "pretty" and has_variations:
+            # Layout: gráfico a la izquierda + cuadro bonito a la derecha, mismo alto.
+            content_top = Inches(1.15)
+            content_bottom = Inches(0.55)
+            content_h = self.ppt.slide_height - content_top - content_bottom
+            margin_l = Inches(0.35)
+            margin_r = Inches(0.25)
+            divider_w = Inches(0.06)
+            avail_w = self.ppt.slide_width - margin_l - margin_r - divider_w
+            left_w = int(avail_w / 2)
+            right_w = avail_w - left_w
+            chart_left = margin_l
+            chart_top = content_top
+            var_left = margin_l + left_w + divider_w
+            var_top = content_top
+
+            # Divisor vertical (como referencia)
+            divider_x = margin_l + left_w
+            divider = slide_trend.shapes.add_shape(MSO_SHAPE.RECTANGLE, divider_x, content_top, divider_w, content_h)
+            divider.fill.solid()
+            # Azul verdoso (segun referencia)
+            divider.fill.fore_color.rgb = RGBColor(0, 229, 176)  # #00E5B0
+            divider.line.fill.background()
+
+            generar_grafico_tendencia(
+                slide_trend,
+                marca_nombre_limpio,
+                assets.pipeline,
+                assets.trend_plot_df,
+                lang_index,
+                self.labels,
+                doble_eje=(self.tipo_eje_tend == "doble"),
+                box_left=chart_left,
+                box_top=chart_top,
+                box_width=left_w,
+                box_height=content_h,
+                # Imagen más "alta" para que se aproveche mejor la columna izquierda sin estirar.
+                figsize=(9.0, 7.0),
+                legend_y=-0.22,
+            )
+        else:
+            generar_grafico_tendencia(
+                slide_trend,
+                marca_nombre_limpio,
+                assets.pipeline,
+                assets.trend_plot_df,
+                lang_index,
+                self.labels,
+                doble_eje=(self.tipo_eje_tend == "doble"),
+            )
+        if has_variations:
             if self.variations_box_style == "pretty":
-                self._add_variations_box_pretty(slide_trend, assets.variations_detail, assets.pipeline, assets.trend_plot_df)
+                # Usa el mismo contenedor del lado derecho que el layout del gráfico.
+                content_top = Inches(1.15)
+                content_bottom = Inches(0.55)
+                content_h = self.ppt.slide_height - content_top - content_bottom
+                margin_l = Inches(0.35)
+                margin_r = Inches(0.25)
+                divider_w = Inches(0.06)
+                avail_w = self.ppt.slide_width - margin_l - margin_r - divider_w
+                left_w = int(avail_w / 2)
+                right_w = avail_w - left_w
+                var_left = margin_l + left_w + divider_w
+                # Reducir altura a la mitad y centrar verticalmente en el área de contenido.
+                var_h = int(content_h * 0.5)
+                var_top = content_top + int((content_h - var_h) / 2)
+                self._add_variations_box_pretty(
+                    slide_trend,
+                    assets.variations_detail,
+                    assets.pipeline,
+                    assets.trend_plot_df,
+                    container_left=var_left,
+                    container_top=var_top,
+                    container_width=right_w,
+                    container_height=var_h,
+                )
             else:
                 value_columns = [col for col in assets.variations_detail.columns if col not in {'Tipo', 'Periodo'}]
 
