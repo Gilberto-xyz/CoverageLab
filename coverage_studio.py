@@ -788,15 +788,108 @@ def print_file_header(idx: int, total: int, filename: str) -> None:
     console.rule(f"[bold cyan]Procesando archivo {idx}/{total}: {filename}")
 
 # --- Función para mostrar resumen de archivos generados ---
+def _format_path_for_summary(path_str: str, *, base_dir: Optional[str] = None, max_len: int = 90) -> str:
+    """
+    Formatea rutas para mostrarlas en consola sin confundir con paths largos:
+    - Preferir ruta relativa (a base_dir o al cwd) cuando sea posible.
+    - Si sigue siendo muy larga, elidir el medio (mantener inicio y el final).
+    """
+    if not path_str:
+        return ""
+
+    norm = os.path.normpath(str(path_str))
+    try:
+        abs_path = os.path.abspath(norm)
+    except Exception:
+        abs_path = norm
+
+    display = abs_path
+
+    def _try_relpath(target: str, base: str) -> Optional[str]:
+        try:
+            rel = os.path.relpath(target, base)
+            # Solo usar relpath si no se va "hacia arriba" (..)
+            if not rel.startswith(".."):
+                return rel
+        except Exception:
+            return None
+        return None
+
+    if base_dir:
+        base_abs = os.path.abspath(os.path.normpath(base_dir))
+        rel = _try_relpath(abs_path, base_abs)
+        if rel:
+            display = rel
+    else:
+        rel = _try_relpath(abs_path, os.getcwd())
+        if rel:
+            display = rel
+
+    display = os.path.normpath(display)
+    if len(display) <= max_len:
+        return display
+
+    # Elidir el medio manteniendo el final (más útil para ubicar el archivo).
+    parts = display.split(os.sep)
+    if len(parts) <= 2:
+        return "..." + display[-(max_len - 3):]
+
+    tail_parts = parts[-3:] if len(parts) >= 3 else parts[-2:]
+    tail = os.sep.join(tail_parts)
+    head = parts[0]
+    candidate = head + os.sep + "..." + os.sep + tail
+    if len(candidate) <= max_len:
+        return candidate
+
+    head_short = (head[:20] + "...") if len(head) > 23 else (head + "...")
+    candidate = head_short + os.sep + "..." + os.sep + tail
+    if len(candidate) <= max_len:
+        return candidate
+
+    # Fallback: solo el final
+    candidate = "..." + os.sep + tail
+    if len(candidate) <= max_len:
+        return candidate
+    return "..." + tail[-(max_len - 3):]
+
 def print_file_summary(ruta_excel: str, ruta_ppt: str, ruta_banco: str) -> None:
     """Muestra un resumen con las rutas generadas para el archivo."""
     console.print("\n[blue]Resumen de archivos generados:[/blue]")
-    if ruta_excel:
-        console.print(f"[cyan]Excel:[/] [grey]{ruta_excel}")
-    if ruta_ppt:
-        console.print(f"[cyan]Presentación:[/] [grey]{ruta_ppt}")
-    if ruta_banco:
-        console.print(f"[cyan]Banco:[/] [grey]{ruta_banco}")
+
+    items: List[Tuple[str, str]] = [
+        ("Excel", ruta_excel),
+        ("Presentación", ruta_ppt),
+        ("Banco", ruta_banco),
+    ]
+    present = [(label, p) for label, p in items if p]
+
+    common_dir = ""
+    if present:
+        try:
+            parents = [os.path.dirname(os.path.abspath(p)) for _, p in present]
+            common_dir = os.path.commonpath(parents)
+        except Exception:
+            common_dir = ""
+
+    if common_dir:
+        console.print(f"[cyan]Carpeta:[/] [grey]{_format_path_for_summary(common_dir)}[/grey]")
+
+    for label, p in present:
+        filename = os.path.basename(p)
+        parent = os.path.dirname(os.path.abspath(p))
+        same_parent = False
+        if common_dir:
+            try:
+                same_parent = os.path.normcase(parent) == os.path.normcase(os.path.abspath(common_dir))
+            except Exception:
+                same_parent = False
+
+        if same_parent:
+            console.print(f"[cyan]{label}:[/] [white]{filename}[/white]")
+        else:
+            parent_disp = _format_path_for_summary(parent, base_dir=common_dir or None)
+            console.print(f"[cyan]{label}:[/] [white]{filename}[/white] [grey]({parent_disp})[/grey]")
+
     # Mostrar panel de proceso completado con hora actual
     hora_actual = datetime.now().strftime("%H:%M:%S")
     mensaje = (
