@@ -1559,6 +1559,7 @@ class PipelineAssets:
     trend_plot_df: "pd.DataFrame"
     variations_detail: Optional["pd.DataFrame"]
     evolution_figure: Optional["plt.Figure"]
+    buyers_mat_actual: Optional[float] = None
 
 
     summary_rows: List[Dict[str, str]] = field(default_factory=list)
@@ -1707,6 +1708,18 @@ def build_labels(
         (3, "Titulo Cob"): "MOVING YEAR COVERAGE",
         (3, "Var"): "with",
         (3, "Titulo Vol"): "TREND IN VOLUME",
+        (1, "LowPenFooter"): "Marca de baixa penetração (<200 compradores) - Resultados para uso interno",
+        (1, "LowPenFooterPlural"): "Marcas de baixa penetração (<200 compradores) - Resultados para uso interno",
+        (1, "LowPenSummarySingular"): "O estudo contém 1 marca de baixa penetração (<200 buyers). Resultados para uso interno",
+        (1, "LowPenSummaryPlural"): "O estudo contém {n} marcas de baixa penetração (<200 buyers). Resultados para uso interno",
+        (2, "LowPenFooter"): "Marca de baja penetración (<200 compradores) - Resultados para uso interno",
+        (2, "LowPenFooterPlural"): "Marcas de baja penetración (<200 compradores) - Resultados para uso interno",
+        (2, "LowPenSummarySingular"): "El estudio contiene 1 marca de baja penetración (<200 buyers). Resultados para uso interno",
+        (2, "LowPenSummaryPlural"): "El estudio contiene {n} marcas de baja penetración (<200 buyers). Resultados para uso interno",
+        (3, "LowPenFooter"): "Low penetration brand (<200 buyers) - For internal use only",
+        (3, "LowPenFooterPlural"): "Low penetration brands (<200 buyers) - For internal use only",
+        (3, "LowPenSummarySingular"): "This study contains 1 low penetration brand (<200 buyers). For internal use only",
+        (3, "LowPenSummaryPlural"): "This study contains {n} low penetration brands (<200 buyers). For internal use only",
     }
 
 def dataframe_to_bordered_stream(
@@ -1812,6 +1825,45 @@ class SlideBuilder:
         if t.startswith("tri"):
             return "TRIMESTRE" if self.lang_index != 3 else "QUARTER"
         return (tipo or "").strip().upper()
+
+    def _add_footer_text(self, slide: "Presentation", msg: str) -> None:
+        if not msg:
+            return
+        # Centrar el texto en el espacio "util" a la derecha del logo del template.
+        logo_clear = Inches(2.00)
+        right = Inches(0.35)
+        left = logo_clear
+        width = self.ppt.slide_width - left - right
+        height = Inches(0.35)
+        top = self.ppt.slide_height - height - Inches(0.10)
+        tb = slide.shapes.add_textbox(left, top, width, height)
+        tf = tb.text_frame
+        tf.clear()
+        tf.word_wrap = True
+        tf.margin_left = Pt(2)
+        tf.margin_right = Pt(2)
+        p = tf.paragraphs[0]
+        p.text = str(msg)
+        p.font.size = Pt(12)
+        p.font.bold = True
+        p.font.color.rgb = RGBColor(255, 0, 0)
+        p.alignment = 1
+
+    def _add_low_penetration_footer(self, slide: "Presentation", buyers_value: Optional[float], threshold: float = 200) -> None:
+        """Agrega un aviso al pie del slide cuando buyers promedio < threshold."""
+        if buyers_value is None:
+            return
+        try:
+            if "pd" in globals() and pd.isna(buyers_value):
+                return
+            buyers_num = float(buyers_value)
+        except Exception:
+            return
+        if buyers_num >= float(threshold):
+            return
+
+        msg = self.labels.get((self.lang_index, "LowPenFooter")) or "Low penetration brand (<200 buyers) - For internal use only"
+        self._add_footer_text(slide, msg)
 
     def _add_variations_box_pretty(
         self,
@@ -2145,6 +2197,7 @@ class SlideBuilder:
             slide_cov.shapes.add_picture(table_stream, Inches(0.5), Inches(1.1), height=Inches(0.6))
         except Exception as exc:
             print(f"{Fore.YELLOW}Advertencia: No se pudo generar la tabla de variación MAT para {marca_nombre_limpio} P{assets.pipeline}. Error: {exc}")
+        self._add_low_penetration_footer(slide_cov, getattr(assets, "buyers_mat_actual", None))
         slides_created += 1
         if progress and task_id is not None:
             progress.update(task_id, advance=1)
@@ -2288,6 +2341,7 @@ class SlideBuilder:
                     left_pos = Inches(0.1)
                 top_pos = Inches(0.4)
                 slide_trend.shapes.add_picture(table_stream, left_pos, top_pos, width=table_width, height=table_height)
+        self._add_low_penetration_footer(slide_trend, getattr(assets, "buyers_mat_actual", None))
         slides_created += 1
         if progress and task_id is not None:
             progress.update(task_id, advance=1)
@@ -2310,6 +2364,7 @@ class SlideBuilder:
             left = Inches(0.1)
             usable_w = self.ppt.slide_width - 2 * left
             slide_evol.shapes.add_picture(buffer, left, Inches(1.0), width=usable_w)
+            self._add_low_penetration_footer(slide_evol, getattr(assets, "buyers_mat_actual", None))
             slides_created += 1
             if progress and task_id is not None:
                 progress.update(task_id, advance=1)
@@ -2321,6 +2376,7 @@ class SlideBuilder:
         df_summary: "pd.DataFrame",
         pais_nombre: str,
         categoria_nombre: str,
+        low_penetration_brands: Optional[Sequence[str]] = None,
     ) -> None:
         slide_summary = self.ppt.slides.add_slide(self.ppt.slide_layouts[PPT_LAYOUT_INDEX])
         title_frame = ensure_title_frame(slide_summary)
@@ -2374,6 +2430,18 @@ class SlideBuilder:
             slide_summary.shapes.add_picture(summary_stream, final_left, top, width=usable_w)
         except Exception as exc:
             print(f"{Fore.YELLOW}Advertencia: No se pudo generar la tabla resumen en el PPT. Error: {exc}")
+        low_penetration_brands = list(low_penetration_brands or [])
+        if low_penetration_brands:
+            unique_brands = sorted({str(b).strip() for b in low_penetration_brands if str(b).strip()})
+            n = len(unique_brands)
+            key = "LowPenSummaryPlural" if n > 1 else "LowPenSummarySingular"
+            tpl = self.labels.get((self.lang_index, key))
+            if not tpl:
+                tpl = self.labels.get((self.lang_index, "LowPenSummaryPlural" if n > 1 else "LowPenSummarySingular"))
+            if not tpl:
+                tpl = "This study contains {n} low penetration brand(s) (<200 buyers). For internal use only"
+            msg = str(tpl).format(n=n)
+            self._add_footer_text(slide_summary, msg)
 
     # --- Post-procesamiento -------------------------------------------------------
     def insert_thanks_text(self, chosen_lang: str) -> None:
@@ -3426,6 +3494,7 @@ def generate_presentation_and_bank(
 
     summary_rows: List[Dict[str, str]] = []
     bank_rows: List[Dict[str, object]] = []
+    low_penetration_brands: List[str] = []
 
     total_slides_to_generate = 0
     for marca_sheet_name in marcas:
@@ -3474,6 +3543,13 @@ def generate_presentation_and_bank(
             df_variations = compute_variations_dataframe(df_marca_ppt)
             averages = compute_averages(df_marca_ppt)
             notify_buyers_threshold(marca_nombre_limpio, averages.get('Buyers_MAT_Actual'))
+            try:
+                buyers_val = averages.get('Buyers_MAT_Actual')
+                if buyers_val is not None and not pd.isna(buyers_val) and float(buyers_val) < 200:
+                    if marca_nombre_limpio not in low_penetration_brands:
+                        low_penetration_brands.append(marca_nombre_limpio)
+            except Exception:
+                pass
             df_trend_plot = compute_trend_plot_df(df_marca_ppt)
             for pipeline in pipelines_to_run:
                 coverage_series = df_coverage[f'P{pipeline}']
@@ -3504,6 +3580,7 @@ def generate_presentation_and_bank(
                     trend_plot_df=df_trend_plot,
                     variations_detail=variations_detail,
                     evolution_figure=evolution_figure,
+                    buyers_mat_actual=averages.get('Buyers_MAT_Actual'),
                 )
                 builder.add_pipeline_slides(
                     assets,
@@ -3542,7 +3619,7 @@ def generate_presentation_and_bank(
         df_summary = df_summary[labels[(lang_index, 'Summary')]]
     df_bank = pd.DataFrame(bank_rows, columns=COVERAGE_BANK_COLUMNS)
 
-    builder.add_summary_slide(df_summary, pais_nombre, categoria_nombre)
+    builder.add_summary_slide(df_summary, pais_nombre, categoria_nombre, low_penetration_brands=low_penetration_brands)
     builder.insert_thanks_text(chosen_lang)
     builder.reorder_summary_and_credit()
 
