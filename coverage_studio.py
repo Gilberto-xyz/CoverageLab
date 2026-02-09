@@ -43,6 +43,7 @@ EXCEPTION_STYLES: Dict[str, Dict[str, str]] = {
 
 SUMMARY_EXTRA_MONTHS_ENV_KEYS: Tuple[str, ...] = ("AUTO_EXTEA", "AUTO_EXTRA_MONTHS")
 SUMMARY_EXTRA_MONTHS_MODE_ENV_KEYS: Tuple[str, ...] = ("AUTO_EXTEA_MODE", "AUTO_EXTRA_MONTHS_MODE")
+VARIATIONS_BOX_STYLE_ENV_KEYS: Tuple[str, ...] = ("AUTO_VAR_BOX_STYLE", "AUTO_VAR_STYLE")
 MONTH_TOKEN_TO_NUMBER: Dict[str, int] = {
     "ene": 1, "enero": 1, "jan": 1, "janeiro": 1, "january": 1,
     "feb": 2, "febrero": 2, "fev": 2, "fevereiro": 2, "february": 2,
@@ -57,6 +58,17 @@ MONTH_TOKEN_TO_NUMBER: Dict[str, int] = {
     "nov": 11, "noviembre": 11, "novembro": 11, "november": 11,
     "dic": 12, "diciembre": 12, "dez": 12, "dezembro": 12, "dec": 12, "december": 12,
 }
+
+def normalize_variations_box_style(raw_value: Optional[str]) -> str:
+    """Normaliza el estilo del cuadro de variaciones (classic | pretty)."""
+    val = (raw_value or "").strip().lower()
+    if not val:
+        return "classic"
+    if val in {"pretty", "bonito", "nuevo", "nice", "card", "cards", "2"}:
+        return "pretty"
+    if val in {"classic", "clasico", "clásico", "tabla", "1"}:
+        return "classic"
+    return "classic"
 
 
 def _register_brand_exception(marca_label: Optional[str], reason: str) -> None:
@@ -956,6 +968,22 @@ def tipo_eje_tendencia():
     clear_and_print_summary()
     return tipo_eje
 
+def variations_box_style_option() -> str:
+    """Elige el estilo del cuadro de variaciones (clásico o bonito)."""
+    raw_env = next((os.environ.get(k) for k in VARIATIONS_BOX_STYLE_ENV_KEYS if os.environ.get(k) is not None), None)
+    if raw_env is not None:
+        style = normalize_variations_box_style(raw_env)
+    else:
+        print(Fore.CYAN + "\n¿Estilo del cuadro de variaciones (en slide de Tendencia)?")
+        print(Fore.WHITE + "1 - Clásico (tabla actual)")
+        print(Fore.WHITE + "2 - Bonito (tarjetas)")
+        opciones = {"1": "classic", "2": "pretty", "clasico": "classic", "clásico": "classic", "bonito": "pretty"}
+        eleccion = input(Fore.GREEN + "Elija 1 o 2: ").strip().lower()
+        style = opciones.get(eleccion, "classic")
+    SELECTIONS["Estilo variaciones"] = "Bonito" if style == "pretty" else "Clasico"
+    clear_and_print_summary()
+    return style
+
 def include_english_flag() -> bool:
     """Determina si se deben generar salidas en inglés.
 
@@ -1423,6 +1451,7 @@ class ExecutionOptions:
     trend_axis: str
     include_english: bool
     round_coverage: bool
+    variations_box_style: str = "classic"
     summary_extra_months: List[int] = field(default_factory=list)
     summary_extra_months_mode: str = "recent"
     auto_mode: bool = False
@@ -1434,6 +1463,9 @@ class ExecutionOptions:
         if not auto_file:
             return None
         coverage_type = os.environ.get("AUTO_COV_TYPE", "Absoluta")
+        variations_box_style = normalize_variations_box_style(
+            next((os.environ.get(k) for k in VARIATIONS_BOX_STYLE_ENV_KEYS if os.environ.get(k) is not None), None)
+        )
         summary_extra_months = get_summary_extra_months_from_env()
         summary_extra_months_mode = get_summary_extra_months_mode_from_env() or "recent"
         auto_mode = coverage_type.strip().lower() == "auto"
@@ -1452,6 +1484,7 @@ class ExecutionOptions:
             coverage_type=coverage_type,
             coverage_reason=coverage_reason,
             trend_axis=trend_axis,
+            variations_box_style=variations_box_style,
             include_english=include_english,
             round_coverage=round_cov,
             summary_extra_months=summary_extra_months,
@@ -1673,12 +1706,302 @@ class SlideBuilder:
         labels: Dict[Tuple[int, str], List[str] | str],
         coverage_label: str,
         tipo_eje_tend: str,
+        variations_box_style: str = "classic",
     ) -> None:
         self.ppt = presentation
         self.lang_index = lang_index
         self.labels = labels
         self.coverage_label = coverage_label
         self.tipo_eje_tend = tipo_eje_tend
+        self.variations_box_style = normalize_variations_box_style(variations_box_style)
+
+    def _month_abbr(self, month: int) -> str:
+        # Abreviaciones locales en mayúsculas (para el cuadro "bonito").
+        es = ["", "ENE", "FEB", "MAR", "ABR", "MAY", "JUN", "JUL", "AGO", "SEP", "OCT", "NOV", "DIC"]
+        pt = ["", "JAN", "FEV", "MAR", "ABR", "MAI", "JUN", "JUL", "AGO", "SET", "OUT", "NOV", "DEZ"]
+        en = ["", "JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"]
+        table = en if self.lang_index == 3 else (pt if self.lang_index == 1 else es)
+        if 1 <= int(month) <= 12:
+            return table[int(month)]
+        return "-"
+
+    @staticmethod
+    def _date_minus_months(year: int, month: int, delta: int) -> Tuple[int, int]:
+        total = year * 12 + (month - 1) - int(delta)
+        y2 = total // 12
+        m2 = (total % 12) + 1
+        return int(y2), int(m2)
+
+    @staticmethod
+    def _safe_float(val: object) -> Optional[float]:
+        try:
+            if val is None or (isinstance(val, str) and val.strip() == "-"):
+                return None
+            if "pd" in globals() and pd.isna(val):
+                return None
+            return float(val)
+        except Exception:
+            return None
+
+    def _fmt_pct(self, val: object) -> str:
+        f = self._safe_float(val)
+        if f is None:
+            return "-"
+        return f"{f * 100:.1f}%"
+
+    def _tipo_label(self, tipo: str) -> str:
+        t = (tipo or "").strip().lower()
+        if t.startswith("an"):
+            return "ANO" if self.lang_index != 3 else "YEAR"
+        if t.startswith("sem"):
+            return "SEMESTRE" if self.lang_index != 3 else "SEMESTER"
+        if t.startswith("tri"):
+            return "TRIMESTRE" if self.lang_index != 3 else "QUARTER"
+        return (tipo or "").strip().upper()
+
+    def _add_variations_box_pretty(
+        self,
+        slide: "Presentation",
+        variations_detail: "pd.DataFrame",
+        pipeline: int,
+        trend_plot_df: "pd.DataFrame",
+    ) -> None:
+        """Renderiza el cuadro de variaciones en estilo 'bonito' (shapes, no imagen)."""
+        if variations_detail is None or variations_detail.empty:
+            return
+
+        wp_col = "WP by Numerator" if "WP by Numerator" in variations_detail.columns else None
+        # Sem pipeline (P0) siempre se intenta mostrar cuando existe.
+        p0_col = "Cliente P0" if "Cliente P0" in variations_detail.columns else ("Cliente Pipeline (P0)" if "Cliente Pipeline (P0)" in variations_detail.columns else None)
+        px_col = f"Cliente Pipeline (P{pipeline})" if f"Cliente Pipeline (P{pipeline})" in variations_detail.columns else (f"Cliente P{pipeline}" if f"Cliente P{pipeline}" in variations_detail.columns else None)
+        if wp_col is None and p0_col is None and px_col is None:
+            return
+
+        show_pipeline_group = int(pipeline) > 0 and px_col is not None
+
+        # Ubicación (más arriba para no tapar el gráfico de tendencias)
+        # Nota: el cuadro se dibuja a la derecha y puede superponerse con el título,
+        # pero evita solaparse con el gráfico (que empieza aprox en y=1.8).
+        row_h = Inches(0.50)
+        right_margin = Inches(0.15)
+        top = Inches(0.22)
+
+        # Intentar derivar el mes base del gráfico (mm-yy) para construir periodos por pipeline.
+        base_year = None
+        base_month = None
+        if trend_plot_df is not None and not trend_plot_df.empty and COL_DATA in trend_plot_df.columns:
+            last_token = str(trend_plot_df[COL_DATA].iloc[-1]).strip()
+            try:
+                mm_s, yy_s = last_token.split("-")
+                base_month = int(mm_s)
+                base_year = 2000 + int(yy_s)
+            except Exception:
+                base_year = None
+                base_month = None
+
+        # Colores (aprox. al ejemplo)
+        green_border = RGBColor(126, 201, 67)  # #7EC943
+        sellin_fill = RGBColor(126, 201, 67)
+        kantar_fill = RGBColor(58, 58, 58)     # #3A3A3A
+        white = RGBColor(255, 255, 255)
+        black = RGBColor(0, 0, 0)
+        grey = RGBColor(120, 120, 120)
+        red = RGBColor(208, 2, 27)
+
+        # Columnas: TIPO | (Sem pipeline: VAR + KANTAR + SELL-IN) | (Pipeline p: VAR + SELL-IN)
+        if show_pipeline_group:
+            col_tipo_w = Inches(1.15)
+            col_var0_w = Inches(1.10)
+            col_kantar_w = Inches(0.95)
+            col_sell0_w = Inches(1.00)
+            col_varp_w = Inches(1.10)
+            col_sellp_w = Inches(1.05)
+        else:
+            col_tipo_w = Inches(1.15)
+            col_var0_w = Inches(1.25)
+            col_kantar_w = Inches(1.00)
+            col_sell0_w = Inches(1.15)
+
+        # Ancho total real en función de las columnas (para que el borde envuelva todo).
+        if show_pipeline_group:
+            total_w = col_tipo_w + col_var0_w + col_kantar_w + col_sell0_w + col_varp_w + col_sellp_w
+        else:
+            total_w = col_tipo_w + col_var0_w + col_kantar_w + col_sell0_w
+
+        left = self.ppt.slide_width - total_w - right_margin
+        if left < Inches(0.1):
+            left = Inches(0.1)
+
+        def _add_row_box(y):
+            box = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, left, y, total_w, row_h)
+            box.fill.solid()
+            box.fill.fore_color.rgb = white
+            box.line.color.rgb = green_border
+            box.line.width = Pt(1.5)
+
+        def _add_tipo_text(x, y, text):
+            tb = slide.shapes.add_textbox(x, y, col_tipo_w, row_h)
+            tf = tb.text_frame
+            tf.clear()
+            tf.word_wrap = False
+            tf.margin_left = Pt(2)
+            tf.margin_right = Pt(2)
+            p = tf.paragraphs[0]
+            p.text = text
+            p.font.bold = True
+            p.font.size = Pt(11)
+            p.font.color.rgb = black
+            p.alignment = 1
+
+        def _add_var_text(x, y, w, period_text: str):
+            tb = slide.shapes.add_textbox(x, y, w, row_h)
+            tf = tb.text_frame
+            tf.clear()
+            tf.word_wrap = True
+            tf.margin_left = Pt(2)
+            tf.margin_right = Pt(2)
+            tf.margin_top = Pt(2)
+            tf.margin_bottom = Pt(2)
+
+            p1 = tf.paragraphs[0]
+            # Mantener texto base, ya que el diseño es un "badge" visual.
+            p1.text = "VAR %\nMOVEL" if self.lang_index == 1 else ("YOY %\nCHANGE" if self.lang_index == 3 else "VAR %\nMOVIL")
+            p1.font.size = Pt(8)
+            p1.font.bold = True
+            p1.font.color.rgb = grey
+            p1.alignment = 1
+
+            p2 = tf.add_paragraph()
+            p2.alignment = 1
+            # period_text esperado: "JUN-25 vs JUN-24" (o similar)
+            parts = [p.strip() for p in str(period_text or "").split("vs")]
+            left_txt = parts[0].strip()
+            right_txt = parts[1].strip() if len(parts) > 1 else ""
+            r1 = p2.add_run()
+            r1.text = f"{left_txt} " if left_txt else ""
+            r1.font.size = Pt(8)
+            r1.font.color.rgb = black
+            rvs = p2.add_run()
+            rvs.text = "vs"
+            rvs.font.size = Pt(8)
+            rvs.font.bold = True
+            rvs.font.color.rgb = red
+            r2 = p2.add_run()
+            r2.text = f" {right_txt}" if right_txt else ""
+            r2.font.size = Pt(8)
+            r2.font.color.rgb = black
+
+        def _add_value_card(x, y, w, fill_rgb, title, value):
+            card = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, x, y, w, row_h)
+            card.fill.solid()
+            card.fill.fore_color.rgb = fill_rgb
+            card.line.color.rgb = fill_rgb
+            card.line.width = Pt(0.5)
+            tf = card.text_frame
+            tf.clear()
+            tf.word_wrap = True
+            tf.margin_left = Pt(4)
+            tf.margin_right = Pt(4)
+            tf.margin_top = Pt(4)
+            tf.margin_bottom = Pt(4)
+
+            p1 = tf.paragraphs[0]
+            p1.text = title
+            # "WP by Numerator" es más largo que SELL-IN; bajamos un poco el tamaño.
+            p1.font.size = Pt(7) if len(str(title)) >= 11 else Pt(9)
+            p1.font.bold = True
+            p1.font.color.rgb = white
+            p1.alignment = 1
+
+            p2 = tf.add_paragraph()
+            p2.text = value
+            p2.font.size = Pt(18)
+            p2.font.bold = True
+            p2.font.color.rgb = white
+            p2.alignment = 1
+
+        def _period_label(end_year: Optional[int], end_month: Optional[int], offset: int) -> str:
+            if end_year is None or end_month is None:
+                return "-"
+            prev_y, prev_m = self._date_minus_months(int(end_year), int(end_month), int(offset))
+            m1 = f"{self._month_abbr(int(end_month))}-{int(end_year) % 100:02d}"
+            m2 = f"{self._month_abbr(int(prev_m))}-{int(prev_y) % 100:02d}"
+            return f"{m1} vs {m2}"
+
+        # Encabezados de grupo (Sem pipeline / Pipeline p)
+        # Se alinean sobre las tarjetas numéricas (no sobre el bloque completo) para que queden centrados.
+        header_h = Inches(0.16)
+        header_y = top - Inches(0.36)
+        # Permite un pequeño offset negativo para subir un poco más sin mover el cuadro completo.
+        if header_y < Inches(-0.06):
+            header_y = Inches(-0.06)
+
+        def _add_group_header(x: int, w: int, text: str) -> None:
+            tb = slide.shapes.add_textbox(x, header_y, w, header_h)
+            tf = tb.text_frame
+            tf.clear()
+            p = tf.paragraphs[0]
+            p.text = text
+            p.font.size = Pt(10)
+            p.font.color.rgb = grey
+            p.alignment = 1
+
+        # Sem pipeline: encima del SELL-IN (verde) del sem pipeline (P0), no sobre el bloque completo.
+        x_sem = left + col_tipo_w + col_var0_w + col_kantar_w
+        w_sem = col_sell0_w
+        _add_group_header(x_sem, w_sem, "Sem pipeline" if self.lang_index != 3 else "No pipeline")
+
+        if show_pipeline_group:
+            # Pipeline p: encima del SELL-IN del pipeline (no incluye el badge de periodo).
+            x_pip = left + col_tipo_w + col_var0_w + col_kantar_w + col_sell0_w + col_varp_w
+            w_pip = col_sellp_w
+            _add_group_header(x_pip, w_pip, f"Pipeline {int(pipeline)}")
+
+        tipo_order = ["Anual", "Semestral", "Trimestral"]
+        for idx, tipo in enumerate(tipo_order):
+            y = top + (row_h * idx)
+            _add_row_box(y)
+
+            row = variations_detail[variations_detail["Tipo"].astype(str).str.lower().str.startswith(tipo[:3].lower())]
+            wp_val = row[wp_col].iloc[0] if (wp_col and not row.empty and wp_col in row.columns) else None
+            p0_val = row[p0_col].iloc[0] if (p0_col and not row.empty and p0_col in row.columns) else None
+            px_val = row[px_col].iloc[0] if (px_col and not row.empty and px_col in row.columns) else None
+
+            offsets = {"anual": 12, "semestral": 6, "trimestral": 3}
+            tkey = (tipo or "").strip().lower()
+            if tkey.startswith("an"):
+                offset = offsets["anual"]
+            elif tkey.startswith("sem"):
+                offset = offsets["semestral"]
+            elif tkey.startswith("tri"):
+                offset = offsets["trimestral"]
+            else:
+                offset = 12
+
+            # Periodo sem pipeline (p=0) y pipeline p (p=pipeline), usando el mes base del gráfico.
+            sem_end_y, sem_end_m = (base_year, base_month)
+            if base_year is not None and base_month is not None:
+                pip_end_y, pip_end_m = self._date_minus_months(int(base_year), int(base_month), int(pipeline))
+            else:
+                pip_end_y, pip_end_m = (None, None)
+            sem_period = _period_label(sem_end_y, sem_end_m, offset)
+            pip_period = _period_label(pip_end_y, pip_end_m, offset)
+
+            x = left
+            _add_tipo_text(x, y, self._tipo_label(tipo))
+            x += col_tipo_w
+            _add_var_text(x, y, col_var0_w, sem_period)
+            x += col_var0_w
+            if wp_col is not None:
+                _add_value_card(x, y, col_kantar_w, kantar_fill, "WP by Numerator", self._fmt_pct(wp_val))
+            x += col_kantar_w
+            if p0_col is not None:
+                _add_value_card(x, y, col_sell0_w, sellin_fill, "SELL-IN", self._fmt_pct(p0_val))
+            x += col_sell0_w
+            if show_pipeline_group:
+                _add_var_text(x, y, col_varp_w, pip_period)
+                x += col_varp_w
+                _add_value_card(x, y, col_sellp_w, sellin_fill, "SELL-IN", self._fmt_pct(px_val))
 
     # --- Portada -----------------------------------------------------------------
     def configure_cover(self, pais_nombre: str, fabricante: str, categoria_nombre: str, ref_month_year: str, chosen_lang: str) -> None:
@@ -1772,62 +2095,65 @@ class SlideBuilder:
             doble_eje=(self.tipo_eje_tend == "doble"),
         )
         if assets.variations_detail is not None and not assets.variations_detail.empty:
-            value_columns = [col for col in assets.variations_detail.columns if col not in {'Tipo', 'Periodo'}]
+            if self.variations_box_style == "pretty":
+                self._add_variations_box_pretty(slide_trend, assets.variations_detail, assets.pipeline, assets.trend_plot_df)
+            else:
+                value_columns = [col for col in assets.variations_detail.columns if col not in {'Tipo', 'Periodo'}]
 
-            def _variation_styler(styler):
-                formatter = {}
-                for col in value_columns:
-                    formatter[col] = lambda v, _col=col: "-" if (pd.isna(v) or (isinstance(v, str) and str(v).strip() == "-")) else f"{v*100:.1f}%"
-                if formatter:
-                    styler = styler.format(formatter)
+                def _variation_styler(styler):
+                    formatter = {}
+                    for col in value_columns:
+                        formatter[col] = lambda v, _col=col: "-" if (pd.isna(v) or (isinstance(v, str) and str(v).strip() == "-")) else f"{v*100:.1f}%"
+                    if formatter:
+                        styler = styler.format(formatter)
 
-                    def _colorize(val):
-                        if isinstance(val, str):
-                            try:
-                                numeric_val = val.replace('%', '').replace(',', '.')
-                                val = float(numeric_val) / 100 if '%' in val else float(numeric_val)
-                            except ValueError:
+                        def _colorize(val):
+                            if isinstance(val, str):
+                                try:
+                                    numeric_val = val.replace('%', '').replace(',', '.')
+                                    val = float(numeric_val) / 100 if '%' in val else float(numeric_val)
+                                except ValueError:
+                                    return ""
+                            if pd.isna(val):
                                 return ""
-                        if pd.isna(val):
+                            if val > 0:
+                                return "background-color: #C6EFCE; color: #006100"
+                            if val < 0:
+                                return "background-color: #FFC7CE; color: #9C0006"
                             return ""
-                        if val > 0:
-                            return "background-color: #C6EFCE; color: #006100"
-                        if val < 0:
-                            return "background-color: #FFC7CE; color: #9C0006"
-                        return ""
 
-                    styler = styler.applymap(_colorize, subset=value_columns)
-                text_columns = [col for col in ('Tipo', 'Periodo') if col in assets.variations_detail.columns]
-                if text_columns:
-                    styler = styler.set_properties(subset=text_columns, **{"text-align": "left"})
-                return styler
+                        styler = styler.applymap(_colorize, subset=value_columns)
+                    text_columns = [col for col in ('Tipo', 'Periodo') if col in assets.variations_detail.columns]
+                    if text_columns:
+                        styler = styler.set_properties(subset=text_columns, **{"text-align": "left"})
+                    return styler
 
-            table_stream = dataframe_to_bordered_stream(
-                assets.variations_detail,
-                hide_index=True,
-                dpi=200,
-                styler_fn=_variation_styler,
-            )
-            table_stream.seek(0)
-            scale_factor = .6
-            try:
-                with Image.open(table_stream) as img_preview:
-                    base_width_in = img_preview.width / 200
-                    base_height_in = img_preview.height / 200
-            except Exception:
-                base_width_in = 3.4
-                base_height_in = base_width_in * 0.75
-            finally:
+                table_stream = dataframe_to_bordered_stream(
+                    assets.variations_detail,
+                    hide_index=True,
+                    dpi=200,
+                    styler_fn=_variation_styler,
+                )
                 table_stream.seek(0)
+                scale_factor = .6
+                try:
+                    with Image.open(table_stream) as img_preview:
+                        base_width_in = img_preview.width / 200
+                        base_height_in = img_preview.height / 200
+                except Exception:
+                    base_width_in = 3.4
+                    base_height_in = base_width_in * 0.75
+                finally:
+                    table_stream.seek(0)
 
-            table_width = Inches(base_width_in * scale_factor)
-            table_height = Inches(base_height_in * scale_factor)
-            right_margin = Inches(0.3)
-            left_pos = self.ppt.slide_width - table_width - right_margin
-            if left_pos < Inches(0.1):
-                left_pos = Inches(0.1)
-            top_pos = Inches(0.4)
-            slide_trend.shapes.add_picture(table_stream, left_pos, top_pos, width=table_width, height=table_height)
+                table_width = Inches(base_width_in * scale_factor)
+                table_height = Inches(base_height_in * scale_factor)
+                right_margin = Inches(0.3)
+                left_pos = self.ppt.slide_width - table_width - right_margin
+                if left_pos < Inches(0.1):
+                    left_pos = Inches(0.1)
+                top_pos = Inches(0.4)
+                slide_trend.shapes.add_picture(table_stream, left_pos, top_pos, width=table_width, height=table_height)
         slides_created += 1
         if progress and task_id is not None:
             progress.update(task_id, advance=1)
@@ -2953,6 +3279,7 @@ def generate_presentation_and_bank(
     nombre_base_archivo: str,
     include_english: bool,
     trend_axis: str,
+    variations_box_style: str,
     round_coverage: bool,
     summary_extra_months: Sequence[int],
     summary_extra_months_mode: str,
@@ -2960,7 +3287,7 @@ def generate_presentation_and_bank(
     chosen_lang, lang_index = determine_language(include_english, pais_nombre)
     ppt, tmp_ppt_path = copy_and_prune_template(root_dir, chosen_lang)
     labels = build_labels(lang_index, fabricante, ref_month_year, summary_extra_months, summary_extra_months_mode)
-    builder = SlideBuilder(ppt, lang_index, labels, coverage_label, trend_axis)
+    builder = SlideBuilder(ppt, lang_index, labels, coverage_label, trend_axis, variations_box_style=variations_box_style)
     builder.configure_cover(pais_nombre, fabricante, categoria_nombre, ref_month_year, chosen_lang)
 
     summary_rows: List[Dict[str, str]] = []
@@ -3196,6 +3523,9 @@ class CoverageStudioUltraApp:
             coverage_type_value = "Absoluta"
             coverage_reason = "Actualización periódica por contrato"
             trend_axis = "simple"
+            variations_box_style = normalize_variations_box_style(
+                next((os.environ.get(k) for k in VARIATIONS_BOX_STYLE_ENV_KEYS if os.environ.get(k) is not None), None)
+            )
             include_english = False
             round_cov = False
             SELECTIONS['Razón'] = coverage_reason
@@ -3203,6 +3533,7 @@ class CoverageStudioUltraApp:
             SELECTIONS['Idioma PPT'] = 'ESPAÑOL'
             SELECTIONS['Inglés'] = 'No'
             SELECTIONS['Redondeo Cobertura'] = 'No'
+            SELECTIONS["Estilo variaciones"] = "Bonito" if variations_box_style == "pretty" else "Clasico"
             summary_extra_months = get_summary_extra_months_from_env()
             SELECTIONS['Meses extra summary'] = format_summary_extra_months(summary_extra_months)
             summary_extra_months_mode = get_summary_extra_months_mode_from_env() or "recent"
@@ -3212,6 +3543,7 @@ class CoverageStudioUltraApp:
             coverage_type_value = coverage_type
             coverage_reason = razao_cov()
             trend_axis = tipo_eje_tendencia()
+            variations_box_style = variations_box_style_option()
             include_english = include_english_flag()
             round_cov = round_coverage_flag()
             summary_extra_months = summary_extra_months_option()
@@ -3220,6 +3552,7 @@ class CoverageStudioUltraApp:
             coverage_type=coverage_type_value,
             coverage_reason=coverage_reason,
             trend_axis=trend_axis,
+            variations_box_style=variations_box_style,
             include_english=include_english,
             round_coverage=round_cov,
             summary_extra_months=summary_extra_months,
@@ -3279,6 +3612,7 @@ class CoverageStudioUltraApp:
             nombre_base_archivo=nombre_base_archivo,
             include_english=options.include_english,
             trend_axis=options.trend_axis,
+            variations_box_style=options.variations_box_style,
             round_coverage=options.round_coverage,
             summary_extra_months=options.summary_extra_months,
             summary_extra_months_mode=options.summary_extra_months_mode,
