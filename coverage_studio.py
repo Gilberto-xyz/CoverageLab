@@ -744,8 +744,10 @@ def summary_extra_months_option() -> List[int]:
 def summary_extra_months_mode_option(has_extra_months: bool) -> str:
     env_mode = get_summary_extra_months_mode_from_env()
     if env_mode:
-        SELECTIONS['Modo meses extra summary'] = "Mes más reciente" if env_mode == "recent" else "Año actual y anterior"
-        clear_and_print_summary()
+        # Evitar confusión: si no hay meses extra, el modo no aplica y no se muestra.
+        if has_extra_months:
+            SELECTIONS['Modo meses extra summary'] = "Mes más reciente" if env_mode == "recent" else "Año actual y anterior"
+            clear_and_print_summary()
         return env_mode
     if not has_extra_months:
         return "recent"
@@ -777,9 +779,13 @@ def clear_and_print_summary():
         print(Fore.BLUE + "Idioma PPT: " + Fore.YELLOW + ("ENGLISH" if SELECTIONS['Inglés'] == 'Sí' else ("PORTUGUES" if SELECTIONS.get('Pais') == 'Brasil' else "ESPAÑOL")))
     if 'Redondeo Cobertura' in SELECTIONS:
         print(Fore.BLUE + "Redondeo de Cobertura: " + Fore.YELLOW + f"{SELECTIONS['Redondeo Cobertura']}")
-    if 'Meses extra summary' in SELECTIONS:
-        print(Fore.BLUE + "Meses extra summary: " + Fore.YELLOW + f"{SELECTIONS['Meses extra summary']}")
-    if 'Modo meses extra summary' in SELECTIONS:
+
+    # Meses extra: si es "Ninguno", el modo no aplica y no se imprime para evitar confusión.
+    meses_extra_val = SELECTIONS.get('Meses extra summary')
+    if meses_extra_val is not None:
+        print(Fore.BLUE + "Meses extra summary: " + Fore.YELLOW + f"{meses_extra_val}")
+    has_meses_extra = bool(meses_extra_val) and str(meses_extra_val).strip().lower() not in {"ninguno"}
+    if has_meses_extra and 'Modo meses extra summary' in SELECTIONS:
         print(Fore.BLUE + "Modo meses extra summary: " + Fore.YELLOW + f"{SELECTIONS['Modo meses extra summary']}")
     print("\n" + "-"*50 + "\n")
 
@@ -3841,7 +3847,11 @@ class CoverageStudioUltraApp:
             summary_extra_months = get_summary_extra_months_from_env()
             SELECTIONS['Meses extra summary'] = format_summary_extra_months(summary_extra_months)
             summary_extra_months_mode = get_summary_extra_months_mode_from_env() or "recent"
-            SELECTIONS['Modo meses extra summary'] = "Mes más reciente" if summary_extra_months_mode == "recent" else "Año actual y anterior"
+            if summary_extra_months:
+                SELECTIONS['Modo meses extra summary'] = "Mes más reciente" if summary_extra_months_mode == "recent" else "Año actual y anterior"
+            else:
+                # Evitar confusión y arrastre de estado de corridas anteriores.
+                SELECTIONS.pop('Modo meses extra summary', None)
             clear_and_print_summary()
         else:
             coverage_type_value = coverage_type
