@@ -3288,7 +3288,7 @@ def generate_excel_template(
                     console.print(
                         f"[yellow]Advertencia:[/] Correlaciones/variaciones con periodos incompletos para "
                         f"[green]{marca_sheet_name}[/green] ({original_data_rows}/{min_periods_for_layout}); "
-                        "se calcula la mayor cantidad posible de correlaciones anuales y se rellenan con '-' los faltantes."
+                        "se calculan correlaciones posibles; faltantes='-'."
                     )
 
 
