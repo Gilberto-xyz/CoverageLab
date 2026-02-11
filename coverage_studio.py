@@ -777,30 +777,107 @@ def clear_and_print_summary():
     """Limpia la terminal y muestra un resumen de las selecciones del usuario."""
     os.system('cls' if os.name == 'nt' else 'clear') # Compatible con Windows y Linux/Mac
     print(Fore.CYAN + Style.BRIGHT + "Resumen de opciones seleccionadas:")
-    if 'Excel' in SELECTIONS:
-        print(Fore.BLUE + "Archivo Excel: " + Fore.YELLOW + f"{SELECTIONS['Excel']}")
-    if 'Cobertura' in SELECTIONS:
-        print(Fore.BLUE + "Tipo de cobertura: " + Fore.YELLOW + f"{SELECTIONS['Cobertura']}")
-    if 'Razón' in SELECTIONS:
-        print(Fore.BLUE + "Razón de Cobertura: " + Fore.YELLOW + f"{SELECTIONS['Razón']}")
-    if 'Eje tendencia' in SELECTIONS:
-        print(Fore.BLUE + "Tipo de gráfico (tendencia): " + Fore.YELLOW + f"{SELECTIONS['Eje tendencia']}")
-    if 'Idioma PPT' in SELECTIONS:
-        print(Fore.BLUE + "Idioma PPT: " + Fore.YELLOW + f"{SELECTIONS['Idioma PPT']}")
-    elif 'Inglés' in SELECTIONS:
-        print(Fore.BLUE + "Idioma PPT: " + Fore.YELLOW + ("ENGLISH" if SELECTIONS['Inglés'] == 'Sí' else ("PORTUGUES" if SELECTIONS.get('Pais') == 'Brasil' else "ESPAÑOL")))
-    if 'Redondeo Cobertura' in SELECTIONS:
-        print(Fore.BLUE + "Redondeo de Cobertura: " + Fore.YELLOW + f"{SELECTIONS['Redondeo Cobertura']}")
-    if 'Slide Cobertura' in SELECTIONS:
-        print(Fore.BLUE + "Slide de Cobertura: " + Fore.YELLOW + f"{SELECTIONS['Slide Cobertura']}")
 
-    # Meses extra: si es "Ninguno", el modo no aplica y no se imprime para evitar confusión.
-    meses_extra_val = SELECTIONS.get('Meses extra summary')
+    displayed: Set[str] = set()
+
+    def _get(key: str) -> Optional[object]:
+        return SELECTIONS.get(key)
+
+    def _as_text(val: object) -> str:
+        if val is None:
+            return "-"
+        txt = str(val).strip()
+        if not txt:
+            return "-"
+        # Evitar mojibake en consolas Windows (codepages) para el resumen.
+        try:
+            txt = unicodedata.normalize("NFKD", txt).encode("ascii", "ignore").decode("ascii")
+        except Exception:
+            pass
+        return txt if txt else "-"
+
+    def _line(label: str, key: str, value: object) -> None:
+        displayed.add(key)
+        print(Fore.BLUE + f"{label}: " + Fore.YELLOW + _as_text(value))
+
+    # --- Archivo / contexto ---
+    if _get("Excel") is not None:
+        _line("Archivo Excel", "Excel", _get("Excel"))
+    if _get("Pais") is not None:
+        _line("Pais (detectado)", "Pais", _get("Pais"))
+    elif _get("Excel") is not None:
+        # El pais se infiere del nombre del archivo al momento de procesarlo.
+        _line("Pais (detectado)", "Pais", "Pendiente (se detecta al procesar)")
+
+    # --- Cobertura ---
+    cov = _as_text(_get("Cobertura"))
+    if cov != "-":
+        cov_disp = cov
+        if cov.strip().lower() == "auto":
+            cov_disp = "AUTO (usa configuracion predeterminada)"
+        _line("Tipo de cobertura", "Cobertura", cov_disp)
+    if _get("Razón") is not None:
+        _line("Razon de cobertura", "Razón", _get("Razón"))
+    if _get("Redondeo Cobertura") is not None:
+        round_val = str(_get("Redondeo Cobertura")).strip().lower()
+        round_disp = "Si (sin decimales)" if round_val in {"si", "sí", "yes", "y", "true", "1"} else "No (1 decimal)"
+        _line("Redondeo de cobertura", "Redondeo Cobertura", round_disp)
+
+    # --- Slides ---
+    if _get("Slide Cobertura") is not None:
+        slide_mode = str(_get("Slide Cobertura")).strip().lower()
+        if "complement" in slide_mode:
+            slide_disp = "Complementado (Penetracion MAT + Cobertura puntual + Estabilidad)"
+        else:
+            slide_disp = "Clasico (tabla VAR % MAT)"
+        _line("Slide de cobertura", "Slide Cobertura", slide_disp)
+    if _get("Estilo variaciones") is not None:
+        var_style = str(_get("Estilo variaciones")).strip().lower()
+        var_disp = "Bonito (tarjetas)" if "bonit" in var_style else "Clasico (tabla)"
+        _line("Cuadro de variaciones (tendencia)", "Estilo variaciones", var_disp)
+
+    # --- Tendencia ---
+    if _get("Eje tendencia") is not None:
+        eje = str(_get("Eje tendencia")).strip().lower()
+        eje_disp = "Simple (un eje)" if eje == "simple" else ("Doble (2 ejes)" if eje == "doble" else eje)
+        _line("Grafico de tendencia", "Eje tendencia", eje_disp)
+
+    # --- Idioma ---
+    # Mostrar de forma consistente y evitando depender de que el país esté disponible (a veces se define después).
+    include_en = str(_get("Inglés") or "").strip().lower() in {"sí", "si", "yes", "y", "true", "1"}
+    pais_norm = str(_get("Pais") or "").strip().lower()
+    if include_en:
+        idioma_disp = "EN (forzado)"
+    elif pais_norm in {"brasil", "brazil"}:
+        idioma_disp = "PT (por pais)"
+    elif pais_norm:
+        idioma_disp = "ES (por pais)"
+    elif _get("Idioma PPT") is not None:
+        # Compatibilidad con el texto legado si existiera.
+        idioma_disp = _as_text(_get("Idioma PPT"))
+    else:
+        idioma_disp = "Auto (por pais)"
+    _line("Idioma PPT", "Idioma PPT", idioma_disp)
+    displayed.add("Inglés")  # se muestra en Idioma PPT (aunque no exista aún)
+
+    # --- Summary extra months ---
+    meses_extra_val = _get("Meses extra summary")
     if meses_extra_val is not None:
-        print(Fore.BLUE + "Meses extra summary: " + Fore.YELLOW + f"{meses_extra_val}")
-    has_meses_extra = bool(meses_extra_val) and str(meses_extra_val).strip().lower() not in {"ninguno"}
-    if has_meses_extra and 'Modo meses extra summary' in SELECTIONS:
-        print(Fore.BLUE + "Modo meses extra summary: " + Fore.YELLOW + f"{SELECTIONS['Modo meses extra summary']}")
+        _line("Meses extra (summary)", "Meses extra summary", meses_extra_val)
+    modo_val = _get("Modo meses extra summary")
+    if modo_val is not None:
+        meses_txt = str(meses_extra_val or "").strip().lower()
+        no_aplica = (not meses_txt) or (meses_txt in {"ninguno", "-"})
+        modo_disp = f"{_as_text(modo_val)}{' (no aplica: no hay meses extra)' if no_aplica else ''}"
+        _line("Modo meses extra (summary)", "Modo meses extra summary", modo_disp)
+
+    # Mostrar cualquier otro valor no incluido para evitar "desaparecen opciones".
+    remaining = [k for k in SELECTIONS.keys() if k not in displayed]
+    if remaining:
+        print(Fore.CYAN + "Otros:")
+        for k in sorted(remaining):
+            print(Fore.BLUE + f"- {k}: " + Fore.YELLOW + _as_text(SELECTIONS.get(k)))
+
     print("\n" + "-"*50 + "\n")
 
 def print_file_header(idx: int, total: int, filename: str) -> None:
