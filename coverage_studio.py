@@ -4539,7 +4539,6 @@ class CoverageStudioUltraApp:
         global ROUND_COVERAGE
         ROUND_COVERAGE = options.round_coverage
         self.ensure_categories_loaded()
-        print_file_header(idx, total, excel_file_name)
         excel_file_path = os.path.join(self.root_dir, excel_file_name)
         elapsed = None
         if self._script_start_monotonic is not None:
@@ -4568,27 +4567,26 @@ class CoverageStudioUltraApp:
                 print(f"{Fore.RED}{Style.BRIGHT}{exc}")
                 return
 
-            SELECTIONS['Pais'] = pais_nombre
-            chosen_lang, _ = determine_language(options.include_english, pais_nombre)
-            is_complemented = normalize_coverage_slide_variant(options.coverage_slide_variant) == "complemented"
-            evo_simple = normalize_evolution_slide_variant(options.evolution_slide_variant) == "simple"
-            if chosen_lang == "EN":
-                label = "Coverage slide result"
-                variant_txt = "Complemented (MAT penetration + point coverage + stability)" if is_complemented else "Classic (MAT %VAR table)"
-                evo_label = "Evolution slide result"
-                evo_txt = "Simple (YoY lines only)" if evo_simple else "Classic/advanced (volume + YoY bars)"
-            elif chosen_lang == "PT":
-                label = "Resultado do slide de Cobertura"
-                variant_txt = "Complementado (penetração + cobertura pontual + estabilidade)" if is_complemented else "Clássico (tabela VAR % MAT)"
-                evo_label = "Resultado do slide de Evolucao"
-                evo_txt = "Simples (linhas de variacao)" if evo_simple else "Classico/avancado (volume + barras)"
+            # Asegurar que el resumen refleje opciones también en modo AUTO (sin selección interactiva).
+            SELECTIONS['Excel'] = excel_file_name
+            SELECTIONS['Cobertura'] = options.coverage_type
+            SELECTIONS['Razón'] = options.coverage_reason
+            SELECTIONS['Eje tendencia'] = options.trend_axis
+            SELECTIONS['Inglés'] = 'Sí' if options.include_english else 'No'
+            SELECTIONS['Redondeo Cobertura'] = 'Sí' if options.round_coverage else 'No'
+            SELECTIONS['Estilo variaciones'] = "Bonito" if normalize_variations_box_style(options.variations_box_style) == "pretty" else "Clasico"
+            SELECTIONS['Slide Cobertura'] = "Complementado" if normalize_coverage_slide_variant(options.coverage_slide_variant) == "complemented" else "Clasico"
+            SELECTIONS['Slide Evolucion'] = "Simple" if normalize_evolution_slide_variant(options.evolution_slide_variant) == "simple" else "Clasico/Avanzado"
+            if options.summary_extra_months:
+                SELECTIONS['Meses extra summary'] = format_summary_extra_months(options.summary_extra_months)
+                SELECTIONS['Modo meses extra summary'] = "Mes más reciente" if options.summary_extra_months_mode == "recent" else "Año actual y anterior"
             else:
-                label = "Resultado slide de Cobertura"
-                variant_txt = "Complementado (penetración + cobertura puntual + estabilidad)" if is_complemented else "Clásico (tabla VAR % MAT)"
-                evo_label = "Resultado slide de Evolucion"
-                evo_txt = "Simple (lineas de variacion)" if evo_simple else "Clasico/avanzado (volumen + barras)"
-            print(Fore.BLUE + f"{label}: " + Fore.YELLOW + variant_txt)
-            print(Fore.BLUE + f"{evo_label}: " + Fore.YELLOW + evo_txt)
+                SELECTIONS['Meses extra summary'] = "Ninguno"
+                SELECTIONS.pop('Modo meses extra summary', None)
+
+            SELECTIONS['Pais'] = pais_nombre
+            clear_and_print_summary()
+            print_file_header(idx, total, excel_file_name)
 
             coverage_label = compute_coverage_label(options.coverage_type, options.include_english)
             ref_month_year, carpeta_salida, nombre_base_archivo, ruta_template_final = generate_excel_template(
