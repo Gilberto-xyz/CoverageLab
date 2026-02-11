@@ -2016,6 +2016,119 @@ class SlideBuilder:
     def _stability_label(self) -> str:
         return {1: "Estabilidade", 2: "Estabilidad", 3: "Stability"}[self.lang_index]
 
+    @staticmethod
+    def _img_add_border(stream: io.BytesIO, border_px: int = 2, color: str = "black") -> io.BytesIO:
+        stream.seek(0)
+        img = Image.open(stream)
+        bordered = ImageOps.expand(img, border=int(border_px), fill=color)
+        out = io.BytesIO()
+        bordered.save(out, format="PNG")
+        out.seek(0)
+        return out
+
+    def _render_penetration_header_table_img(
+        self,
+        *,
+        year_header: str,
+        pen_header: str,
+        rows: Sequence[Tuple[str, str]],  # [(row_label, value), ...]
+        dpi: int = 220,
+    ) -> io.BytesIO:
+        # Layout 2 cols x (1 header + n data rows)
+        n = max(1, len(rows))
+        fig_w, fig_h = (4.0, 1.25)
+        fig = plt.figure(figsize=(fig_w, fig_h), dpi=dpi, facecolor="white")
+        ax = fig.add_axes([0, 0, 1, 1])
+        ax.set_xlim(0, 1)
+        ax.set_ylim(0, 1)
+        ax.axis("off")
+
+        col_w = [0.44, 0.56]
+        header_h = 0.40
+        row_h = (1.0 - header_h) / n
+
+        def _rect(x, y, w, h, fc):
+            ax.add_patch(matplotlib.patches.Rectangle((x, y), w, h, facecolor=fc, edgecolor="black", linewidth=1.5))
+
+        # Header
+        y0 = 1.0 - header_h
+        _rect(0.0, y0, col_w[0], header_h, "#000000")
+        _rect(col_w[0], y0, col_w[1], header_h, "#000000")
+        ax.text(col_w[0] / 2, y0 + header_h / 2, str(year_header), ha="center", va="center", color="white", fontsize=12, fontweight="bold")
+        ax.text(col_w[0] + col_w[1] / 2, y0 + header_h / 2, str(pen_header), ha="center", va="center", color="white", fontsize=12, fontweight="bold")
+
+        # Rows
+        for i, (lbl, val) in enumerate(rows[:n]):
+            y = y0 - (i + 1) * row_h
+            _rect(0.0, y, col_w[0], row_h, "#D9D9D9")
+            _rect(col_w[0], y, col_w[1], row_h, "#D9D9D9")
+            ax.text(0.02, y + row_h / 2, str(lbl), ha="left", va="center", color="black", fontsize=12, fontweight="bold")
+            ax.text(col_w[0] + col_w[1] - 0.02, y + row_h / 2, str(val), ha="right", va="center", color="black", fontsize=12, fontweight="bold")
+
+        buf = io.BytesIO()
+        fig.savefig(buf, format="png", dpi=dpi)
+        plt.close(fig)
+        buf.seek(0)
+        return self._img_add_border(buf, border_px=2, color="black")
+
+    def _render_coverage_stability_header_table_img(
+        self,
+        *,
+        cov_title: str,
+        prev_label: str,
+        curr_label: str,
+        stability_label: str,
+        cov_prev_txt: str,
+        cov_curr_txt: str,
+        stability_txt: str,
+        dpi: int = 220,
+    ) -> io.BytesIO:
+        fig_w, fig_h = (5.2, 1.25)
+        fig = plt.figure(figsize=(fig_w, fig_h), dpi=dpi, facecolor="white")
+        ax = fig.add_axes([0, 0, 1, 1])
+        ax.set_xlim(0, 1)
+        ax.set_ylim(0, 1)
+        ax.axis("off")
+
+        header_fill = "#355D6C"
+        col_w = [0.34, 0.34, 0.32]
+        h1, h2 = 0.34, 0.28
+        body_h = 1.0 - h1 - h2
+
+        def _rect(x, y, w, h, fc, ec="black", lw=1.5):
+            ax.add_patch(matplotlib.patches.Rectangle((x, y), w, h, facecolor=fc, edgecolor=ec, linewidth=lw))
+
+        x0 = 0.0
+        x1 = col_w[0]
+        x2 = col_w[0] + col_w[1]
+        x3 = 1.0
+
+        # Header blocks (simulate merged cells)
+        _rect(x0, 1.0 - h1, col_w[0] + col_w[1], h1, header_fill)
+        _rect(x2, 1.0 - (h1 + h2), col_w[2], h1 + h2, header_fill)
+        _rect(x0, 1.0 - (h1 + h2), col_w[0], h2, header_fill)
+        _rect(x1, 1.0 - (h1 + h2), col_w[1], h2, header_fill)
+
+        # Header text
+        ax.text((x0 + x2) / 2, 1.0 - h1 / 2, str(cov_title), ha="center", va="center", color="white", fontsize=12, fontweight="bold")
+        ax.text((x2 + x3) / 2, 1.0 - (h1 + h2) / 2, str(stability_label), ha="center", va="center", color="white", fontsize=12, fontweight="bold")
+        ax.text((x0 + x1) / 2, 1.0 - (h1 + h2 / 2), str(prev_label), ha="center", va="center", color="white", fontsize=12, fontweight="bold")
+        ax.text((x1 + x2) / 2, 1.0 - (h1 + h2 / 2), str(curr_label), ha="center", va="center", color="white", fontsize=12, fontweight="bold")
+
+        # Body row
+        _rect(x0, 0.0, col_w[0], body_h, "#FFFFFF")
+        _rect(x1, 0.0, col_w[1], body_h, "#FFFFFF")
+        _rect(x2, 0.0, col_w[2], body_h, "#FFFFFF")
+        ax.text((x0 + x1) / 2, body_h / 2, str(cov_prev_txt), ha="center", va="center", color="black", fontsize=12, fontweight="bold")
+        ax.text((x1 + x2) / 2, body_h / 2, str(cov_curr_txt), ha="center", va="center", color="black", fontsize=12, fontweight="bold")
+        ax.text((x2 + x3) / 2, body_h / 2, str(stability_txt), ha="center", va="center", color="black", fontsize=12, fontweight="bold")
+
+        buf = io.BytesIO()
+        fig.savefig(buf, format="png", dpi=dpi)
+        plt.close(fig)
+        buf.seek(0)
+        return self._img_add_border(buf, border_px=2, color="black")
+
     def _add_cov_slide_header_boxes(self, slide, assets: PipelineAssets) -> None:
         """Header del slide de Cobertura en modo 'complemented'."""
         try:
@@ -2038,15 +2151,8 @@ class SlideBuilder:
         mat_prev = f"MAT {prev_label}"
         pen_curr = assets.penet_mat_actual
         pen_prev = assets.penet_mat_anterior
-        df_pen = pd.DataFrame(
-            {
-                year_col: [mat_curr, mat_prev],
-                pen_col: [
-                    f"{float(pen_curr):.1f}" if (pen_curr is not None and pd.notna(pen_curr)) else "-",
-                    f"{float(pen_prev):.1f}" if (pen_prev is not None and pd.notna(pen_prev)) else "-",
-                ],
-            }
-        )
+        pen_curr_txt = f"{float(pen_curr):.1f}" if (pen_curr is not None and pd.notna(pen_curr)) else "-"
+        pen_prev_txt = f"{float(pen_prev):.1f}" if (pen_prev is not None and pd.notna(pen_prev)) else "-"
 
         # --- Cobertura puntual + estabilidad ---
         cov_title = self._coverage_metric_title()
@@ -2066,45 +2172,21 @@ class SlideBuilder:
             else:
                 stability_txt = f"{(float(cov_curr) - float(cov_prev)):.1f}"
 
-        try:
-            cols = pd.MultiIndex.from_tuples(
-                [
-                    (cov_title, prev_label),
-                    (cov_title, curr_label),
-                    (stability_label, ""),
-                ]
-            )
-            df_cov = pd.DataFrame([[ _fmt_cov(cov_prev), _fmt_cov(cov_curr), stability_txt ]], columns=cols)
-        except Exception:
-            # Si fallara la exportación con MultiIndex, degradar a una sola fila de headers.
-            df_cov = pd.DataFrame(
-                {
-                    prev_label: [_fmt_cov(cov_prev)],
-                    curr_label: [_fmt_cov(cov_curr)],
-                    stability_label: [stability_txt],
-                }
-            )
-
-        def _pen_styler(styler):
-            return styler.set_table_styles(
-                [
-                    {"selector": "th", "props": [("background-color", "#000000"), ("color", "white"), ("font-weight", "bold")]},
-                    {"selector": "td", "props": [("background-color", "#D9D9D9")]},
-                ],
-                overwrite=False,
-            )
-
-        def _cov_styler(styler):
-            return styler.set_table_styles(
-                [
-                    {"selector": "th", "props": [("background-color", "#355D6C"), ("color", "white"), ("font-weight", "bold")]},
-                    {"selector": "td", "props": [("background-color", "#FFFFFF")]},
-                ],
-                overwrite=False,
-            )
-
-        pen_stream = dataframe_to_bordered_stream(df_pen, hide_index=True, dpi=220, styler_fn=_pen_styler)
-        cov_stream = dataframe_to_bordered_stream(df_cov, hide_index=True, dpi=220, styler_fn=_cov_styler)
+        # Render con matplotlib (dataframe_image con conversion="matplotlib" no respeta backgrounds de CSS).
+        pen_stream = self._render_penetration_header_table_img(
+            year_header=year_col,
+            pen_header=pen_col,
+            rows=[(mat_curr, pen_curr_txt), (mat_prev, pen_prev_txt)],
+        )
+        cov_stream = self._render_coverage_stability_header_table_img(
+            cov_title=cov_title,
+            prev_label=prev_label,
+            curr_label=curr_label,
+            stability_label=stability_label,
+            cov_prev_txt=_fmt_cov(cov_prev),
+            cov_curr_txt=_fmt_cov(cov_curr),
+            stability_txt=stability_txt,
+        )
 
         # --- Layout superior: dos cajas en una banda encima del gráfico ---
         # Alinear con el inicio/fin del gráfico de coberturas (que arranca en x=0.5in).
