@@ -44,6 +44,7 @@ EXCEPTION_STYLES: Dict[str, Dict[str, str]] = {
 SUMMARY_EXTRA_MONTHS_ENV_KEYS: Tuple[str, ...] = ("AUTO_EXTEA", "AUTO_EXTRA_MONTHS")
 SUMMARY_EXTRA_MONTHS_MODE_ENV_KEYS: Tuple[str, ...] = ("AUTO_EXTEA_MODE", "AUTO_EXTRA_MONTHS_MODE")
 VARIATIONS_BOX_STYLE_ENV_KEYS: Tuple[str, ...] = ("AUTO_VAR_BOX_STYLE", "AUTO_VAR_STYLE")
+COVERAGE_SLIDE_VARIANT_ENV_KEYS: Tuple[str, ...] = ("AUTO_COV_SLIDE", "AUTO_COV_SLIDE_STYLE")
 MONTH_TOKEN_TO_NUMBER: Dict[str, int] = {
     "ene": 1, "enero": 1, "jan": 1, "janeiro": 1, "january": 1,
     "feb": 2, "febrero": 2, "fev": 2, "fevereiro": 2, "february": 2,
@@ -70,6 +71,17 @@ def normalize_variations_box_style(raw_value: Optional[str]) -> str:
         return "classic"
     return "classic"
 
+
+def normalize_coverage_slide_variant(raw_value: Optional[str]) -> str:
+    """Normaliza el modo del slide de cobertura (classic | complemented)."""
+    val = (raw_value or "").strip().lower()
+    if not val:
+        return "classic"
+    if val in {"complemented", "complementado", "complement", "penetracion", "penetración", "penetration", "2"}:
+        return "complemented"
+    if val in {"classic", "clasico", "clásico", "variacion", "variación", "var", "1"}:
+        return "classic"
+    return "classic"
 
 def _register_brand_exception(marca_label: Optional[str], reason: str) -> None:
     normalized = (marca_label or "N/D").strip() or "N/D"
@@ -779,6 +791,8 @@ def clear_and_print_summary():
         print(Fore.BLUE + "Idioma PPT: " + Fore.YELLOW + ("ENGLISH" if SELECTIONS['Inglés'] == 'Sí' else ("PORTUGUES" if SELECTIONS.get('Pais') == 'Brasil' else "ESPAÑOL")))
     if 'Redondeo Cobertura' in SELECTIONS:
         print(Fore.BLUE + "Redondeo de Cobertura: " + Fore.YELLOW + f"{SELECTIONS['Redondeo Cobertura']}")
+    if 'Slide Cobertura' in SELECTIONS:
+        print(Fore.BLUE + "Slide de Cobertura: " + Fore.YELLOW + f"{SELECTIONS['Slide Cobertura']}")
 
     # Meses extra: si es "Ninguno", el modo no aplica y no se imprime para evitar confusión.
     meses_extra_val = SELECTIONS.get('Meses extra summary')
@@ -1082,6 +1096,29 @@ def variations_box_style_option() -> str:
     SELECTIONS["Estilo variaciones"] = "Bonito" if style == "pretty" else "Clasico"
     clear_and_print_summary()
     return style
+
+def coverage_slide_variant_option() -> str:
+    """Elige el modo del slide de Cobertura (clásico o complementado)."""
+    raw_env = next((os.environ.get(k) for k in COVERAGE_SLIDE_VARIANT_ENV_KEYS if os.environ.get(k) is not None), None)
+    if raw_env is not None:
+        variant = normalize_coverage_slide_variant(raw_env)
+    else:
+        print(Fore.CYAN + "\n¿Modo del slide de Cobertura?")
+        print(Fore.WHITE + "1 - Clásico (tabla VAR % MAT)")
+        print(Fore.WHITE + "2 - Complementado (Penetración MAT + Cobertura puntual + Estabilidad)")
+        opciones = {
+            "1": "classic",
+            "2": "complemented",
+            "clasico": "classic",
+            "clásico": "classic",
+            "complementado": "complemented",
+            "complemented": "complemented",
+        }
+        eleccion = input(Fore.GREEN + "Elija 1 o 2: ").strip().lower()
+        variant = opciones.get(eleccion, "classic")
+    SELECTIONS["Slide Cobertura"] = "Complementado" if variant == "complemented" else "Clasico"
+    clear_and_print_summary()
+    return variant
 
 def include_english_flag() -> bool:
     """Determina si se deben generar salidas en inglés.
@@ -1605,6 +1642,7 @@ class ExecutionOptions:
     include_english: bool
     round_coverage: bool
     variations_box_style: str = "classic"
+    coverage_slide_variant: str = "classic"
     summary_extra_months: List[int] = field(default_factory=list)
     summary_extra_months_mode: str = "recent"
     auto_mode: bool = False
@@ -1618,6 +1656,9 @@ class ExecutionOptions:
         coverage_type = os.environ.get("AUTO_COV_TYPE", "Absoluta")
         variations_box_style = normalize_variations_box_style(
             next((os.environ.get(k) for k in VARIATIONS_BOX_STYLE_ENV_KEYS if os.environ.get(k) is not None), None)
+        )
+        coverage_slide_variant = normalize_coverage_slide_variant(
+            next((os.environ.get(k) for k in COVERAGE_SLIDE_VARIANT_ENV_KEYS if os.environ.get(k) is not None), None)
         )
         summary_extra_months = get_summary_extra_months_from_env()
         summary_extra_months_mode = get_summary_extra_months_mode_from_env() or "recent"
@@ -1640,6 +1681,7 @@ class ExecutionOptions:
             variations_box_style=variations_box_style,
             include_english=include_english,
             round_coverage=round_cov,
+            coverage_slide_variant=coverage_slide_variant,
             summary_extra_months=summary_extra_months,
             summary_extra_months_mode=summary_extra_months_mode,
             auto_mode=auto_mode,
@@ -1659,6 +1701,8 @@ class PipelineAssets:
     variations_detail: Optional["pd.DataFrame"]
     evolution_figure: Optional["plt.Figure"]
     buyers_mat_actual: Optional[float] = None
+    penet_mat_actual: Optional[float] = None
+    penet_mat_anterior: Optional[float] = None
 
 
     summary_rows: List[Dict[str, str]] = field(default_factory=list)
@@ -1871,15 +1915,78 @@ class SlideBuilder:
         lang_index: int,
         labels: Dict[Tuple[int, str], List[str] | str],
         coverage_label: str,
+        coverage_type: str,
+        ref_month_year: str,
         tipo_eje_tend: str,
         variations_box_style: str = "classic",
+        coverage_slide_variant: str = "classic",
     ) -> None:
         self.ppt = presentation
         self.lang_index = lang_index
         self.labels = labels
         self.coverage_label = coverage_label
+        self.coverage_type = coverage_type
+        self.ref_month_year = ref_month_year
         self.tipo_eje_tend = tipo_eje_tend
         self.variations_box_style = normalize_variations_box_style(variations_box_style)
+        self.coverage_slide_variant = normalize_coverage_slide_variant(coverage_slide_variant)
+
+    def _add_picture_fit(
+        self,
+        slide,
+        img_stream: io.BytesIO,
+        *,
+        left,
+        top,
+        width,
+        height,
+        halign: str = "center",  # left|center|right
+        valign: str = "center",  # top|center|bottom
+    ) -> None:
+        """Inserta una imagen en un rectángulo (fit) manteniendo aspect ratio.
+
+        Nota: por defecto centra, pero para el header de cobertura se usa anclaje
+        a izquierda/derecha para alinear con el gráfico de coberturas.
+        """
+        img_stream.seek(0)
+        try:
+            with Image.open(img_stream) as _img:
+                px_w, px_h = _img.size
+        except Exception:
+            px_w, px_h = (1, 1)
+        finally:
+            img_stream.seek(0)
+
+        aspect = (px_w / px_h) if px_h else 1.0
+        box_w_in = float(width) / 914400.0
+        box_h_in = float(height) / 914400.0
+        placed_w_in = box_w_in
+        placed_h_in = placed_w_in / aspect if aspect else box_h_in
+        if placed_h_in > box_h_in:
+            placed_h_in = box_h_in
+            placed_w_in = placed_h_in * aspect
+
+        placed_w = Inches(max(0.1, placed_w_in))
+        placed_h = Inches(max(0.1, placed_h_in))
+
+        # Horizontal alignment inside the box
+        _h = (halign or "center").strip().lower()
+        if _h == "left":
+            left2 = left
+        elif _h == "right":
+            left2 = left + int(width - placed_w)
+        else:
+            left2 = left + int((width - placed_w) / 2)
+
+        # Vertical alignment inside the box
+        _v = (valign or "center").strip().lower()
+        if _v == "top":
+            top2 = top
+        elif _v == "bottom":
+            top2 = top + int(height - placed_h)
+        else:
+            top2 = top + int((height - placed_h) / 2)
+        slide.shapes.add_picture(img_stream, left2, top2, width=placed_w, height=placed_h)
 
     def _month_abbr(self, month: int) -> str:
         # Abreviaciones locales en mayúsculas (para el cuadro "bonito").
@@ -1890,6 +1997,146 @@ class SlideBuilder:
         if 1 <= int(month) <= 12:
             return table[int(month)]
         return "-"
+
+    def _coverage_metric_title(self) -> str:
+        ctype = (self.coverage_type or "").strip().lower()
+        if ctype == "auto":
+            ctype = "absoluta"
+        if self.lang_index == 3:
+            return "Absolute Coverage" if ctype == "absoluta" else "Relative Coverage"
+        return "Cobertura Absoluta" if ctype == "absoluta" else "Cobertura Relativa"
+
+    def _pen_table_headers(self) -> Tuple[str, str]:
+        if self.lang_index == 1:
+            return "Ano", "Penetração\nMédia Mensal"
+        if self.lang_index == 3:
+            return "Year", "Monthly Avg\nPenetration"
+        return "Año", "Penetración\nMedia Mensual"
+
+    def _stability_label(self) -> str:
+        return {1: "Estabilidade", 2: "Estabilidad", 3: "Stability"}[self.lang_index]
+
+    def _add_cov_slide_header_boxes(self, slide, assets: PipelineAssets) -> None:
+        """Header del slide de Cobertura en modo 'complemented'."""
+        try:
+            ref_dt = dt.strptime(self.ref_month_year, "%m-%y")
+        except Exception:
+            # Fallback: usar el último periodo disponible del índice si hay fechas.
+            idx = pd.to_datetime(getattr(assets.coverage_series, "index", []), errors="coerce")
+            idx = idx[~idx.isna()]
+            if len(idx) == 0:
+                return
+            ref_dt = idx.max().to_pydatetime()
+
+        prev_dt = ref_dt - pd.DateOffset(months=12)
+        curr_label = f"{self._month_abbr(ref_dt.month)}-{ref_dt.year % 100:02d}"
+        prev_label = f"{self._month_abbr(prev_dt.month)}-{prev_dt.year % 100:02d}"
+
+        # --- Penetración (MAT actual vs anterior) ---
+        year_col, pen_col = self._pen_table_headers()
+        mat_curr = f"MAT {curr_label}"
+        mat_prev = f"MAT {prev_label}"
+        pen_curr = assets.penet_mat_actual
+        pen_prev = assets.penet_mat_anterior
+        df_pen = pd.DataFrame(
+            {
+                year_col: [mat_curr, mat_prev],
+                pen_col: [
+                    f"{float(pen_curr):.1f}" if (pen_curr is not None and pd.notna(pen_curr)) else "-",
+                    f"{float(pen_prev):.1f}" if (pen_prev is not None and pd.notna(pen_prev)) else "-",
+                ],
+            }
+        )
+
+        # --- Cobertura puntual + estabilidad ---
+        cov_title = self._coverage_metric_title()
+        stability_label = self._stability_label()
+        cov_prev = _coverage_value_for_year_month(assets.coverage_series, int(prev_dt.year), int(prev_dt.month))
+        cov_curr = _coverage_value_for_year_month(assets.coverage_series, int(ref_dt.year), int(ref_dt.month))
+
+        def _fmt_cov(v: float) -> str:
+            if v is None or pd.isna(v):
+                return "-"
+            return str(int(np.floor(float(v) + 0.5))) if globals().get("ROUND_COVERAGE", False) else f"{float(v):.1f}"
+
+        stability_txt = "-"
+        if cov_prev is not None and cov_curr is not None and pd.notna(cov_prev) and pd.notna(cov_curr):
+            if globals().get("ROUND_COVERAGE", False):
+                stability_txt = str(int(np.floor(float(cov_curr) + 0.5)) - int(np.floor(float(cov_prev) + 0.5)))
+            else:
+                stability_txt = f"{(float(cov_curr) - float(cov_prev)):.1f}"
+
+        try:
+            cols = pd.MultiIndex.from_tuples(
+                [
+                    (cov_title, prev_label),
+                    (cov_title, curr_label),
+                    (stability_label, ""),
+                ]
+            )
+            df_cov = pd.DataFrame([[ _fmt_cov(cov_prev), _fmt_cov(cov_curr), stability_txt ]], columns=cols)
+        except Exception:
+            # Si fallara la exportación con MultiIndex, degradar a una sola fila de headers.
+            df_cov = pd.DataFrame(
+                {
+                    prev_label: [_fmt_cov(cov_prev)],
+                    curr_label: [_fmt_cov(cov_curr)],
+                    stability_label: [stability_txt],
+                }
+            )
+
+        def _pen_styler(styler):
+            return styler.set_table_styles(
+                [
+                    {"selector": "th", "props": [("background-color", "#000000"), ("color", "white"), ("font-weight", "bold")]},
+                    {"selector": "td", "props": [("background-color", "#D9D9D9")]},
+                ],
+                overwrite=False,
+            )
+
+        def _cov_styler(styler):
+            return styler.set_table_styles(
+                [
+                    {"selector": "th", "props": [("background-color", "#355D6C"), ("color", "white"), ("font-weight", "bold")]},
+                    {"selector": "td", "props": [("background-color", "#FFFFFF")]},
+                ],
+                overwrite=False,
+            )
+
+        pen_stream = dataframe_to_bordered_stream(df_pen, hide_index=True, dpi=220, styler_fn=_pen_styler)
+        cov_stream = dataframe_to_bordered_stream(df_cov, hide_index=True, dpi=220, styler_fn=_cov_styler)
+
+        # --- Layout superior: dos cajas en una banda encima del gráfico ---
+        # Alinear con el inicio/fin del gráfico de coberturas (que arranca en x=0.5in).
+        top = Inches(0.95)
+        chart_left = Inches(0.5)
+        chart_right = self.ppt.slide_width - Inches(0.5)
+        gap = Inches(0.20)
+        box_h = Inches(0.90)
+        total_w = chart_right - chart_left
+        left_w = int(total_w * 0.42)
+        right_w = total_w - left_w - gap
+
+        self._add_picture_fit(
+            slide,
+            pen_stream,
+            left=chart_left,
+            top=top,
+            width=left_w,
+            height=box_h,
+            halign="left",
+            valign="top",
+        )
+        self._add_picture_fit(
+            slide,
+            cov_stream,
+            left=chart_left + left_w + gap,
+            top=top,
+            width=right_w,
+            height=box_h,
+            halign="right",
+            valign="top",
+        )
 
     @staticmethod
     def _date_minus_months(year: int, month: int, delta: int) -> Tuple[int, int]:
@@ -2291,11 +2538,22 @@ class SlideBuilder:
             coverage_label,
             self.labels,
         )
-        try:
-            table_stream = dataframe_to_bordered_stream(assets.variation_table, hide_index=True, dpi=200)
-            slide_cov.shapes.add_picture(table_stream, Inches(0.5), Inches(1.1), height=Inches(0.6))
-        except Exception as exc:
-            print(f"{Fore.YELLOW}Advertencia: No se pudo generar la tabla de variación MAT para {marca_nombre_limpio} P{assets.pipeline}. Error: {exc}")
+        if self.coverage_slide_variant == "complemented":
+            try:
+                self._add_cov_slide_header_boxes(slide_cov, assets)
+            except Exception as exc:
+                print(f"{Fore.YELLOW}Advertencia: No se pudo generar el header complementado (penetración/cobertura) para {marca_nombre_limpio} P{assets.pipeline}. Error: {exc}")
+                try:
+                    table_stream = dataframe_to_bordered_stream(assets.variation_table, hide_index=True, dpi=200)
+                    slide_cov.shapes.add_picture(table_stream, Inches(0.5), Inches(1.1), height=Inches(0.6))
+                except Exception as exc2:
+                    print(f"{Fore.YELLOW}Advertencia: Tampoco se pudo generar la tabla VAR % MAT (fallback) para {marca_nombre_limpio} P{assets.pipeline}. Error: {exc2}")
+        else:
+            try:
+                table_stream = dataframe_to_bordered_stream(assets.variation_table, hide_index=True, dpi=200)
+                slide_cov.shapes.add_picture(table_stream, Inches(0.5), Inches(1.1), height=Inches(0.6))
+            except Exception as exc:
+                print(f"{Fore.YELLOW}Advertencia: No se pudo generar la tabla de variación MAT para {marca_nombre_limpio} P{assets.pipeline}. Error: {exc}")
         self._add_low_penetration_footer(slide_cov, getattr(assets, "buyers_mat_actual", None))
         slides_created += 1
         if progress and task_id is not None:
@@ -3581,6 +3839,7 @@ def generate_presentation_and_bank(
     include_english: bool,
     trend_axis: str,
     variations_box_style: str,
+    coverage_slide_variant: str,
     round_coverage: bool,
     summary_extra_months: Sequence[int],
     summary_extra_months_mode: str,
@@ -3588,7 +3847,17 @@ def generate_presentation_and_bank(
     chosen_lang, lang_index = determine_language(include_english, pais_nombre)
     ppt, tmp_ppt_path = copy_and_prune_template(root_dir, chosen_lang)
     labels = build_labels(lang_index, fabricante, ref_month_year, summary_extra_months, summary_extra_months_mode)
-    builder = SlideBuilder(ppt, lang_index, labels, coverage_label, trend_axis, variations_box_style=variations_box_style)
+    builder = SlideBuilder(
+        ppt,
+        lang_index,
+        labels,
+        coverage_label,
+        coverage_type=coverage_type,
+        ref_month_year=ref_month_year,
+        tipo_eje_tend=trend_axis,
+        variations_box_style=variations_box_style,
+        coverage_slide_variant=coverage_slide_variant,
+    )
     builder.configure_cover(pais_nombre, fabricante, categoria_nombre, ref_month_year, chosen_lang)
 
     summary_rows: List[Dict[str, str]] = []
@@ -3680,6 +3949,8 @@ def generate_presentation_and_bank(
                     variations_detail=variations_detail,
                     evolution_figure=evolution_figure,
                     buyers_mat_actual=averages.get('Buyers_MAT_Actual'),
+                    penet_mat_actual=averages.get('Penet_MAT_Actual'),
+                    penet_mat_anterior=averages.get('Penet_MAT_Anterior'),
                 )
                 builder.add_pipeline_slides(
                     assets,
@@ -3836,6 +4107,9 @@ class CoverageStudioUltraApp:
             variations_box_style = normalize_variations_box_style(
                 next((os.environ.get(k) for k in VARIATIONS_BOX_STYLE_ENV_KEYS if os.environ.get(k) is not None), None)
             )
+            coverage_slide_variant = normalize_coverage_slide_variant(
+                next((os.environ.get(k) for k in COVERAGE_SLIDE_VARIANT_ENV_KEYS if os.environ.get(k) is not None), None)
+            )
             include_english = False
             round_cov = False
             SELECTIONS['Razón'] = coverage_reason
@@ -3844,6 +4118,7 @@ class CoverageStudioUltraApp:
             SELECTIONS['Inglés'] = 'No'
             SELECTIONS['Redondeo Cobertura'] = 'No'
             SELECTIONS["Estilo variaciones"] = "Bonito" if variations_box_style == "pretty" else "Clasico"
+            SELECTIONS["Slide Cobertura"] = "Complementado" if coverage_slide_variant == "complemented" else "Clasico"
             summary_extra_months = get_summary_extra_months_from_env()
             SELECTIONS['Meses extra summary'] = format_summary_extra_months(summary_extra_months)
             summary_extra_months_mode = get_summary_extra_months_mode_from_env() or "recent"
@@ -3858,6 +4133,7 @@ class CoverageStudioUltraApp:
             coverage_reason = razao_cov()
             trend_axis = tipo_eje_tendencia()
             variations_box_style = variations_box_style_option()
+            coverage_slide_variant = coverage_slide_variant_option()
             include_english = include_english_flag()
             round_cov = round_coverage_flag()
             summary_extra_months = summary_extra_months_option()
@@ -3869,6 +4145,7 @@ class CoverageStudioUltraApp:
             variations_box_style=variations_box_style,
             include_english=include_english,
             round_coverage=round_cov,
+            coverage_slide_variant=coverage_slide_variant,
             summary_extra_months=summary_extra_months,
             summary_extra_months_mode=summary_extra_months_mode,
             auto_mode=auto_mode,
@@ -3896,6 +4173,18 @@ class CoverageStudioUltraApp:
             print(f"{Fore.RED}{Style.BRIGHT}{exc}")
             return
         SELECTIONS['Pais'] = pais_nombre
+        chosen_lang, _ = determine_language(options.include_english, pais_nombre)
+        is_complemented = normalize_coverage_slide_variant(options.coverage_slide_variant) == "complemented"
+        if chosen_lang == "EN":
+            label = "Coverage slide result"
+            variant_txt = "Complemented (MAT penetration + point coverage + stability)" if is_complemented else "Classic (MAT %VAR table)"
+        elif chosen_lang == "PT":
+            label = "Resultado do slide de Cobertura"
+            variant_txt = "Complementado (penetração + cobertura pontual + estabilidade)" if is_complemented else "Clássico (tabela VAR % MAT)"
+        else:
+            label = "Resultado slide de Cobertura"
+            variant_txt = "Complementado (penetración + cobertura puntual + estabilidad)" if is_complemented else "Clásico (tabla VAR % MAT)"
+        print(Fore.BLUE + f"{label}: " + Fore.YELLOW + variant_txt)
         coverage_label = compute_coverage_label(options.coverage_type, options.include_english)
         ref_month_year, carpeta_salida, nombre_base_archivo, ruta_template_final = generate_excel_template(
             self.root_dir,
@@ -3927,6 +4216,7 @@ class CoverageStudioUltraApp:
             include_english=options.include_english,
             trend_axis=options.trend_axis,
             variations_box_style=options.variations_box_style,
+            coverage_slide_variant=options.coverage_slide_variant,
             round_coverage=options.round_coverage,
             summary_extra_months=options.summary_extra_months,
             summary_extra_months_mode=options.summary_extra_months_mode,
