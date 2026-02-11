@@ -46,6 +46,7 @@ SUMMARY_EXTRA_MONTHS_ENV_KEYS: Tuple[str, ...] = ("AUTO_EXTEA", "AUTO_EXTRA_MONT
 SUMMARY_EXTRA_MONTHS_MODE_ENV_KEYS: Tuple[str, ...] = ("AUTO_EXTEA_MODE", "AUTO_EXTRA_MONTHS_MODE")
 VARIATIONS_BOX_STYLE_ENV_KEYS: Tuple[str, ...] = ("AUTO_VAR_BOX_STYLE", "AUTO_VAR_STYLE")
 COVERAGE_SLIDE_VARIANT_ENV_KEYS: Tuple[str, ...] = ("AUTO_COV_SLIDE", "AUTO_COV_SLIDE_STYLE")
+EVOLUTION_SLIDE_VARIANT_ENV_KEYS: Tuple[str, ...] = ("AUTO_EVO_SLIDE", "AUTO_EVO_SLIDE_STYLE")
 MONTH_TOKEN_TO_NUMBER: Dict[str, int] = {
     "ene": 1, "enero": 1, "jan": 1, "janeiro": 1, "january": 1,
     "feb": 2, "febrero": 2, "fev": 2, "fevereiro": 2, "february": 2,
@@ -81,6 +82,17 @@ def normalize_coverage_slide_variant(raw_value: Optional[str]) -> str:
     if val in {"complemented", "complementado", "complement", "penetracion", "penetración", "penetration", "2"}:
         return "complemented"
     if val in {"classic", "clasico", "clásico", "variacion", "variación", "var", "1"}:
+        return "classic"
+    return "classic"
+
+def normalize_evolution_slide_variant(raw_value: Optional[str]) -> str:
+    """Normaliza el modo del slide de Evolucion mensual y variacion (classic | simple)."""
+    val = (raw_value or "").strip().lower()
+    if not val:
+        return "classic"
+    if val in {"simple", "basico", "basica", "basic", "1"}:
+        return "simple"
+    if val in {"classic", "clasico", "clásico", "avanzado", "advanced", "2"}:
         return "classic"
     return "classic"
 
@@ -832,6 +844,10 @@ def clear_and_print_summary():
         else:
             slide_disp = "Clasico (tabla VAR % MAT)"
         _line("Slide de cobertura", "Slide Cobertura", slide_disp)
+    if _get("Slide Evolucion") is not None:
+        evo_mode = str(_get("Slide Evolucion")).strip().lower()
+        evo_disp = "Simple (lineas de variacion)" if "simple" in evo_mode else "Clasico/avanzado (volumen + barras)"
+        _line("Slide evolucion mensual", "Slide Evolucion", evo_disp)
     if _get("Estilo variaciones") is not None:
         var_style = str(_get("Estilo variaciones")).strip().lower()
         var_disp = "Bonito (tarjetas)" if "bonit" in var_style else "Clasico (tabla)"
@@ -1215,6 +1231,30 @@ def coverage_slide_variant_option() -> str:
     clear_and_print_summary()
     return variant
 
+def evolution_slide_variant_option() -> str:
+    """Elige el modo del slide de Evolucion mensual y variacion (simple o clasico/avanzado)."""
+    raw_env = next((os.environ.get(k) for k in EVOLUTION_SLIDE_VARIANT_ENV_KEYS if os.environ.get(k) is not None), None)
+    if raw_env is not None:
+        variant = normalize_evolution_slide_variant(raw_env)
+    else:
+        print(Fore.CYAN + "\n¿Modo del slide 'Evolucion mensual y variacion'?")
+        print(Fore.WHITE + "1 - Simple (solo variacion: lineas, sin volumen mensual)")
+        print(Fore.WHITE + "2 - Clasico/avanzado (volumen mensual + barras de variacion)")
+        opciones = {
+            "1": "simple",
+            "2": "classic",
+            "simple": "simple",
+            "clasico": "classic",
+            "clásico": "classic",
+            "avanzado": "classic",
+            "advanced": "classic",
+        }
+        eleccion = input(Fore.GREEN + "Elija 1 o 2: ").strip().lower()
+        variant = opciones.get(eleccion, "classic")
+    SELECTIONS["Slide Evolucion"] = "Simple" if variant == "simple" else "Clasico/Avanzado"
+    clear_and_print_summary()
+    return variant
+
 def include_english_flag() -> bool:
     """Determina si se deben generar salidas en inglés.
 
@@ -1374,6 +1414,7 @@ def generar_grafico_evolucion_mensual(
     pipeline_meses: int = 0,
     lang_idx: int = 2,
     marca_nombre: Optional[str] = None,
+    variant: str = "classic",
 ):
     """
     Genera un gráfico de evolución mensual de WP by Numerator vs Sell-in con variación interanual.
@@ -1390,6 +1431,8 @@ def generar_grafico_evolucion_mensual(
     if df_graf is None or df_graf.empty or len(df_graf) < 24: # Necesita al menos 24 meses para var YOY
         print(f"{Fore.YELLOW}Advertencia: No se puede generar gráfico de evolución mensual. Datos insuficientes (se requieren >= 24 meses).")
         return None
+
+    variant_norm = normalize_evolution_slide_variant(variant)
 
     # Usar contexto de estilo para evitar afectar otros gráficos
     with matplotlib.style.context('seaborn-v0_8-whitegrid'):
@@ -1440,49 +1483,134 @@ def generar_grafico_evolucion_mensual(
         fig = plt.figure(figsize=(16.5, 8), dpi=100) # Ajustar tamaño si es necesario
         left_margin, right_margin, bottom_margin, top_margin = 0.08, 0.92, 0.18, 0.90
         ax1 = fig.add_axes([left_margin, bottom_margin, right_margin-left_margin, top_margin-bottom_margin])
-        ax2 = ax1.twinx()
+        ax2 = None
+        if variant_norm == "classic":
+            ax2 = ax1.twinx()
 
-        # Eje primario (Líneas)
-        sellin_label = (
-            f"{COL_SELL_IN} (Mensual)" if lang_idx != 3 else f"{COL_SELL_IN} (Monthly)"
-        ) + (f" - P:{pipeline_meses}" if pipeline_meses > 0 else "")
-        ax1.plot(
-            df_plot[COL_DATA], df_plot[COL_SELL_OUT],
-            color=COLOR_KANTAR_LINE, marker="o", linewidth=2, markersize=5,
-            label=f"{COL_SELL_OUT} (Mensual)" if lang_idx != 3 else f"{COL_SELL_OUT} (Monthly)"
-        )
-        ax1.plot(df_plot[COL_DATA], df_plot[COL_SELL_IN], color=COLOR_SELLIN_LINE, marker="o", linewidth=2, markersize=5, label=sellin_label)
-        ax1.set_ylabel("Volumen Mensual" if lang_idx != 3 else "Monthly Volume", fontsize=11, labelpad=15)
-        ax1.tick_params(axis='y', labelsize=9)
-        ax1.set_ylim(bottom=0)
-        ax1.grid(axis='y', linestyle='--', alpha=0.4)
+        var_title = "Variacion Interanual (%)" if lang_idx != 3 else "Year-over-Year Change (%)"
+        def _tint_color(color_str: str, mix_with_white: float = 0.78) -> str:
+            """Devuelve una version mas clara del color (mezclado con blanco)."""
+            try:
+                from matplotlib.colors import to_rgb, to_hex
+                r, g, b = to_rgb(color_str)
+                m = float(mix_with_white)
+                if m < 0:
+                    m = 0.0
+                if m > 1:
+                    m = 1.0
+                tinted = (r + (1 - r) * m, g + (1 - g) * m, b + (1 - b) * m)
+                return to_hex(tinted)
+            except Exception:
+                return "#E7E6E6"
 
-        # Eje secundario (Barras de Variación YOY)
-        width = 8
-        offset = 4
-        ax2.bar(df_plot[COL_DATA] - pd.DateOffset(days=offset), df_plot["Kantar_yoy"], width=width, color=COLOR_KANTAR_BAR_VAR, edgecolor=COLOR_KANTAR_EDGE_VAR, alpha=0.7, label="% Var Worldpanel by Numerator")
-        ax2.bar(df_plot[COL_DATA] + pd.DateOffset(days=offset), df_plot["Sellin_yoy"], width=width, color=COLOR_SELLIN_BAR_VAR, edgecolor=COLOR_SELLIN_EDGE_VAR, alpha=0.7, label="% Var Sell-in")
-        ax2.set_ylabel("Variación Interanual (%)" if lang_idx != 3 else "Year-over-Year Change (%)", fontsize=11, labelpad=15)
-        ax2.yaxis.set_major_formatter(mtick.PercentFormatter(decimals=0))
-        ax2.tick_params(axis='y', labelsize=9)
-        ax2.axhline(y=0, color='gray', linestyle='-', alpha=0.5, linewidth=0.8)
+        def _font_color(col_yoy: str, value: float) -> str:
+            if value > 0:
+                return COLOR_POS_LABEL if col_yoy == "Kantar_yoy" else COLOR_POS_LABEL_ALT
+            if value < 0:
+                return COLOR_NEG_LABEL if col_yoy == "Kantar_yoy" else COLOR_NEG_LABEL_ALT
+            return "#333333"
+        if variant_norm == "simple":
+            # Simple: solo variacion (lineas), sin volumen mensual.
+            ax1.plot(
+                df_plot[COL_DATA],
+                df_plot["Kantar_yoy"],
+                color=COLOR_KANTAR_LINE,
+                marker="o",
+                linewidth=2.5,
+                markersize=5,
+                label="% Var Worldpanel by Numerator",
+            )
+            ax1.plot(
+                df_plot[COL_DATA],
+                df_plot["Sellin_yoy"],
+                color=COLOR_SELLIN_LINE,
+                marker="o",
+                linewidth=2.5,
+                markersize=5,
+                label="% Var Sell-in" + (f" - P:{pipeline_meses}" if pipeline_meses > 0 else ""),
+            )
+            ax1.set_ylabel(var_title, fontsize=11, labelpad=15)
+            ax1.yaxis.set_major_formatter(mtick.PercentFormatter(decimals=0))
+            ax1.tick_params(axis='y', labelsize=9)
+            ax1.axhline(y=0, color='gray', linestyle='-', alpha=0.5, linewidth=0.8)
+            ax1.grid(axis='y', linestyle='--', alpha=0.4)
 
-        # Etiquetas en barras
-        for _, row in df_plot.iterrows():
-            for col_yoy, x_offset, color_pos, color_neg in [("Kantar_yoy", -offset, COLOR_POS_LABEL, COLOR_NEG_LABEL),
-                                                             ("Sellin_yoy", offset, COLOR_POS_LABEL_ALT, COLOR_NEG_LABEL_ALT)]:
-                if not pd.isna(row[col_yoy]):
-                    valor = row[col_yoy]
+            offset = 4
+            for _, row in df_plot.iterrows():
+                for col_yoy, x_offset in [("Kantar_yoy", -offset), ("Sellin_yoy", offset)]:
+                    if pd.isna(row[col_yoy]):
+                        continue
+                    valor = float(row[col_yoy])
                     pos_vert = valor + 1 if valor >= 0 else valor - 1
                     va_align = "bottom" if valor >= 0 else "top"
-                    color_etiq = color_pos if valor >= 0 else color_neg
-                    ax2.text(row[COL_DATA] + pd.Timedelta(days=x_offset), pos_vert, f"{valor:.1f}%",
-                             ha="center", va=va_align, fontsize=7, fontweight='bold', color=color_etiq) # Añadir etiquetas, con un decimal y color según el signo
+                    line_color = COLOR_KANTAR_LINE if col_yoy == "Kantar_yoy" else COLOR_SELLIN_LINE
+                    bg = _tint_color(line_color, mix_with_white=0.78)
+                    ax1.text(
+                        row[COL_DATA] + pd.Timedelta(days=x_offset),
+                        pos_vert,
+                        f"{valor:.1f}%",
+                        ha="center",
+                        va=va_align,
+                        fontsize=7,
+                        fontweight="bold",
+                        color=_font_color(col_yoy, valor),
+                        bbox=dict(boxstyle="round,pad=0.18", facecolor=bg, edgecolor=line_color, linewidth=0.8),
+                    )
 
-        # Ajustar límites eje Y secundario para dar espacio a etiquetas
-        y2_min, y2_max = ax2.get_ylim()
-        padding = max(abs(y2_min), abs(y2_max)) * 0.15 # 15% padding
-        ax2.set_ylim(y2_min - padding, y2_max + padding*2) # Más espacio arriba
+            # Ajustar limites Y para dar aire a las cajas
+            y_min, y_max = ax1.get_ylim()
+            pad = max(abs(y_min), abs(y_max)) * 0.18
+            ax1.set_ylim(y_min - pad, y_max + pad)
+        else:
+            # Clasico/avanzado: volumen mensual (lineas) + variacion (barras)
+            sellin_label = (
+                f"{COL_SELL_IN} (Mensual)" if lang_idx != 3 else f"{COL_SELL_IN} (Monthly)"
+            ) + (f" - P:{pipeline_meses}" if pipeline_meses > 0 else "")
+            ax1.plot(
+                df_plot[COL_DATA], df_plot[COL_SELL_OUT],
+                color=COLOR_KANTAR_LINE, marker="o", linewidth=2, markersize=5,
+                label=f"{COL_SELL_OUT} (Mensual)" if lang_idx != 3 else f"{COL_SELL_OUT} (Monthly)"
+            )
+            ax1.plot(df_plot[COL_DATA], df_plot[COL_SELL_IN], color=COLOR_SELLIN_LINE, marker="o", linewidth=2, markersize=5, label=sellin_label)
+            ax1.set_ylabel("Volumen Mensual" if lang_idx != 3 else "Monthly Volume", fontsize=11, labelpad=15)
+            ax1.tick_params(axis='y', labelsize=9)
+            ax1.set_ylim(bottom=0)
+            ax1.grid(axis='y', linestyle='--', alpha=0.4)
+
+            width = 8
+            offset = 4
+            assert ax2 is not None
+            ax2.bar(df_plot[COL_DATA] - pd.DateOffset(days=offset), df_plot["Kantar_yoy"], width=width, color=COLOR_KANTAR_BAR_VAR, edgecolor=COLOR_KANTAR_EDGE_VAR, alpha=0.7, label="% Var Worldpanel by Numerator")
+            ax2.bar(df_plot[COL_DATA] + pd.DateOffset(days=offset), df_plot["Sellin_yoy"], width=width, color=COLOR_SELLIN_BAR_VAR, edgecolor=COLOR_SELLIN_EDGE_VAR, alpha=0.7, label="% Var Sell-in")
+            ax2.set_ylabel(var_title, fontsize=11, labelpad=15)
+            ax2.yaxis.set_major_formatter(mtick.PercentFormatter(decimals=0))
+            ax2.tick_params(axis='y', labelsize=9)
+            ax2.axhline(y=0, color='gray', linestyle='-', alpha=0.5, linewidth=0.8)
+
+            # Etiquetas en barras con cuadro de fondo segun signo
+            for _, row in df_plot.iterrows():
+                for col_yoy, x_offset in [("Kantar_yoy", -offset), ("Sellin_yoy", offset)]:
+                    if pd.isna(row[col_yoy]):
+                        continue
+                    valor = float(row[col_yoy])
+                    pos_vert = valor + 1 if valor >= 0 else valor - 1
+                    va_align = "bottom" if valor >= 0 else "top"
+                    bg = "#C6EFCE" if valor > 0 else ("#FFC7CE" if valor < 0 else "#E7E6E6")
+                    ax2.text(
+                        row[COL_DATA] + pd.Timedelta(days=x_offset),
+                        pos_vert,
+                        f"{valor:.1f}%",
+                        ha="center",
+                        va=va_align,
+                        fontsize=7,
+                        fontweight="bold",
+                        color=_font_color(col_yoy, valor),
+                        bbox=dict(boxstyle="round,pad=0.18", facecolor=bg, edgecolor="black", linewidth=0.6),
+                    )
+
+            y2_min, y2_max = ax2.get_ylim()
+            padding = max(abs(y2_min), abs(y2_max)) * 0.15
+            ax2.set_ylim(y2_min - padding, y2_max + padding*2)
 
         # Formato Eje X (Fechas) con extensión de un mes antes y después
         fechas_validas = df_plot[COL_DATA]
@@ -1496,9 +1624,13 @@ def generar_grafico_evolucion_mensual(
         # Título y Leyenda
         # titulo = "Evolución Mensual y Variación " + (f" (Pipeline: {pipeline_meses})" if pipeline_meses > 0 else "")
         # fig.suptitle(titulo, fontsize=16, fontweight='bold', y=top_margin + 0.05) # Título de la figura
-        lines1, labels1 = ax1.get_legend_handles_labels()
-        lines2, labels2 = ax2.get_legend_handles_labels()
-        ax2.legend(lines1 + lines2, labels1 + labels2, loc="upper left", bbox_to_anchor=(0.01, 0.98), fontsize=9, frameon=True, framealpha=0.8)
+        if variant_norm == "classic":
+            lines1, labels1 = ax1.get_legend_handles_labels()
+            assert ax2 is not None
+            lines2, labels2 = ax2.get_legend_handles_labels()
+            ax2.legend(lines1 + lines2, labels1 + labels2, loc="upper left", bbox_to_anchor=(0.01, 0.98), fontsize=9, frameon=True, framealpha=0.8)
+        else:
+            ax1.legend(loc="upper left", bbox_to_anchor=(0.01, 0.98), fontsize=9, frameon=True, framealpha=0.8)
 
         # No usar tight_layout con add_axes, márgenes manuales ya aplicados
         # fig.tight_layout(rect=[0, 0, 1, 0.95]) # Ajustar rect si el título se solapa
@@ -1738,6 +1870,7 @@ class ExecutionOptions:
     round_coverage: bool
     variations_box_style: str = "classic"
     coverage_slide_variant: str = "classic"
+    evolution_slide_variant: str = "classic"
     summary_extra_months: List[int] = field(default_factory=list)
     summary_extra_months_mode: str = "recent"
     auto_mode: bool = False
@@ -1754,6 +1887,9 @@ class ExecutionOptions:
         )
         coverage_slide_variant = normalize_coverage_slide_variant(
             next((os.environ.get(k) for k in COVERAGE_SLIDE_VARIANT_ENV_KEYS if os.environ.get(k) is not None), None)
+        )
+        evolution_slide_variant = normalize_evolution_slide_variant(
+            next((os.environ.get(k) for k in EVOLUTION_SLIDE_VARIANT_ENV_KEYS if os.environ.get(k) is not None), None)
         )
         summary_extra_months = get_summary_extra_months_from_env()
         summary_extra_months_mode = get_summary_extra_months_mode_from_env() or "recent"
@@ -1777,6 +1913,7 @@ class ExecutionOptions:
             include_english=include_english,
             round_coverage=round_cov,
             coverage_slide_variant=coverage_slide_variant,
+            evolution_slide_variant=evolution_slide_variant,
             summary_extra_months=summary_extra_months,
             summary_extra_months_mode=summary_extra_months_mode,
             auto_mode=auto_mode,
@@ -3099,420 +3236,422 @@ def generate_excel_template(
             total_sheets = len(marcas) if hasattr(marcas, "__len__") else 0
             status = console.status("Procesando hojas Excel...", spinner="line")
             status.start()
-            for idx_sheet, marca_sheet_name in enumerate(marcas, start=1):
-                status.update(f"Procesando hoja {idx_sheet}/{total_sheets}: {marca_sheet_name}")
+            try:
+                for idx_sheet, marca_sheet_name in enumerate(marcas, start=1):
+                    status.update(f"Procesando hoja {idx_sheet}/{total_sheets}: {marca_sheet_name}")
 
-                # 1.1) Carga y preprocesa la hoja usando la función refactorizada
-                df_marca, measure_unit = load_and_preprocess_sheet(excel_file_obj, marca_sheet_name)
+                    # 1.1) Carga y preprocesa la hoja usando la función refactorizada
+                    df_marca, measure_unit = load_and_preprocess_sheet(excel_file_obj, marca_sheet_name)
 
-                # Si la carga falló, continuar con la siguiente hoja
-                if df_marca is None:
-                    continue
+                    # Si la carga falló, continuar con la siguiente hoja
+                    if df_marca is None:
+                        continue
 
-                # Guardar número original de filas de datos para fórmulas Excel
-                original_data_rows = len(df_marca)
-                if original_data_rows < 12:
-                    console.print(
-                        f"[yellow]Advertencia:[/] Hoja '{marca_sheet_name}' tiene < 12 meses de datos ({original_data_rows}). "
-                        "Algunos calculos de Excel pueden fallar o dar NaN."
-                    )
-                    # Continuar de todos modos, pero con precaución
+                    # Guardar número original de filas de datos para fórmulas Excel
+                    original_data_rows = len(df_marca)
+                    if original_data_rows < 12:
+                        console.print(
+                            f"[yellow]Advertencia:[/] Hoja '{marca_sheet_name}' tiene < 12 meses de datos ({original_data_rows}). "
+                            "Algunos calculos de Excel pueden fallar o dar NaN."
+                        )
+                        # Continuar de todos modos, pero con precaución
 
-                # Actualizar fecha de referencia global (usará la de la última hoja procesada con éxito)
-                ref_month_year = df_marca[COL_DATA].iloc[-1].strftime('%m-%y')
+                    # Actualizar fecha de referencia global (usará la de la última hoja procesada con éxito)
+                    ref_month_year = df_marca[COL_DATA].iloc[-1].strftime('%m-%y')
 
-                # --- 1.5) Creación de columnas con fórmulas Excel ---
-                df_excel = df_marca.copy() # Trabajar sobre una copia para Excel
-                # Hacer los índices basados en 1 y añadir offset de header (fila 1)
-                excel_row_offset = 2
+                    # --- 1.5) Creación de columnas con fórmulas Excel ---
+                    df_excel = df_marca.copy() # Trabajar sobre una copia para Excel
+                    # Hacer los índices basados en 1 y añadir offset de header (fila 1)
+                    excel_row_offset = 2
 
-                # Sell_in_sim (Ejemplo - ajustable manualmente en Excel si se necesita)
-                # La fórmula asume que Sell_in está en la columna B
-                df_excel[COL_SELL_IN_SIM] = [f"=B{r}" for r in range(excel_row_offset, original_data_rows + excel_row_offset)] + [np.nan] * (len(df_excel) - original_data_rows)
+                    # Sell_in_sim (Ejemplo - ajustable manualmente en Excel si se necesita)
+                    # La fórmula asume que Sell_in está en la columna B
+                    df_excel[COL_SELL_IN_SIM] = [f"=B{r}" for r in range(excel_row_offset, original_data_rows + excel_row_offset)] + [np.nan] * (len(df_excel) - original_data_rows)
 
-                # Acumulados (MAT - Moving Annual Total) - comienzan desde la fila 12 de datos
-                # Las fórmulas asumen Sell_out en C y Sell_in_sim en L
-                for i in range(11, original_data_rows):
-                    row_excel = i + excel_row_offset
-                    df_excel.loc[i, COL_ACUM_SELL_OUT] = f"=SUM(C{row_excel - 11}:C{row_excel})"
-                    df_excel.loc[i, COL_ACUM_SELL_IN] = f"=SUM(L{row_excel - 11}:L{row_excel})" # Usa Sell_in_sim (L)
+                    # Acumulados (MAT - Moving Annual Total) - comienzan desde la fila 12 de datos
+                    # Las fórmulas asumen Sell_out en C y Sell_in_sim en L
+                    for i in range(11, original_data_rows):
+                        row_excel = i + excel_row_offset
+                        df_excel.loc[i, COL_ACUM_SELL_OUT] = f"=SUM(C{row_excel - 11}:C{row_excel})"
+                        df_excel.loc[i, COL_ACUM_SELL_IN] = f"=SUM(L{row_excel - 11}:L{row_excel})" # Usa Sell_in_sim (L)
 
-                # --- 1.6) Cálculo de coberturas (pipeline 0 a 6) en Excel ---
-                pop_value_str = pop_coverage.get(pais_nombre, DEFAULT_POP_COVERAGE)
-                cov_formulas_list = []
-                max_rows_excel = original_data_rows + excel_row_offset -1 # Última fila con datos en Excel
+                    # --- 1.6) Cálculo de coberturas (pipeline 0 a 6) en Excel ---
+                    pop_value_str = pop_coverage.get(pais_nombre, DEFAULT_POP_COVERAGE)
+                    cov_formulas_list = []
+                    max_rows_excel = original_data_rows + excel_row_offset -1 # Última fila con datos en Excel
 
-                for r_idx in range(original_data_rows): # Iterar sobre índices de datos (0 a N-1)
-                    excel_current_row = r_idx + excel_row_offset
-                    row_formulas = {}
-                    if r_idx >= 11: # Cobertura solo se calcula desde el mes 12
-                        for p in range(7): # Pipelines P0 a P6
-                            # Fila de Excel para el numerador (Acum_Sell_in) - con pipeline
-                            num_row_excel = excel_current_row + p
-                            # Fila de Excel para el denominador (Acum_Sell_out) - sin pipeline
-                            den_row_excel = excel_current_row
+                    for r_idx in range(original_data_rows): # Iterar sobre índices de datos (0 a N-1)
+                        excel_current_row = r_idx + excel_row_offset
+                        row_formulas = {}
+                        if r_idx >= 11: # Cobertura solo se calcula desde el mes 12
+                            for p in range(7): # Pipelines P0 a P6
+                                # Fila de Excel para el numerador (Acum_Sell_in) - con pipeline
+                                num_row_excel = excel_current_row + p
+                                # Fila de Excel para el denominador (Acum_Sell_out) - sin pipeline
+                                den_row_excel = excel_current_row
 
-                            # Verificar que las filas referenciadas existan
-                            if num_row_excel <= max_rows_excel and den_row_excel <= max_rows_excel:
-                                # La fórmula asume Acum_Sell_in en N y Acum_Sell_out en M
-                                #anterior  m{den_row_excel}/n{num_row_excel}*100
-                                base_formula = f"M{num_row_excel}/N{den_row_excel}*100"
-                                if coverage_type == "relativa":
-                                    # CORRECCIÓN: Cambiar formato de porcentaje y usar NA()
-                                    pop_value_decimal = float(pop_value_str.replace("%", "")) / 100
-                                    formula = f"=IFERROR(({base_formula})/{pop_value_decimal},NA())"
+                                # Verificar que las filas referenciadas existan
+                                if num_row_excel <= max_rows_excel and den_row_excel <= max_rows_excel:
+                                    # La fórmula asume Acum_Sell_in en N y Acum_Sell_out en M
+                                    #anterior  m{den_row_excel}/n{num_row_excel}*100
+                                    base_formula = f"M{num_row_excel}/N{den_row_excel}*100"
+                                    if coverage_type == "relativa":
+                                        # CORRECCIÓN: Cambiar formato de porcentaje y usar NA()
+                                        pop_value_decimal = float(pop_value_str.replace("%", "")) / 100
+                                        formula = f"=IFERROR(({base_formula})/{pop_value_decimal},NA())"
+                                    else:
+                                        formula = f"=IFERROR({base_formula},NA())"
+                                    row_formulas[f'P{p}'] = formula
                                 else:
-                                    formula = f"=IFERROR({base_formula},NA())"
-                                row_formulas[f'P{p}'] = formula
-                            else:
-                                 row_formulas[f'P{p}'] = np.nan # O "" o NA()
-                    else:
-                        # Rellenar con NaN para las primeras 11 filas
-                        for p in range(7):
-                             row_formulas[f'P{p}'] = np.nan
+                                     row_formulas[f'P{p}'] = np.nan # O "" o NA()
+                        else:
+                            # Rellenar con NaN para las primeras 11 filas
+                            for p in range(7):
+                                 row_formulas[f'P{p}'] = np.nan
 
-                    cov_formulas_list.append(row_formulas)
+                        cov_formulas_list.append(row_formulas)
 
-                df_cov_excel = pd.DataFrame(cov_formulas_list, index=df_excel.index[:original_data_rows])
+                    df_cov_excel = pd.DataFrame(cov_formulas_list, index=df_excel.index[:original_data_rows])
 
-                # Escalonar las columnas de cobertura
-                df_cov_excel_scaled = df_cov_excel.copy()
-                escalona(df_cov_excel_scaled) # Escalonar la copia
+                    # Escalonar las columnas de cobertura
+                    df_cov_excel_scaled = df_cov_excel.copy()
+                    escalona(df_cov_excel_scaled) # Escalonar la copia
 
 
 
 
-    # -------------------------------------------------------
-                # 1.7 & 1.8) Cálculo de variaciones (Y-1 e Y-2) en Excel
-                # -------------------------------------------------------
+        # -------------------------------------------------------
+                    # 1.7 & 1.8) Cálculo de variaciones (Y-1 e Y-2) en Excel
+                    # -------------------------------------------------------
 
-                # ► VARIABLES EXTRA que tu código “heredado” sigue ocupando
-                n_data          = original_data_rows                            # filas con datos
-                last_row_excel  = n_data + excel_row_offset - 1                 # última fila real en Excel
-                min_periods_for_layout = 42                                    # 36 meses + 6 pipelines para mantener layout
-                missing_periods = max(0, min_periods_for_layout - original_data_rows)
+                    # ► VARIABLES EXTRA que tu código “heredado” sigue ocupando
+                    n_data          = original_data_rows                            # filas con datos
+                    last_row_excel  = n_data + excel_row_offset - 1                 # última fila real en Excel
+                    min_periods_for_layout = 42                                    # 36 meses + 6 pipelines para mantener layout
+                    missing_periods = max(0, min_periods_for_layout - original_data_rows)
 
-                def build_if_no_zero(num_range: str, den_range: str, formula_body: str) -> str:
-                    """
-                    Envuelve una fórmula con validación de ceros: si hay 0 en alguna de las ventanas, devuelve "-".
-                    'formula_body' no debe llevar '=' al inicio.
-                    """
-                    return f"=IF(OR(COUNTIF({num_range},0)>0,COUNTIF({den_range},0)>0),\"-\",{formula_body})"
+                    def build_if_no_zero(num_range: str, den_range: str, formula_body: str) -> str:
+                        """
+                        Envuelve una fórmula con validación de ceros: si hay 0 en alguna de las ventanas, devuelve "-".
+                        'formula_body' no debe llevar '=' al inicio.
+                        """
+                        return f"=IF(OR(COUNTIF({num_range},0)>0,COUNTIF({den_range},0)>0),\"-\",{formula_body})"
 
-                # ---------- Y-1 -------------------------------------------------
-                var = pd.DataFrame([
-                    ['Anual',      "MAT " + df_excel.loc[original_data_rows-1, COL_DATA].strftime('%b-%y') +
-                                " x MAT " + df_excel.loc[original_data_rows-1-12, COL_DATA].strftime('%b-%y')],
-                    ['Semestral',  "SEM " + df_excel.loc[original_data_rows-1, COL_DATA].strftime('%b-%y') +
-                                " x SEM " + df_excel.loc[original_data_rows-1-6,  COL_DATA].strftime('%b-%y')],
-                    ['Trimestral', "TRI " + df_excel.loc[original_data_rows-1, COL_DATA].strftime('%b-%y') +
-                                " x TRI " + df_excel.loc[original_data_rows-1-3,  COL_DATA].strftime('%b-%y')]
-                ], columns=['Tipo', 'Periodo'])
+                    # ---------- Y-1 -------------------------------------------------
+                    var = pd.DataFrame([
+                        ['Anual',      "MAT " + df_excel.loc[original_data_rows-1, COL_DATA].strftime('%b-%y') +
+                                    " x MAT " + df_excel.loc[original_data_rows-1-12, COL_DATA].strftime('%b-%y')],
+                        ['Semestral',  "SEM " + df_excel.loc[original_data_rows-1, COL_DATA].strftime('%b-%y') +
+                                    " x SEM " + df_excel.loc[original_data_rows-1-6,  COL_DATA].strftime('%b-%y')],
+                        ['Trimestral', "TRI " + df_excel.loc[original_data_rows-1, COL_DATA].strftime('%b-%y') +
+                                    " x TRI " + df_excel.loc[original_data_rows-1-3,  COL_DATA].strftime('%b-%y')]
+                    ], columns=['Tipo', 'Periodo'])
 
-                # Variaciones WP by Numerator
-                var_wp = []
-                for i, j in zip([10, 4, 1], [11, 5, 2]):
-                    num_start = original_data_rows + excel_row_offset - i - 2
-                    num_end = original_data_rows + excel_row_offset - 1
-                    den_start = original_data_rows + excel_row_offset - 2 * j - 2
-                    den_end = original_data_rows + excel_row_offset - j - 2
-                    num_range = f"C{num_start}:C{num_end}"
-                    den_range = f"C{den_start}:C{den_end}"
-                    formula_body = f"SUM({num_range})/SUM({den_range})-1"
-                    var_wp.append(build_if_no_zero(num_range, den_range, formula_body))
-                var['WP by Numerator'] = var_wp
-
-                # Variaciones Cliente
-                for p in range(7):
-                    cli_var = []
+                    # Variaciones WP by Numerator
+                    var_wp = []
                     for i, j in zip([10, 4, 1], [11, 5, 2]):
-                        num_start = original_data_rows + excel_row_offset - i - p - 2
-                        num_end = original_data_rows + excel_row_offset - p - 1
-                        den_start = original_data_rows + excel_row_offset - 2 * j - p - 2
-                        den_end = original_data_rows + excel_row_offset - j - p - 2
-                        num_range = f"L{num_start}:L{num_end}"
-                        den_range = f"L{den_start}:L{den_end}"
+                        num_start = original_data_rows + excel_row_offset - i - 2
+                        num_end = original_data_rows + excel_row_offset - 1
+                        den_start = original_data_rows + excel_row_offset - 2 * j - 2
+                        den_end = original_data_rows + excel_row_offset - j - 2
+                        num_range = f"C{num_start}:C{num_end}"
+                        den_range = f"C{den_start}:C{den_end}"
                         formula_body = f"SUM({num_range})/SUM({den_range})-1"
-                        cli_var.append(build_if_no_zero(num_range, den_range, formula_body))
-                    var[f'Cliente P{p}'] = cli_var
+                        var_wp.append(build_if_no_zero(num_range, den_range, formula_body))
+                    var['WP by Numerator'] = var_wp
 
-                # ---------- Y-2 -------------------------------------------------
-                # Ventanas: MAT=12, SEM=6, TRI=3  (todas comparadas contra el mismo tamaño W, 24 meses antes)
-                periods = [
-                    ('Anual',      12,  24),   # (nombre, meses_ventana, lag_meses)
-                    ('Semestral',   6,  24),
-                    ('Trimestral',  3,  24),
-                ]
+                    # Variaciones Cliente
+                    for p in range(7):
+                        cli_var = []
+                        for i, j in zip([10, 4, 1], [11, 5, 2]):
+                            num_start = original_data_rows + excel_row_offset - i - p - 2
+                            num_end = original_data_rows + excel_row_offset - p - 1
+                            den_start = original_data_rows + excel_row_offset - 2 * j - p - 2
+                            den_end = original_data_rows + excel_row_offset - j - p - 2
+                            num_range = f"L{num_start}:L{num_end}"
+                            den_range = f"L{den_start}:L{den_end}"
+                            formula_body = f"SUM({num_range})/SUM({den_range})-1"
+                            cli_var.append(build_if_no_zero(num_range, den_range, formula_body))
+                        var[f'Cliente P{p}'] = cli_var
 
-                # Texto de periodo (tu formato actual)
-                aux = pd.DataFrame([
-                    ['Anual',      "MAT " + df_excel.loc[original_data_rows-1,     COL_DATA].strftime('%b-%y') +
-                                " x MAT " + df_excel.loc[original_data_rows-1-24, COL_DATA].strftime('%b-%y')],
-                    ['Semestral',  "SEM " + df_excel.loc[original_data_rows-1,     COL_DATA].strftime('%b-%y') +
-                                " x SEM " + df_excel.loc[original_data_rows-1-24, COL_DATA].strftime('%b-%y')],
-                    ['Trimestral', "TRI " + df_excel.loc[original_data_rows-1,     COL_DATA].strftime('%b-%y') +
-                                " x TRI " + df_excel.loc[original_data_rows-1-24, COL_DATA].strftime('%b-%y')]
-                ], columns=['Tipo', 'Periodo'])
+                    # ---------- Y-2 -------------------------------------------------
+                    # Ventanas: MAT=12, SEM=6, TRI=3  (todas comparadas contra el mismo tamaño W, 24 meses antes)
+                    periods = [
+                        ('Anual',      12,  24),   # (nombre, meses_ventana, lag_meses)
+                        ('Semestral',   6,  24),
+                        ('Trimestral',  3,  24),
+                    ]
 
-                def rango_excel(end_row: int, meses: int) -> tuple[int, int]:
-                    """Devuelve (inicio, fin) inclusivo para una ventana de 'meses' que termina en 'end_row'."""
-                    return end_row - (meses - 1), end_row
+                    # Texto de periodo (tu formato actual)
+                    aux = pd.DataFrame([
+                        ['Anual',      "MAT " + df_excel.loc[original_data_rows-1,     COL_DATA].strftime('%b-%y') +
+                                    " x MAT " + df_excel.loc[original_data_rows-1-24, COL_DATA].strftime('%b-%y')],
+                        ['Semestral',  "SEM " + df_excel.loc[original_data_rows-1,     COL_DATA].strftime('%b-%y') +
+                                    " x SEM " + df_excel.loc[original_data_rows-1-24, COL_DATA].strftime('%b-%y')],
+                        ['Trimestral', "TRI " + df_excel.loc[original_data_rows-1,     COL_DATA].strftime('%b-%y') +
+                                    " x TRI " + df_excel.loc[original_data_rows-1-24, COL_DATA].strftime('%b-%y')]
+                    ], columns=['Tipo', 'Periodo'])
 
-                def formula_yoy_excel(col: str, end_row: int, meses: int, lag_meses: int) -> str:
-                    """
-                    = SUM( col[num_ini:num_fin] ) / SUM( col[den_ini:den_fin] ) - 1
-                    donde el denominador termina en end_row - lag_meses y tiene el mismo tamaño 'meses'.
-                    """
-                    # Numerador: ventana actual (tamaño 'meses') que termina en end_row
-                    num_ini, num_fin = rango_excel(end_row, meses)
-                    # Denominador: misma ventana 'meses', pero que termina 'lag_meses' antes
-                    den_fin = end_row - lag_meses
-                    den_ini, den_fin = rango_excel(den_fin, meses)
-                    num_range = f"{col}{num_ini}:{col}{num_fin}"
-                    den_range = f"{col}{den_ini}:{col}{den_fin}"
-                    formula_body = f"SUM({num_range})/SUM({den_range})-1"
-                    return build_if_no_zero(num_range, den_range, formula_body)
+                    def rango_excel(end_row: int, meses: int) -> tuple[int, int]:
+                        """Devuelve (inicio, fin) inclusivo para una ventana de 'meses' que termina en 'end_row'."""
+                        return end_row - (meses - 1), end_row
 
-                # Reglas de suficiencia de datos por ventana para Y-2:
-                #  - MAT (12): requiere >= 12 + 24 = 36 meses
-                #  - SEM (6):  requiere >= 6  + 24 = 30 meses
-                #  - TRI (3):  requiere >= 3  + 24 = 27 meses
+                    def formula_yoy_excel(col: str, end_row: int, meses: int, lag_meses: int) -> str:
+                        """
+                        = SUM( col[num_ini:num_fin] ) / SUM( col[den_ini:den_fin] ) - 1
+                        donde el denominador termina en end_row - lag_meses y tiene el mismo tamaño 'meses'.
+                        """
+                        # Numerador: ventana actual (tamaño 'meses') que termina en end_row
+                        num_ini, num_fin = rango_excel(end_row, meses)
+                        # Denominador: misma ventana 'meses', pero que termina 'lag_meses' antes
+                        den_fin = end_row - lag_meses
+                        den_ini, den_fin = rango_excel(den_fin, meses)
+                        num_range = f"{col}{num_ini}:{col}{num_fin}"
+                        den_range = f"{col}{den_ini}:{col}{den_fin}"
+                        formula_body = f"SUM({num_range})/SUM({den_range})-1"
+                        return build_if_no_zero(num_range, den_range, formula_body)
 
-                # ► WP by Numerator (columna C)
-                wp_y2_formulas = []
-                for _, meses, lag in periods:
-                    required = meses + lag
-                    if n_data >= required:
-                        wp_y2_formulas.append(formula_yoy_excel("C", last_row_excel, meses, lag))
-                    else:
-                        wp_y2_formulas.append("-")
-                aux['WP by Numerator'] = wp_y2_formulas
+                    # Reglas de suficiencia de datos por ventana para Y-2:
+                    #  - MAT (12): requiere >= 12 + 24 = 36 meses
+                    #  - SEM (6):  requiere >= 6  + 24 = 30 meses
+                    #  - TRI (3):  requiere >= 3  + 24 = 27 meses
 
-                # ► Clientes P0..P6 (columna L), ajustando el fin por 'p'
-                for p in range(7):
-                    end_row_p = last_row_excel - p
-                    cli_y2 = []
+                    # ► WP by Numerator (columna C)
+                    wp_y2_formulas = []
                     for _, meses, lag in periods:
                         required = meses + lag
-                        # Suficiencia: descontamos 'p' del total disponible para ese cliente
-                        if (n_data - p) >= required:
-                            cli_y2.append(formula_yoy_excel("L", end_row_p, meses, lag))
+                        if n_data >= required:
+                            wp_y2_formulas.append(formula_yoy_excel("C", last_row_excel, meses, lag))
                         else:
-                            cli_y2.append("-")
-                    aux[f'Cliente P{p}'] = cli_y2
+                            wp_y2_formulas.append("-")
+                    aux['WP by Numerator'] = wp_y2_formulas
 
-                # Limpiar variaciones sin sentido sin crear columnas negativas
-                if missing_periods > 0:
-                    console.print(
-                        f"[yellow]Advertencia:[/] Correlaciones/variaciones con periodos incompletos para "
-                        f"[green]{marca_sheet_name}[/green] ({original_data_rows}/{min_periods_for_layout}); "
-                        "se calculan correlaciones posibles; faltantes='-'."
+                    # ► Clientes P0..P6 (columna L), ajustando el fin por 'p'
+                    for p in range(7):
+                        end_row_p = last_row_excel - p
+                        cli_y2 = []
+                        for _, meses, lag in periods:
+                            required = meses + lag
+                            # Suficiencia: descontamos 'p' del total disponible para ese cliente
+                            if (n_data - p) >= required:
+                                cli_y2.append(formula_yoy_excel("L", end_row_p, meses, lag))
+                            else:
+                                cli_y2.append("-")
+                        aux[f'Cliente P{p}'] = cli_y2
+
+                    # Limpiar variaciones sin sentido sin crear columnas negativas
+                    if missing_periods > 0:
+                        console.print(
+                            f"[yellow]Advertencia:[/] Correlaciones/variaciones con periodos incompletos para "
+                            f"[green]{marca_sheet_name}[/green] ({original_data_rows}/{min_periods_for_layout}); "
+                            "se calculan correlaciones posibles; faltantes='-'."
+                        )
+
+
+                    # ---------- Unir Y-1 y Y-2 --------------------------------------
+                    df_variations_excel = pd.concat([var, aux], ignore_index=True)
+
+
+
+                    # --- 1.9) Cálculo de correlaciones en Excel (MAT) ---
+                    # Se genera un diccionario con fórmulas de correlación para cada pipeline (P0 a P6)
+                    # Se construyen fórmulas Excel que calculan la correlación Pearson entre dos rangos de 12 filas:
+                    #   uno en la columna M y otro en la columna N, considerando el desplazamiento (pipeline).
+                    # Los índices son base 1 y se garantiza que cada rango tenga exactamente 12 filas; de lo contrario, se asigna '-'.
+            
+                    # ---------- Correlaciones: 12m, 2 años antes (12m terminando hace 24m), 2 años (ventana 24m) ----------
+
+                    series_sell_out = pd.to_numeric(df_marca[COL_SELL_OUT], errors="coerce")
+                    series_sell_in = pd.to_numeric(df_marca[COL_SELL_IN], errors="coerce")
+
+                    def _window_invalid(series: "pd.Series", start_row_excel: int, end_row_excel: int) -> bool:
+                        """
+                        Valida que la ventana exista, no tenga NaN y no tenga ceros.
+                        Devuelve True si la ventana es inválida.
+                        """
+                        start_idx = start_row_excel - excel_row_offset
+                        end_idx = end_row_excel - excel_row_offset
+                        if start_idx < 0 or end_idx >= len(series):
+                            return True
+                        window = series.iloc[start_idx:end_idx+1]
+                        return window.isna().any() or (window == 0).any()
+
+                    def _build_correl_row(label: str, window: int, end_offset: int = 0) -> dict:
+                        """
+                        Genera una fila de correlaciones entre M y N para:
+                        - window: tamaño de ventana (12 o 24)
+                        - end_offset: 0 = ventana termina en last_row_excel (reciente)
+                                        24 = ventana termina 24 meses antes (para '2 años antes')
+                        N se alinea con M desplazando p filas hacia arriba (n_start = m_start - p).
+                        Si no hay suficientes datos para esa p y esa ventana, devuelve '-'.
+                        """
+                        row = {'Correlacion': label}
+
+                        # ¿Hay datos suficientes para esta ventana y desplazamiento?
+                        if n_data >= window + end_offset:
+                            # Ventana base en M
+                            row_ini = last_row_excel - end_offset - (window - 1)
+                            row_fin = last_row_excel - end_offset
+
+                            # Respetar que la fila 1 es encabezado
+                            m_start = max(row_ini, 2)
+                            m_end   = max(row_fin, 2)
+
+                            for p in range(0, 7):  # P0..P6
+                                # Cada pipeline consume filas adicionales; valida que haya datos suficientes
+                                if (n_data - p) < (window + end_offset):
+                                    row[f'P{p}'] = '-'
+                                    continue
+
+                                n_start = max(row_ini - p, 2)
+                                n_end   = max(row_fin - p, 2)
+
+                                # Ambas ventanas deben tener exactamente 'window' filas
+                                if (m_end - m_start + 1 == window) and (n_end - n_start + 1 == window):
+                                    # Si hay 0s o NaN en alguna ventana, se considera incompleto y se marca con '-'
+                                    if _window_invalid(series_sell_out, m_start, m_end) or _window_invalid(series_sell_in, n_start, n_end):
+                                        row[f'P{p}'] = "-"
+                                    else:
+                                        # Usa coma ',' en argumentos; función en inglés 'CORREL' como en tu flujo actual
+                                        m_range = f"M{m_start}:M{m_end}"
+                                        n_range = f"N{n_start}:N{n_end}"
+                                        row[f'P{p}'] = (
+                                            f"=IF(OR(COUNTBLANK({m_range})>0,COUNTBLANK({n_range})>0,"
+                                            f"COUNTIF({m_range},0)>0,COUNTIF({n_range},0)>0),\"-\","
+                                            f"CORREL({m_range},{n_range}))"
+                                        )
+                                else:
+                                    row[f'P{p}'] = '-'
+                        else:
+                            for p in range(0, 7):
+                                row[f'P{p}'] = '-'
+
+                        return row
+
+                    # Construye las 3 filas en el orden solicitado
+                    rows = [
+                        _build_correl_row('Año Actual', 12, end_offset=0),                   # últimos 12 meses
+                        _build_correl_row('1 año antes', 12, end_offset=12),           # 12 meses que terminaron hace 12 meses (Año anterior)
+                        _build_correl_row('2 años (ventana de 24 meses)', 24, 0),       # últimos 24 meses
+                    ]
+
+                    # Ordenar columnas: Correlacion, P0..P6 (incluye P6)
+                    cols = ['Correlacion'] + [f'P{i}' for i in range(7)]
+                    df_correlations_excel = pd.DataFrame(rows)[cols]
+
+
+
+
+                    # --- 1.10) Promedio de Penetración y Buyers (MAT) en Excel ---
+                    avg_formulas = []
+                    # MAT Actual
+                    if n_data >= 12:
+                         start_avg_curr = last_row_excel - 11
+                         end_avg_curr = last_row_excel
+                         # Asume Penet en G, Buyers en H
+                         avg_formulas.append({'Media': 'Penet MAT Actual', 'Valor': f"=AVERAGE(G{start_avg_curr}:G{end_avg_curr})"})
+                         avg_formulas.append({'Media': 'Buyers MAT Actual', 'Valor': f"=AVERAGE(H{start_avg_curr}:H{end_avg_curr})"})
+                    else:
+                         avg_formulas.append({'Media': 'Penet MAT Actual', 'Valor': f"=AVERAGE(G{excel_row_offset}:G{last_row_excel})"}) # Promedio de lo disponible
+                         avg_formulas.append({'Media': 'Buyers MAT Actual', 'Valor': f"=AVERAGE(H{excel_row_offset}:H{last_row_excel})"})
+
+                    # MAT Anterior
+                    if n_data >= 24:
+                         start_avg_prev = last_row_excel - 23
+                         end_avg_prev = last_row_excel - 12
+                         avg_formulas.append({'Media': 'Penet MAT Anterior', 'Valor': f"=AVERAGE(G{start_avg_prev}:G{end_avg_prev})"})
+                         avg_formulas.append({'Media': 'Buyers MAT Anterior', 'Valor': f"=AVERAGE(H{start_avg_prev}:H{end_avg_prev})"})
+                    else:
+                         avg_formulas.append({'Media': 'Penet MAT Anterior', 'Valor': np.nan}) # O NA()
+                         avg_formulas.append({'Media': 'Buyers MAT Anterior', 'Valor': np.nan})
+
+                    df_averages_excel = pd.DataFrame(avg_formulas)
+
+
+                    # --- 1.11) Ensamblar DataFrame final para Excel ---
+                    # Unir datos originales con coberturas escalonadas
+                    df_excel_final = pd.concat([df_excel, df_cov_excel_scaled], axis=1)
+
+                    # Crear la sección de resumen (Variaciones, Promedios, Correlación + Estabilidad)
+                    # Añadir filas vacías y reorganizar
+                    df_variations_excel['spacer1'] = np.nan
+                    # df_averages_excel['spacer2'] = np.nan
+                    df_correlations_excel['spacer3'] = np.nan
+
+                    # Aplanar las tablas de resumen para concatenarlas horizontalmente
+                    summary_part1 = df_variations_excel.T.reset_index().T # Variaciones
+                    summary_part2 = df_averages_excel.T.reset_index().T   # Promedios
+                    summary_part3 = df_correlations_excel.T.reset_index().T # Correlaciones
+
+                    # Crear un DataFrame vacío con el número correcto de columnas para alinear
+                    max_cols = df_excel_final.shape[1]
+                    summary_placeholder = pd.DataFrame(np.nan, index=range(max(len(summary_part1), len(summary_part2), len(summary_part3))), columns=df_excel_final.columns)
+
+                    # Rellenar el placeholder (esto requiere manejo cuidadoso de índices y columnas)
+                    # Simplificación: Crear el df_excel_summary_part como antes y concatenar al final
+                    df_excel_summary_part = pd.concat([df_variations_excel.reset_index(drop=True),
+                                                      df_averages_excel.reset_index(drop=True),
+                                                      df_correlations_excel.reset_index(drop=True)], axis=1)
+
+                    # Añadir fila vacía de separación
+                    df_excel_final.loc[len(df_excel_final)] = [np.nan] * len(df_excel_final.columns)
+
+                    # Poner "Estabilidad" 2 filas arriba de la fila de encabezado "Correlacion":
+                    #   Estabilidad
+                    #   (fila en blanco)
+                    #   Correlacion / P0..P6 (encabezado)
+                    stab_row = {c: np.nan for c in df_excel_summary_part.columns}
+                    if "Correlacion" in stab_row:
+                        stab_row["Correlacion"] = "Estabilidad"
+                        # Asume Cobertura P0-P6 en columnas O a U (después de escalonar)
+                        coverage_start_col_idx = 15  # Col O es la 15 (1-based)
+                        for p in range(7):
+                            key = f"P{p}"
+                            if key not in stab_row:
+                                continue
+                            col_letter = get_column_letter(coverage_start_col_idx + p)
+                            # OJO: estos valores ya vienen "escalonados" (pipeline aplicado) por `escalona()`,
+                            # así que la estabilidad se calcula con la misma fila para todos los pipelines (como P0).
+                            row_last_cov = last_row_excel
+                            row_prev_cov = last_row_excel - 12
+                            # Requiere 12 meses hacia atrás y suficiente historia para que ambas coberturas existan
+                            if row_last_cov >= excel_row_offset and row_prev_cov >= excel_row_offset and (original_data_rows >= (24 + p)):
+                                stab_row[key] = f"=IFERROR({col_letter}{row_last_cov}-{col_letter}{row_prev_cov},NA())"
+                            else:
+                                stab_row[key] = "-"
+
+                    df_stability_above = pd.DataFrame([stab_row], columns=df_excel_summary_part.columns)
+
+                    # Añadir nombres de columnas del resumen como cabecera
+                    summary_header = pd.DataFrame([df_excel_summary_part.columns], columns=df_excel_summary_part.columns)
+                    df_excel_summary_part_with_header = pd.concat(
+                        [df_stability_above, summary_header, df_excel_summary_part],
+                        ignore_index=True,
                     )
 
+                    # Ajustar columnas del resumen para que coincidan con el df principal y concatenar
+                    # --- INICIO CAMBIO ---
+                    # Si el número de columnas no coincide, agrega columnas vacías
+                    n_main_cols = df_excel_final.shape[1]
+                    n_summary_cols = df_excel_summary_part_with_header.shape[1]
+                    if n_summary_cols < n_main_cols:
+                        # Agrega columnas vacías al resumen
+                        for i in range(n_summary_cols, n_main_cols):
+                            df_excel_summary_part_with_header[f'empty_{i}'] = np.nan
+                    elif n_summary_cols > n_main_cols:
+                        # Si el resumen tiene más columnas, recórtalas
+                        df_excel_summary_part_with_header = df_excel_summary_part_with_header.iloc[:, :n_main_cols]
+                    # Ahora reasigna los nombres de columnas
+                    df_excel_summary_part_with_header.columns = df_excel_final.columns
+                    # --- FIN CAMBIO ---
 
-                # ---------- Unir Y-1 y Y-2 --------------------------------------
-                df_variations_excel = pd.concat([var, aux], ignore_index=True)
+                    df_excel_final = pd.concat([df_excel_final, df_excel_summary_part_with_header], ignore_index=True)
 
+                    # --- 1.13) Exportar a la hoja de Excel ---
+                    df_excel_final.to_excel(writer, sheet_name=marca_sheet_name, index=False)
 
-
-                # --- 1.9) Cálculo de correlaciones en Excel (MAT) ---
-                # Se genera un diccionario con fórmulas de correlación para cada pipeline (P0 a P6)
-                # Se construyen fórmulas Excel que calculan la correlación Pearson entre dos rangos de 12 filas:
-                #   uno en la columna M y otro en la columna N, considerando el desplazamiento (pipeline).
-                # Los índices son base 1 y se garantiza que cada rango tenga exactamente 12 filas; de lo contrario, se asigna '-'.
-            
-                # ---------- Correlaciones: 12m, 2 años antes (12m terminando hace 24m), 2 años (ventana 24m) ----------
-
-                series_sell_out = pd.to_numeric(df_marca[COL_SELL_OUT], errors="coerce")
-                series_sell_in = pd.to_numeric(df_marca[COL_SELL_IN], errors="coerce")
-
-                def _window_invalid(series: "pd.Series", start_row_excel: int, end_row_excel: int) -> bool:
-                    """
-                    Valida que la ventana exista, no tenga NaN y no tenga ceros.
-                    Devuelve True si la ventana es inválida.
-                    """
-                    start_idx = start_row_excel - excel_row_offset
-                    end_idx = end_row_excel - excel_row_offset
-                    if start_idx < 0 or end_idx >= len(series):
-                        return True
-                    window = series.iloc[start_idx:end_idx+1]
-                    return window.isna().any() or (window == 0).any()
-
-                def _build_correl_row(label: str, window: int, end_offset: int = 0) -> dict:
-                    """
-                    Genera una fila de correlaciones entre M y N para:
-                    - window: tamaño de ventana (12 o 24)
-                    - end_offset: 0 = ventana termina en last_row_excel (reciente)
-                                    24 = ventana termina 24 meses antes (para '2 años antes')
-                    N se alinea con M desplazando p filas hacia arriba (n_start = m_start - p).
-                    Si no hay suficientes datos para esa p y esa ventana, devuelve '-'.
-                    """
-                    row = {'Correlacion': label}
-
-                    # ¿Hay datos suficientes para esta ventana y desplazamiento?
-                    if n_data >= window + end_offset:
-                        # Ventana base en M
-                        row_ini = last_row_excel - end_offset - (window - 1)
-                        row_fin = last_row_excel - end_offset
-
-                        # Respetar que la fila 1 es encabezado
-                        m_start = max(row_ini, 2)
-                        m_end   = max(row_fin, 2)
-
-                        for p in range(0, 7):  # P0..P6
-                            # Cada pipeline consume filas adicionales; valida que haya datos suficientes
-                            if (n_data - p) < (window + end_offset):
-                                row[f'P{p}'] = '-'
-                                continue
-
-                            n_start = max(row_ini - p, 2)
-                            n_end   = max(row_fin - p, 2)
-
-                            # Ambas ventanas deben tener exactamente 'window' filas
-                            if (m_end - m_start + 1 == window) and (n_end - n_start + 1 == window):
-                                # Si hay 0s o NaN en alguna ventana, se considera incompleto y se marca con '-'
-                                if _window_invalid(series_sell_out, m_start, m_end) or _window_invalid(series_sell_in, n_start, n_end):
-                                    row[f'P{p}'] = "-"
-                                else:
-                                    # Usa coma ',' en argumentos; función en inglés 'CORREL' como en tu flujo actual
-                                    m_range = f"M{m_start}:M{m_end}"
-                                    n_range = f"N{n_start}:N{n_end}"
-                                    row[f'P{p}'] = (
-                                        f"=IF(OR(COUNTBLANK({m_range})>0,COUNTBLANK({n_range})>0,"
-                                        f"COUNTIF({m_range},0)>0,COUNTIF({n_range},0)>0),\"-\","
-                                        f"CORREL({m_range},{n_range}))"
-                                    )
-                            else:
-                                row[f'P{p}'] = '-'
-                    else:
-                        for p in range(0, 7):
-                            row[f'P{p}'] = '-'
-
-                    return row
-
-                # Construye las 3 filas en el orden solicitado
-                rows = [
-                    _build_correl_row('Año Actual', 12, end_offset=0),                   # últimos 12 meses
-                    _build_correl_row('1 año antes', 12, end_offset=12),           # 12 meses que terminaron hace 12 meses (Año anterior)
-                    _build_correl_row('2 años (ventana de 24 meses)', 24, 0),       # últimos 24 meses
-                ]
-
-                # Ordenar columnas: Correlacion, P0..P6 (incluye P6)
-                cols = ['Correlacion'] + [f'P{i}' for i in range(7)]
-                df_correlations_excel = pd.DataFrame(rows)[cols]
-
-
-
-
-                # --- 1.10) Promedio de Penetración y Buyers (MAT) en Excel ---
-                avg_formulas = []
-                # MAT Actual
-                if n_data >= 12:
-                     start_avg_curr = last_row_excel - 11
-                     end_avg_curr = last_row_excel
-                     # Asume Penet en G, Buyers en H
-                     avg_formulas.append({'Media': 'Penet MAT Actual', 'Valor': f"=AVERAGE(G{start_avg_curr}:G{end_avg_curr})"})
-                     avg_formulas.append({'Media': 'Buyers MAT Actual', 'Valor': f"=AVERAGE(H{start_avg_curr}:H{end_avg_curr})"})
-                else:
-                     avg_formulas.append({'Media': 'Penet MAT Actual', 'Valor': f"=AVERAGE(G{excel_row_offset}:G{last_row_excel})"}) # Promedio de lo disponible
-                     avg_formulas.append({'Media': 'Buyers MAT Actual', 'Valor': f"=AVERAGE(H{excel_row_offset}:H{last_row_excel})"})
-
-                # MAT Anterior
-                if n_data >= 24:
-                     start_avg_prev = last_row_excel - 23
-                     end_avg_prev = last_row_excel - 12
-                     avg_formulas.append({'Media': 'Penet MAT Anterior', 'Valor': f"=AVERAGE(G{start_avg_prev}:G{end_avg_prev})"})
-                     avg_formulas.append({'Media': 'Buyers MAT Anterior', 'Valor': f"=AVERAGE(H{start_avg_prev}:H{end_avg_prev})"})
-                else:
-                     avg_formulas.append({'Media': 'Penet MAT Anterior', 'Valor': np.nan}) # O NA()
-                     avg_formulas.append({'Media': 'Buyers MAT Anterior', 'Valor': np.nan})
-
-                df_averages_excel = pd.DataFrame(avg_formulas)
-
-
-                # --- 1.11) Ensamblar DataFrame final para Excel ---
-                # Unir datos originales con coberturas escalonadas
-                df_excel_final = pd.concat([df_excel, df_cov_excel_scaled], axis=1)
-
-                # Crear la sección de resumen (Variaciones, Promedios, Correlación + Estabilidad)
-                # Añadir filas vacías y reorganizar
-                df_variations_excel['spacer1'] = np.nan
-                # df_averages_excel['spacer2'] = np.nan
-                df_correlations_excel['spacer3'] = np.nan
-
-                # Aplanar las tablas de resumen para concatenarlas horizontalmente
-                summary_part1 = df_variations_excel.T.reset_index().T # Variaciones
-                summary_part2 = df_averages_excel.T.reset_index().T   # Promedios
-                summary_part3 = df_correlations_excel.T.reset_index().T # Correlaciones
-
-                # Crear un DataFrame vacío con el número correcto de columnas para alinear
-                max_cols = df_excel_final.shape[1]
-                summary_placeholder = pd.DataFrame(np.nan, index=range(max(len(summary_part1), len(summary_part2), len(summary_part3))), columns=df_excel_final.columns)
-
-                # Rellenar el placeholder (esto requiere manejo cuidadoso de índices y columnas)
-                # Simplificación: Crear el df_excel_summary_part como antes y concatenar al final
-                df_excel_summary_part = pd.concat([df_variations_excel.reset_index(drop=True),
-                                                  df_averages_excel.reset_index(drop=True),
-                                                  df_correlations_excel.reset_index(drop=True)], axis=1)
-
-                # Añadir fila vacía de separación
-                df_excel_final.loc[len(df_excel_final)] = [np.nan] * len(df_excel_final.columns)
-
-                # Poner "Estabilidad" 2 filas arriba de la fila de encabezado "Correlacion":
-                #   Estabilidad
-                #   (fila en blanco)
-                #   Correlacion / P0..P6 (encabezado)
-                stab_row = {c: np.nan for c in df_excel_summary_part.columns}
-                if "Correlacion" in stab_row:
-                    stab_row["Correlacion"] = "Estabilidad"
-                    # Asume Cobertura P0-P6 en columnas O a U (después de escalonar)
-                    coverage_start_col_idx = 15  # Col O es la 15 (1-based)
-                    for p in range(7):
-                        key = f"P{p}"
-                        if key not in stab_row:
-                            continue
-                        col_letter = get_column_letter(coverage_start_col_idx + p)
-                        # OJO: estos valores ya vienen "escalonados" (pipeline aplicado) por `escalona()`,
-                        # así que la estabilidad se calcula con la misma fila para todos los pipelines (como P0).
-                        row_last_cov = last_row_excel
-                        row_prev_cov = last_row_excel - 12
-                        # Requiere 12 meses hacia atrás y suficiente historia para que ambas coberturas existan
-                        if row_last_cov >= excel_row_offset and row_prev_cov >= excel_row_offset and (original_data_rows >= (24 + p)):
-                            stab_row[key] = f"=IFERROR({col_letter}{row_last_cov}-{col_letter}{row_prev_cov},NA())"
-                        else:
-                            stab_row[key] = "-"
-
-                df_stability_above = pd.DataFrame([stab_row], columns=df_excel_summary_part.columns)
-
-                # Añadir nombres de columnas del resumen como cabecera
-                summary_header = pd.DataFrame([df_excel_summary_part.columns], columns=df_excel_summary_part.columns)
-                df_excel_summary_part_with_header = pd.concat(
-                    [df_stability_above, summary_header, df_excel_summary_part],
-                    ignore_index=True,
-                )
-
-                # Ajustar columnas del resumen para que coincidan con el df principal y concatenar
-                # --- INICIO CAMBIO ---
-                # Si el número de columnas no coincide, agrega columnas vacías
-                n_main_cols = df_excel_final.shape[1]
-                n_summary_cols = df_excel_summary_part_with_header.shape[1]
-                if n_summary_cols < n_main_cols:
-                    # Agrega columnas vacías al resumen
-                    for i in range(n_summary_cols, n_main_cols):
-                        df_excel_summary_part_with_header[f'empty_{i}'] = np.nan
-                elif n_summary_cols > n_main_cols:
-                    # Si el resumen tiene más columnas, recórtalas
-                    df_excel_summary_part_with_header = df_excel_summary_part_with_header.iloc[:, :n_main_cols]
-                # Ahora reasigna los nombres de columnas
-                df_excel_summary_part_with_header.columns = df_excel_final.columns
-                # --- FIN CAMBIO ---
-
-                df_excel_final = pd.concat([df_excel_final, df_excel_summary_part_with_header], ignore_index=True)
-
-                # --- 1.13) Exportar a la hoja de Excel ---
-                df_excel_final.to_excel(writer, sheet_name=marca_sheet_name, index=False)
-
-            status.stop()
+            finally:
+                status.stop()
 
         print(Fore.GREEN + f"Archivo Excel temporal '{EXCEL_TEMP_FILENAME}' generado.")
 
@@ -3873,6 +4012,7 @@ def build_evolution_figure(
     pipeline: int,
     lang_index: int,
     marca_nombre: str,
+    variant: str = "classic",
 ) -> Optional["plt.Figure"]:
     if len(df_marca) < 24:
         return None
@@ -3883,6 +4023,7 @@ def build_evolution_figure(
         pipeline,
         lang_index,
         marca_nombre=marca_nombre,
+        variant=variant,
     )
 
 
@@ -4030,6 +4171,7 @@ def generate_presentation_and_bank(
     trend_axis: str,
     variations_box_style: str,
     coverage_slide_variant: str,
+    evolution_slide_variant: str,
     round_coverage: bool,
     summary_extra_months: Sequence[int],
     summary_extra_months_mode: str,
@@ -4128,6 +4270,7 @@ def generate_presentation_and_bank(
                     pipeline,
                     lang_index,
                     marca_nombre_limpio,
+                    variant=evolution_slide_variant,
                 )
                 assets = PipelineAssets(
                     pipeline=pipeline,
@@ -4301,6 +4444,9 @@ class CoverageStudioUltraApp:
             coverage_slide_variant = normalize_coverage_slide_variant(
                 next((os.environ.get(k) for k in COVERAGE_SLIDE_VARIANT_ENV_KEYS if os.environ.get(k) is not None), None)
             )
+            evolution_slide_variant = normalize_evolution_slide_variant(
+                next((os.environ.get(k) for k in EVOLUTION_SLIDE_VARIANT_ENV_KEYS if os.environ.get(k) is not None), None)
+            )
             include_english = False
             round_cov = False
             SELECTIONS['Razón'] = coverage_reason
@@ -4310,6 +4456,7 @@ class CoverageStudioUltraApp:
             SELECTIONS['Redondeo Cobertura'] = 'No'
             SELECTIONS["Estilo variaciones"] = "Bonito" if variations_box_style == "pretty" else "Clasico"
             SELECTIONS["Slide Cobertura"] = "Complementado" if coverage_slide_variant == "complemented" else "Clasico"
+            SELECTIONS["Slide Evolucion"] = "Simple" if evolution_slide_variant == "simple" else "Clasico/Avanzado"
             summary_extra_months = get_summary_extra_months_from_env()
             SELECTIONS['Meses extra summary'] = format_summary_extra_months(summary_extra_months)
             summary_extra_months_mode = get_summary_extra_months_mode_from_env() or "recent"
@@ -4325,6 +4472,7 @@ class CoverageStudioUltraApp:
             trend_axis = tipo_eje_tendencia()
             variations_box_style = variations_box_style_option()
             coverage_slide_variant = coverage_slide_variant_option()
+            evolution_slide_variant = evolution_slide_variant_option()
             include_english = include_english_flag()
             round_cov = round_coverage_flag()
             summary_extra_months = summary_extra_months_option()
@@ -4337,6 +4485,7 @@ class CoverageStudioUltraApp:
             include_english=include_english,
             round_coverage=round_cov,
             coverage_slide_variant=coverage_slide_variant,
+            evolution_slide_variant=evolution_slide_variant,
             summary_extra_months=summary_extra_months,
             summary_extra_months_mode=summary_extra_months_mode,
             auto_mode=auto_mode,
@@ -4366,16 +4515,24 @@ class CoverageStudioUltraApp:
         SELECTIONS['Pais'] = pais_nombre
         chosen_lang, _ = determine_language(options.include_english, pais_nombre)
         is_complemented = normalize_coverage_slide_variant(options.coverage_slide_variant) == "complemented"
+        evo_simple = normalize_evolution_slide_variant(options.evolution_slide_variant) == "simple"
         if chosen_lang == "EN":
             label = "Coverage slide result"
             variant_txt = "Complemented (MAT penetration + point coverage + stability)" if is_complemented else "Classic (MAT %VAR table)"
+            evo_label = "Evolution slide result"
+            evo_txt = "Simple (YoY lines only)" if evo_simple else "Classic/advanced (volume + YoY bars)"
         elif chosen_lang == "PT":
             label = "Resultado do slide de Cobertura"
             variant_txt = "Complementado (penetração + cobertura pontual + estabilidade)" if is_complemented else "Clássico (tabela VAR % MAT)"
+            evo_label = "Resultado do slide de Evolucao"
+            evo_txt = "Simples (linhas de variacao)" if evo_simple else "Classico/avancado (volume + barras)"
         else:
             label = "Resultado slide de Cobertura"
             variant_txt = "Complementado (penetración + cobertura puntual + estabilidad)" if is_complemented else "Clásico (tabla VAR % MAT)"
+            evo_label = "Resultado slide de Evolucion"
+            evo_txt = "Simple (lineas de variacion)" if evo_simple else "Clasico/avanzado (volumen + barras)"
         print(Fore.BLUE + f"{label}: " + Fore.YELLOW + variant_txt)
+        print(Fore.BLUE + f"{evo_label}: " + Fore.YELLOW + evo_txt)
         coverage_label = compute_coverage_label(options.coverage_type, options.include_english)
         ref_month_year, carpeta_salida, nombre_base_archivo, ruta_template_final = generate_excel_template(
             self.root_dir,
@@ -4408,6 +4565,7 @@ class CoverageStudioUltraApp:
             trend_axis=options.trend_axis,
             variations_box_style=options.variations_box_style,
             coverage_slide_variant=options.coverage_slide_variant,
+            evolution_slide_variant=options.evolution_slide_variant,
             round_coverage=options.round_coverage,
             summary_extra_months=options.summary_extra_months,
             summary_extra_months_mode=options.summary_extra_months_mode,
