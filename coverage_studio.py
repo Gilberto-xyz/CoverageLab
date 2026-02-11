@@ -3349,6 +3349,7 @@ def add_native_excel_charts(
     )
     from openpyxl.chart.label import DataLabelList as _DataLabelList
     from openpyxl.chart.series import SeriesLabel as _SeriesLabel
+    from openpyxl.chart.shapes import GraphicalProperties as _GraphicalProperties
     from openpyxl.utils import get_column_letter as _get_col_letter
 
     lang_code = _excel_lang_code(include_english, pais_nombre)
@@ -3383,18 +3384,38 @@ def add_native_excel_charts(
     chart_scale = 1.2
     chart_anchor_col = "AA"
 
-    def _apply_variation_labels(series_obj: "object") -> None:
-        """Muestra el dato puntual de variación en formato porcentaje."""
+    def _tint_hex_color(color_value: str, mix_with_white: float = 0.78) -> str:
+        """Aclara un color HEX mezclándolo con blanco."""
+        hex_color = _safe_hex(color_value)
         try:
-            dlabels = _DataLabelList()
-            dlabels.showVal = True
-            dlabels.showSerName = False
-            dlabels.showCatName = False
-            dlabels.showLegendKey = False
-            dlabels.showPercent = False
-            dlabels.numFmt = "0.0%"
-            dlabels.separator = " "
-            series_obj.dLbls = dlabels
+            r = int(hex_color[0:2], 16)
+            g = int(hex_color[2:4], 16)
+            b = int(hex_color[4:6], 16)
+        except Exception:
+            return "E7E6E6"
+        m = max(0.0, min(1.0, float(mix_with_white)))
+        r2 = int(round(r + (255 - r) * m))
+        g2 = int(round(g + (255 - g) * m))
+        b2 = int(round(b + (255 - b) * m))
+        return f"{r2:02X}{g2:02X}{b2:02X}"
+
+    def _apply_variation_labels(series_obj: "object", line_color: str) -> None:
+        """Muestra valor puntual con fondo difuminado del color de línea y color por signo."""
+        dlabels = _DataLabelList()
+        dlabels.showVal = True
+        dlabels.showSerName = False
+        dlabels.showCatName = False
+        dlabels.showLegendKey = False
+        dlabels.showPercent = False
+        dlabels.separator = " "
+        # Color de fuente por signo (Excel evalúa el formato en tiempo de cálculo).
+        dlabels.numFmt = "[Green]0.0%;[Red]-0.0%;0.0%"
+        series_obj.dLbls = dlabels
+        # Fondo difuminado con color de la línea de la serie.
+        try:
+            dlabels.spPr = _GraphicalProperties(solidFill=_tint_hex_color(line_color, mix_with_white=0.78))
+            if getattr(dlabels.spPr, "line", None) is not None:
+                dlabels.spPr.line.solidFill = _safe_hex(line_color)
         except Exception:
             pass
 
@@ -3635,10 +3656,10 @@ def add_native_excel_charts(
                 evol_chart.set_categories(evo_categories)
                 if len(evol_chart.series) >= 1:
                     _set_line_series_color(evol_chart.series[0], COLOR_KANTAR_LINE)
-                    _apply_variation_labels(evol_chart.series[0])
+                    _apply_variation_labels(evol_chart.series[0], COLOR_KANTAR_LINE)
                 if len(evol_chart.series) >= 2:
                     _set_line_series_color(evol_chart.series[1], COLOR_SELLIN_LINE)
-                    _apply_variation_labels(evol_chart.series[1])
+                    _apply_variation_labels(evol_chart.series[1], COLOR_SELLIN_LINE)
                 ws.add_chart(evol_chart, f"{chart_anchor_col}42")
             else:
                 # Modo clasico: solo tendencia de variaciones (sin volumen), con etiquetas puntuales.
@@ -3680,10 +3701,10 @@ def add_native_excel_charts(
                 evol_var_chart.set_categories(evo_categories)
                 if len(evol_var_chart.series) >= 1:
                     _set_line_series_color(evol_var_chart.series[0], COLOR_KANTAR_BAR_VAR)
-                    _apply_variation_labels(evol_var_chart.series[0])
+                    _apply_variation_labels(evol_var_chart.series[0], COLOR_KANTAR_BAR_VAR)
                 if len(evol_var_chart.series) >= 2:
                     _set_line_series_color(evol_var_chart.series[1], COLOR_SELLIN_BAR_VAR)
-                    _apply_variation_labels(evol_var_chart.series[1])
+                    _apply_variation_labels(evol_var_chart.series[1], COLOR_SELLIN_BAR_VAR)
                 ws.add_chart(evol_var_chart, f"{chart_anchor_col}42")
 
     wb.save(xlsx_path)
