@@ -12,6 +12,7 @@ import re
 import shutil
 import sys
 import threading
+import time
 import unicodedata
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -949,7 +950,20 @@ def _format_path_for_summary(path_str: str, *, base_dir: Optional[str] = None, m
         return candidate
     return "..." + tail[-(max_len - 3):]
 
-def print_file_summary(ruta_excel: str, ruta_ppt: str, ruta_banco: str) -> None:
+def _format_elapsed(seconds: float) -> str:
+    try:
+        total = int(round(float(seconds)))
+    except Exception:
+        return "-"
+    if total < 0:
+        total = 0
+    h = total // 3600
+    m = (total % 3600) // 60
+    s = total % 60
+    return f"{h}:{m:02d}:{s:02d}"
+
+
+def print_file_summary(ruta_excel: str, ruta_ppt: str, ruta_banco: str, *, elapsed_seconds: Optional[float] = None) -> None:
     """Muestra un resumen con las rutas generadas para el archivo."""
     console.print("\n[blue]Resumen de archivos generados:[/blue]")
 
@@ -988,10 +1002,14 @@ def print_file_summary(ruta_excel: str, ruta_ppt: str, ruta_banco: str) -> None:
             console.print(f"[cyan]{label}:[/] [white]{filename}[/white] [grey]({parent_disp})[/grey]")
 
     # Mostrar panel de proceso completado con hora actual
-    hora_actual = datetime.now().strftime("%H:%M:%S")
+    hora_actual = datetime.now().strftime("%I:%M:%S %p")
+    elapsed_line = ""
+    if elapsed_seconds is not None:
+        elapsed_line = f"\n[white]Tiempo total: [bold]{_format_elapsed(elapsed_seconds)}[/bold][/white]"
     mensaje = (
         "[bright_white]Proceso completado[/bright_white]\n\n"
-        f"[white]Hora de finalización: [bold]{hora_actual}[/bold][/white]"
+        f"[white]Hora de finalizacion: [bold]{hora_actual}[/bold][/white]"
+        f"{elapsed_line}"
     )
     console.print()
     console.print(Panel.fit(mensaje, border_style="cyan", title="Coverages Latam"))
@@ -4229,6 +4247,7 @@ class CoverageStudioUltraApp:
         self.root_dir = os.path.dirname(os.path.abspath(__file__))
         os.chdir(self.root_dir)
         self.categories: Optional["pd.DataFrame"] = None
+        self._script_start_monotonic: Optional[float] = None
 
     def list_excel_files(self) -> List[str]:
         return [f for f in os.listdir(self.root_dir) if f.endswith('.xlsx') and not f.startswith('~$') and f != EXCEL_TEMP_FILENAME]
@@ -4404,10 +4423,18 @@ class CoverageStudioUltraApp:
             ref_month_year=ref_month_year,
             coverage_label=coverage_label,
         )
-        print_file_summary(ruta_template_final, ruta_ppt_final, ruta_banco_final)
+        elapsed = None
+        if self._script_start_monotonic is not None:
+            try:
+                elapsed = time.monotonic() - float(self._script_start_monotonic)
+            except Exception:
+                elapsed = None
+        print_file_summary(ruta_template_final, ruta_ppt_final, ruta_banco_final, elapsed_seconds=elapsed)
         report_zero_months_exceptions()
 
     def run(self) -> None:
+        if self._script_start_monotonic is None:
+            self._script_start_monotonic = time.monotonic()
         excel_list = self.list_excel_files()
         if not excel_list:
             print(f"{Fore.RED}{Style.BRIGHT}Error: No se encontraron archivos .xlsx en la carpeta: {self.root_dir}")
@@ -4431,7 +4458,26 @@ class CoverageStudioUltraApp:
 
 def main() -> None:
     app = CoverageStudioUltraApp()
-    app.run()
+    start_mono = time.monotonic()
+    try:
+        app._script_start_monotonic = start_mono
+        app.run()
+    except KeyboardInterrupt:
+        end_time = datetime.now().strftime("%I:%M:%S %p")
+        elapsed = _format_elapsed(time.monotonic() - start_mono)
+        msg = (
+            "[bright_white]Programa terminado por el usuario[/bright_white]\n\n"
+            f"[white]Hora de finalizacion: [bold]{end_time}[/bold][/white]\n"
+            f"[white]Tiempo total: [bold]{elapsed}[/bold][/white]\n\n"
+            "[grey]Hasta luego.[/grey]"
+        )
+        console.print()
+        console.print(Panel.fit(msg, border_style="yellow", title="Coverages Latam"))
+        console.print()
+        try:
+            cleanup_temp_dir(app.root_dir)
+        except Exception:
+            pass
 
 
 if __name__ == "__main__":
