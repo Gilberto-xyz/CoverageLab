@@ -979,6 +979,33 @@ def _format_elapsed(seconds: float) -> str:
     return f"{h}:{m:02d}:{s:02d}"
 
 
+def print_file_locked_error(path_str: str, *, elapsed_seconds: Optional[float] = None) -> None:
+    """Muestra un panel rojo cuando no se puede reescribir un archivo por estar en uso (Windows/Excel/PPT abierto)."""
+    path_disp = str(path_str or "").strip() or "-"
+    try:
+        base = os.path.basename(path_disp) if path_disp not in {"-", ""} else "-"
+    except Exception:
+        base = path_disp
+
+    hora_actual = datetime.now().strftime("%I:%M:%S %p")
+    elapsed_line = ""
+    if elapsed_seconds is not None:
+        elapsed_line = f"\n[white]Tiempo total: [bold]{_format_elapsed(elapsed_seconds)}[/bold][/white]"
+
+    msg = (
+        "[bright_white]Proceso terminado con error[/bright_white]\n\n"
+        f"[white]Archivo en uso: [bold]{base}[/bold][/white]\n"
+        "[white]No se pudo reescribir porque esta abierto o bloqueado.[/white]\n"
+        "[white]Cierra el archivo y vuelve a ejecutar.[/white]\n\n"
+        f"[white]Hora de finalizacion: [bold]{hora_actual}[/bold][/white]"
+        f"{elapsed_line}\n\n"
+        f"[grey]{path_disp}[/grey]"
+    )
+    console.print()
+    console.print(Panel.fit(msg, border_style="red", title="Coverages Latam"))
+    console.print()
+
+
 def print_file_summary(ruta_excel: str, ruta_ppt: str, ruta_banco: str, *, elapsed_seconds: Optional[float] = None) -> None:
     """Muestra un resumen con las rutas generadas para el archivo."""
     console.print("\n[blue]Resumen de archivos generados:[/blue]")
@@ -3811,6 +3838,14 @@ def generate_excel_template(
         except Exception as e:
             print(Fore.YELLOW + f"No se pudo aplicar el formato de correlaciones: {e}")
 
+    except PermissionError:
+        # Usualmente pasa cuando el Excel de salida esta abierto/bloqueado.
+        if os.path.exists(excel_temp_path):
+            try:
+                os.remove(excel_temp_path)
+            except Exception:
+                pass
+        raise
     except Exception as e:
         print(f"{Fore.RED}{Style.BRIGHT}Error crítico durante la generación del archivo Excel: {e}")
         if os.path.exists(excel_temp_path):
@@ -3847,6 +3882,14 @@ def generate_excel_template(
             os.remove(ruta_template_final)
         os.rename(excel_temp_path, ruta_template_final)
         print(Fore.GREEN + "Archivo Excel final guardado")
+    except PermissionError:
+        # Archivo destino abierto/bloqueado.
+        if os.path.exists(excel_temp_path):
+            try:
+                os.remove(excel_temp_path)
+            except Exception:
+                pass
+        raise
     except Exception as e:
         print(f"{Fore.RED}Error al mover/renombrar archivo Excel final: {e}")
         if os.path.exists(excel_temp_path): os.remove(excel_temp_path) # Limpiar temporal si falla el renombrado
@@ -4498,97 +4541,109 @@ class CoverageStudioUltraApp:
         self.ensure_categories_loaded()
         print_file_header(idx, total, excel_file_name)
         excel_file_path = os.path.join(self.root_dir, excel_file_name)
-        try:
-            excel_file_obj = pd.ExcelFile(excel_file_path)
-            marcas = excel_file_obj.sheet_names
-        except FileNotFoundError:
-            print(f"{Fore.RED}{Style.BRIGHT}Error: No se encontró el archivo seleccionado: {excel_file_path}")
-            return
-        except Exception as exc:
-            print(f"{Fore.RED}{Style.BRIGHT}Error al abrir el archivo Excel '{excel_file_name}': {exc}")
-            return
-        try:
-            pais_nombre, cesta_nombre, categoria_nombre, categoria_nombre_corto, fabricante = parse_file_metadata(excel_file_name, self.categories)
-        except ValueError as exc:
-            print(f"{Fore.RED}{Style.BRIGHT}{exc}")
-            return
-        SELECTIONS['Pais'] = pais_nombre
-        chosen_lang, _ = determine_language(options.include_english, pais_nombre)
-        is_complemented = normalize_coverage_slide_variant(options.coverage_slide_variant) == "complemented"
-        evo_simple = normalize_evolution_slide_variant(options.evolution_slide_variant) == "simple"
-        if chosen_lang == "EN":
-            label = "Coverage slide result"
-            variant_txt = "Complemented (MAT penetration + point coverage + stability)" if is_complemented else "Classic (MAT %VAR table)"
-            evo_label = "Evolution slide result"
-            evo_txt = "Simple (YoY lines only)" if evo_simple else "Classic/advanced (volume + YoY bars)"
-        elif chosen_lang == "PT":
-            label = "Resultado do slide de Cobertura"
-            variant_txt = "Complementado (penetração + cobertura pontual + estabilidade)" if is_complemented else "Clássico (tabela VAR % MAT)"
-            evo_label = "Resultado do slide de Evolucao"
-            evo_txt = "Simples (linhas de variacao)" if evo_simple else "Classico/avancado (volume + barras)"
-        else:
-            label = "Resultado slide de Cobertura"
-            variant_txt = "Complementado (penetración + cobertura puntual + estabilidad)" if is_complemented else "Clásico (tabla VAR % MAT)"
-            evo_label = "Resultado slide de Evolucion"
-            evo_txt = "Simple (lineas de variacion)" if evo_simple else "Clasico/avanzado (volumen + barras)"
-        print(Fore.BLUE + f"{label}: " + Fore.YELLOW + variant_txt)
-        print(Fore.BLUE + f"{evo_label}: " + Fore.YELLOW + evo_txt)
-        coverage_label = compute_coverage_label(options.coverage_type, options.include_english)
-        ref_month_year, carpeta_salida, nombre_base_archivo, ruta_template_final = generate_excel_template(
-            self.root_dir,
-            excel_file_obj,
-            marcas,
-            pais_nombre,
-            categoria_nombre,
-            categoria_nombre_corto,
-            fabricante,
-            coverage_label,
-            options.coverage_type,
-            options.coverage_reason,
-        )
-        ruta_ppt_final, df_summary, df_bank = generate_presentation_and_bank(
-            root_dir=self.root_dir,
-            excel_file_obj=excel_file_obj,
-            marcas=marcas,
-            pais_nombre=pais_nombre,
-            categoria_nombre=categoria_nombre,
-            categoria_nombre_corto=categoria_nombre_corto,
-            fabricante=fabricante,
-            cesta_nombre=cesta_nombre,
-            coverage_label=coverage_label,
-            coverage_type=options.coverage_type,
-            coverage_reason=options.coverage_reason,
-            ref_month_year=ref_month_year,
-            carpeta_salida=carpeta_salida,
-            nombre_base_archivo=nombre_base_archivo,
-            include_english=options.include_english,
-            trend_axis=options.trend_axis,
-            variations_box_style=options.variations_box_style,
-            coverage_slide_variant=options.coverage_slide_variant,
-            evolution_slide_variant=options.evolution_slide_variant,
-            round_coverage=options.round_coverage,
-            summary_extra_months=options.summary_extra_months,
-            summary_extra_months_mode=options.summary_extra_months_mode,
-        )
-        ruta_banco_final = save_coverage_bank(
-            df_bank=df_bank,
-            carpeta_salida=carpeta_salida,
-            nombre_base_archivo=nombre_base_archivo,
-            fabricante=fabricante,
-            categoria_nombre=categoria_nombre,
-            categoria_nombre_corto=categoria_nombre_corto,
-            pais_nombre=pais_nombre,
-            ref_month_year=ref_month_year,
-            coverage_label=coverage_label,
-        )
         elapsed = None
         if self._script_start_monotonic is not None:
             try:
                 elapsed = time.monotonic() - float(self._script_start_monotonic)
             except Exception:
                 elapsed = None
-        print_file_summary(ruta_template_final, ruta_ppt_final, ruta_banco_final, elapsed_seconds=elapsed)
-        report_zero_months_exceptions()
+        try:
+            try:
+                excel_file_obj = pd.ExcelFile(excel_file_path)
+                marcas = excel_file_obj.sheet_names
+            except FileNotFoundError:
+                print(f"{Fore.RED}{Style.BRIGHT}Error: No se encontró el archivo seleccionado: {excel_file_path}")
+                return
+            except PermissionError:
+                # Input bloqueado (raro) o sin permisos.
+                print_file_locked_error(excel_file_path, elapsed_seconds=elapsed)
+                return
+            except Exception as exc:
+                print(f"{Fore.RED}{Style.BRIGHT}Error al abrir el archivo Excel '{excel_file_name}': {exc}")
+                return
+
+            try:
+                pais_nombre, cesta_nombre, categoria_nombre, categoria_nombre_corto, fabricante = parse_file_metadata(excel_file_name, self.categories)
+            except ValueError as exc:
+                print(f"{Fore.RED}{Style.BRIGHT}{exc}")
+                return
+
+            SELECTIONS['Pais'] = pais_nombre
+            chosen_lang, _ = determine_language(options.include_english, pais_nombre)
+            is_complemented = normalize_coverage_slide_variant(options.coverage_slide_variant) == "complemented"
+            evo_simple = normalize_evolution_slide_variant(options.evolution_slide_variant) == "simple"
+            if chosen_lang == "EN":
+                label = "Coverage slide result"
+                variant_txt = "Complemented (MAT penetration + point coverage + stability)" if is_complemented else "Classic (MAT %VAR table)"
+                evo_label = "Evolution slide result"
+                evo_txt = "Simple (YoY lines only)" if evo_simple else "Classic/advanced (volume + YoY bars)"
+            elif chosen_lang == "PT":
+                label = "Resultado do slide de Cobertura"
+                variant_txt = "Complementado (penetração + cobertura pontual + estabilidade)" if is_complemented else "Clássico (tabela VAR % MAT)"
+                evo_label = "Resultado do slide de Evolucao"
+                evo_txt = "Simples (linhas de variacao)" if evo_simple else "Classico/avancado (volume + barras)"
+            else:
+                label = "Resultado slide de Cobertura"
+                variant_txt = "Complementado (penetración + cobertura puntual + estabilidad)" if is_complemented else "Clásico (tabla VAR % MAT)"
+                evo_label = "Resultado slide de Evolucion"
+                evo_txt = "Simple (lineas de variacion)" if evo_simple else "Clasico/avanzado (volumen + barras)"
+            print(Fore.BLUE + f"{label}: " + Fore.YELLOW + variant_txt)
+            print(Fore.BLUE + f"{evo_label}: " + Fore.YELLOW + evo_txt)
+
+            coverage_label = compute_coverage_label(options.coverage_type, options.include_english)
+            ref_month_year, carpeta_salida, nombre_base_archivo, ruta_template_final = generate_excel_template(
+                self.root_dir,
+                excel_file_obj,
+                marcas,
+                pais_nombre,
+                categoria_nombre,
+                categoria_nombre_corto,
+                fabricante,
+                coverage_label,
+                options.coverage_type,
+                options.coverage_reason,
+            )
+            ruta_ppt_final, df_summary, df_bank = generate_presentation_and_bank(
+                root_dir=self.root_dir,
+                excel_file_obj=excel_file_obj,
+                marcas=marcas,
+                pais_nombre=pais_nombre,
+                categoria_nombre=categoria_nombre,
+                categoria_nombre_corto=categoria_nombre_corto,
+                fabricante=fabricante,
+                cesta_nombre=cesta_nombre,
+                coverage_label=coverage_label,
+                coverage_type=options.coverage_type,
+                coverage_reason=options.coverage_reason,
+                ref_month_year=ref_month_year,
+                carpeta_salida=carpeta_salida,
+                nombre_base_archivo=nombre_base_archivo,
+                include_english=options.include_english,
+                trend_axis=options.trend_axis,
+                variations_box_style=options.variations_box_style,
+                coverage_slide_variant=options.coverage_slide_variant,
+                evolution_slide_variant=options.evolution_slide_variant,
+                round_coverage=options.round_coverage,
+                summary_extra_months=options.summary_extra_months,
+                summary_extra_months_mode=options.summary_extra_months_mode,
+            )
+            ruta_banco_final = save_coverage_bank(
+                df_bank=df_bank,
+                carpeta_salida=carpeta_salida,
+                nombre_base_archivo=nombre_base_archivo,
+                fabricante=fabricante,
+                categoria_nombre=categoria_nombre,
+                categoria_nombre_corto=categoria_nombre_corto,
+                pais_nombre=pais_nombre,
+                ref_month_year=ref_month_year,
+                coverage_label=coverage_label,
+            )
+            print_file_summary(ruta_template_final, ruta_ppt_final, ruta_banco_final, elapsed_seconds=elapsed)
+            report_zero_months_exceptions()
+        except PermissionError as exc:
+            locked_path = getattr(exc, "filename", None) or str(exc)
+            print_file_locked_error(locked_path, elapsed_seconds=elapsed)
+            return
 
     def run(self) -> None:
         if self._script_start_monotonic is None:
@@ -4620,6 +4675,13 @@ def main() -> None:
     try:
         app._script_start_monotonic = start_mono
         app.run()
+    except PermissionError as exc:
+        locked_path = getattr(exc, "filename", None) or str(exc)
+        print_file_locked_error(locked_path, elapsed_seconds=(time.monotonic() - start_mono))
+        try:
+            cleanup_temp_dir(app.root_dir)
+        except Exception:
+            pass
     except KeyboardInterrupt:
         end_time = datetime.now().strftime("%I:%M:%S %p")
         elapsed = _format_elapsed(time.monotonic() - start_mono)
