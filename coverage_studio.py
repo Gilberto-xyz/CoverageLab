@@ -4328,9 +4328,12 @@ def generate_excel_template(
             print(Fore.GREEN + "Formato de variaciones aplicado (0.0% + rojo/verde).")
 
             def apply_coverage_values_formatting(xlsx_path: str) -> None:
-                """Formatea coberturas (P0..P6) y variaciones de evolución (V,W)."""
+                """Formatea coberturas (P0..P6), variaciones (V,W) y resalta cortes clave."""
                 from openpyxl import load_workbook as _load_wb3
+                from openpyxl.styles import PatternFill as _PatternFill
                 wb3 = _load_wb3(xlsx_path)
+                current_cov_fill = _PatternFill(start_color="F8CBAD", end_color="F8CBAD", fill_type="solid")
+                prev12_cov_fill = _PatternFill(start_color="DDEBF7", end_color="DDEBF7", fill_type="solid")
                 for ws in wb3.worksheets:
                     data_col = None
                     coverage_cols = []
@@ -4365,6 +4368,14 @@ def generate_excel_template(
                             ws.cell(row=rr, column=cc).number_format = "0.0"
                         for cc in evolution_var_cols:
                             ws.cell(row=rr, column=cc).number_format = "0.0%"
+
+                    # Resaltar coberturas del corte actual y de hace 12 meses para lectura rápida.
+                    row_current = last_data_row
+                    row_prev12 = last_data_row - 12 if (last_data_row - 12) >= 2 else None
+                    for cc in coverage_cols:
+                        ws.cell(row=row_current, column=cc).fill = current_cov_fill
+                        if row_prev12 is not None:
+                            ws.cell(row=row_prev12, column=cc).fill = prev12_cov_fill
 
                 wb3.save(xlsx_path)
 
