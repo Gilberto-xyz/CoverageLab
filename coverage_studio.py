@@ -503,6 +503,8 @@ COL_ACUM_SELL_IN = "Acum_Sell_in"
 COL_ANO = "Ano"
 COL_TRI = "Tri"
 COL_SEM = "Sem"
+COL_EVO_KANTAR_YOY = "% VAR WP by Numerator"
+COL_EVO_SELLIN_YOY = "% VAR Sell-in (Cliente)"
 
 COLOR_KANTAR_LINE = "#2C3E50"
 COLOR_SELLIN_LINE = "#D4AC0D"
@@ -3239,6 +3241,454 @@ def _delete_slide(pres_obj: "Presentation", idx: int) -> None:
     sldIdLst.remove(sldId)
 
 
+def _build_sheet_header_index(ws: "object") -> Dict[str, int]:
+    """Devuelve un índice {header: columna} a partir de la fila 1."""
+    header_index: Dict[str, int] = {}
+    for col in range(1, ws.max_column + 1):
+        raw_value = ws.cell(row=1, column=col).value
+        if raw_value is None:
+            continue
+        header = str(raw_value).strip()
+        if header and header not in header_index:
+            header_index[header] = col
+    return header_index
+
+
+def _find_last_data_row(ws: "object", data_col: int, start_row: int = 2) -> int:
+    """Encuentra la última fila contigua con datos en la columna de fecha."""
+    row = start_row
+    last_valid = start_row - 1
+    while row <= ws.max_row:
+        value = ws.cell(row=row, column=data_col).value
+        if value is None or str(value).strip() == "":
+            break
+        last_valid = row
+        row += 1
+    return last_valid
+
+
+def _find_first_nonempty_row(ws: "object", col: int, start_row: int, end_row: int) -> Optional[int]:
+    """Devuelve la primera fila con valor no vacío en un rango vertical."""
+    for row in range(start_row, end_row + 1):
+        value = ws.cell(row=row, column=col).value
+        if value is None:
+            continue
+        if isinstance(value, str) and value.strip() == "":
+            continue
+        return row
+    return None
+
+
+def _excel_lang_code(include_english: bool, pais_nombre: str) -> str:
+    if include_english:
+        return "EN"
+    return "PT" if (pais_nombre or "").strip().lower() in {"brasil", "brazil"} else "ES"
+
+
+def _parse_pipeline_from_sheet_name(sheet_name: str) -> int:
+    match = re.match(r"(?i)^p([0-6])_", str(sheet_name or "").strip())
+    return int(match.group(1)) if match else 0
+
+
+def _clean_brand_name_from_sheet(sheet_name: str) -> str:
+    cleaned = re.sub(r"(?i)^p[0-6]_", "", str(sheet_name or "")).strip()
+    return cleaned or str(sheet_name or "N/D")
+
+
+def _safe_hex(color_value: str) -> str:
+    return str(color_value or "").strip().replace("#", "")[:6] or "000000"
+
+
+def _set_line_series_color(series_obj: "object", color_value: str, width: int = 28575) -> None:
+    color_hex = _safe_hex(color_value)
+    try:
+        series_obj.graphicalProperties.line.solidFill = color_hex
+        series_obj.graphicalProperties.line.width = width
+    except Exception:
+        pass
+    try:
+        series_obj.graphicalProperties.solidFill = color_hex
+    except Exception:
+        pass
+
+
+def _set_bar_series_color(series_obj: "object", color_value: str, line_color: str = "000000") -> None:
+    fill_hex = _safe_hex(color_value)
+    line_hex = _safe_hex(line_color)
+    try:
+        series_obj.graphicalProperties.solidFill = fill_hex
+    except Exception:
+        pass
+    try:
+        series_obj.graphicalProperties.line.solidFill = line_hex
+    except Exception:
+        pass
+
+
+def add_native_excel_charts(
+    xlsx_path: str,
+    *,
+    coverage_label: str,
+    trend_axis: str,
+    evolution_slide_variant: str,
+    include_english: bool,
+    pais_nombre: str,
+) -> None:
+    """
+    Inserta graficos nativos de Excel (editables) en cada hoja de marca,
+    replicando los 3 graficos principales del flujo PPT:
+    - Cobertura vs penetracion mensual (barras).
+    - Tendencia de volumen Sell-in vs Sell-out (lineas).
+    - Evolucion mensual y variacion interanual (simple o clasico).
+    """
+    from openpyxl import load_workbook as _load_wb_chart
+    from openpyxl.chart import (
+        BarChart as _BarChart,
+        LineChart as _LineChart,
+        Reference as _Reference,
+    )
+    from openpyxl.chart.label import DataLabelList as _DataLabelList
+    from openpyxl.chart.series import SeriesLabel as _SeriesLabel
+    from openpyxl.utils import get_column_letter as _get_col_letter
+
+    lang_code = _excel_lang_code(include_english, pais_nombre)
+    trend_axis_norm = str(trend_axis or "").strip().lower()
+    evolution_variant_norm = normalize_evolution_slide_variant(evolution_slide_variant)
+    chart_titles = {
+        "ES": {
+            "coverage_title": "Cobertura en Ano Movil",
+            "penetration_label": "Penetracion Mensual",
+            "trend_title": "Tendencia en Volumen",
+            "evolution_title": "Evolucion Mensual y Variacion",
+            "evolution_var_axis": "Variacion Interanual",
+            "evolution_monthly_axis": "Volumen Mensual",
+        },
+        "PT": {
+            "coverage_title": "Cobertura em Ano Movel",
+            "penetration_label": "Penetracao Mensal",
+            "trend_title": "Tendencia em Volumen",
+            "evolution_title": "Evolucao Mensal e Variacao",
+            "evolution_var_axis": "Variacao Interanual",
+            "evolution_monthly_axis": "Volumen Mensual",
+        },
+        "EN": {
+            "coverage_title": "MOVING YEAR COVERAGE",
+            "penetration_label": "PENETRATION BY PERIOD",
+            "trend_title": "TREND IN VOLUME",
+            "evolution_title": "Monthly Evolution and YoY Variation",
+            "evolution_var_axis": "YoY Variation",
+            "evolution_monthly_axis": "Monthly Volume",
+        },
+    }[lang_code]
+    chart_scale = 1.2
+    chart_anchor_col = "AA"
+
+    def _apply_variation_labels(series_obj: "object") -> None:
+        """Muestra el dato puntual de variación en formato porcentaje."""
+        try:
+            dlabels = _DataLabelList()
+            dlabels.showVal = True
+            dlabels.showSerName = False
+            dlabels.showCatName = False
+            dlabels.showLegendKey = False
+            dlabels.showPercent = False
+            dlabels.numFmt = "0.0%"
+            dlabels.separator = " "
+            series_obj.dLbls = dlabels
+        except Exception:
+            pass
+
+    wb = _load_wb_chart(xlsx_path)
+    wb.calculation.calcMode = "auto"
+    wb.calculation.fullCalcOnLoad = True
+    wb.calculation.forceFullCalc = True
+
+    for ws in wb.worksheets:
+        headers = _build_sheet_header_index(ws)
+        pipeline = _parse_pipeline_from_sheet_name(ws.title)
+        cov_header = f"P{pipeline}"
+        required_headers = [COL_DATA, COL_SELL_OUT, COL_SELL_IN_SIM, COL_PENET, cov_header]
+        if any(header not in headers for header in required_headers):
+            continue
+
+        data_col = headers[COL_DATA]
+        sell_out_col = headers[COL_SELL_OUT]
+        sell_in_sim_col = headers[COL_SELL_IN_SIM]
+        pen_col = headers[COL_PENET]
+        cov_col = headers[cov_header]
+        evo_kantar_col = headers.get(COL_EVO_KANTAR_YOY)
+        evo_sellin_col = headers.get(COL_EVO_SELLIN_YOY)
+
+        last_data_row = _find_last_data_row(ws, data_col=data_col, start_row=2)
+        if last_data_row < 3:
+            continue
+        n_data_rows = last_data_row - 1
+        if n_data_rows < 12:
+            continue
+
+        # Evita duplicados sin borrar graficos ajenos a esta rutina.
+        def _chart_anchor_cell(ch: "object") -> str:
+            try:
+                anchor = ch.anchor
+                if isinstance(anchor, str):
+                    return anchor.upper()
+                if hasattr(anchor, "_from"):
+                    return f"{_get_col_letter(anchor._from.col + 1)}{anchor._from.row + 1}"
+            except Exception:
+                return ""
+            return ""
+
+        if hasattr(ws, "_charts"):
+            target_anchors = {
+                f"{chart_anchor_col}2",
+                f"{chart_anchor_col}22",
+                f"{chart_anchor_col}42",
+                # Limpieza de anclas anteriores para evitar duplicados al regenerar.
+                "W2",
+                "W22",
+                "W42",
+            }
+            ws._charts = [c for c in ws._charts if _chart_anchor_cell(c) not in target_anchors]  # type: ignore[attr-defined]
+
+        brand_name = _clean_brand_name_from_sheet(ws.title)
+        trend_start = 2 + pipeline
+        trend_end = last_data_row
+        sell_in_start = 2
+        sell_in_end = last_data_row - pipeline
+
+        # 1) Cobertura vs Penetracion (rangos directos de columnas originales).
+        cov_start = _find_first_nonempty_row(ws, cov_col, start_row=2, end_row=last_data_row)
+        if cov_start is not None and cov_start <= last_data_row:
+            coverage_chart = _BarChart()
+            coverage_chart.type = "col"
+            coverage_chart.grouping = "clustered"
+            coverage_chart.overlap = 0
+            coverage_chart.gapWidth = 85
+            coverage_chart.height = 7.1 * chart_scale
+            coverage_chart.width = 16.2 * chart_scale
+            coverage_chart.title = f"{chart_titles['coverage_title']} | {brand_name} Pipeline {pipeline}"
+            coverage_chart.y_axis.title = f"{coverage_label} | {chart_titles['penetration_label']}"
+            coverage_chart.y_axis.scaling.min = 0
+            coverage_chart.y_axis.numFmt = "0.0"
+            coverage_chart.x_axis.number_format = "yyyy-mm"
+            coverage_chart.x_axis.numFmt = "yyyy-mm"
+            coverage_chart.x_axis.tickLblPos = "low"
+            coverage_chart.x_axis.tickLblSkip = 1
+            coverage_chart.x_axis.tickMarkSkip = 1
+            coverage_chart.x_axis.delete = False
+            coverage_chart.legend.position = "b"
+            coverage_chart.legend.overlay = False
+
+            coverage_chart.add_data(
+                _Reference(ws, min_col=pen_col, min_row=cov_start, max_row=last_data_row),
+                titles_from_data=False,
+            )
+            coverage_chart.series[-1].title = _SeriesLabel(v=chart_titles["penetration_label"])
+            coverage_chart.add_data(
+                _Reference(ws, min_col=cov_col, min_row=cov_start, max_row=last_data_row),
+                titles_from_data=False,
+            )
+            coverage_chart.series[-1].title = _SeriesLabel(v=coverage_label)
+            coverage_chart.set_categories(
+                _Reference(ws, min_col=data_col, min_row=cov_start, max_row=last_data_row)
+            )
+            coverage_chart.dataLabels = _DataLabelList()
+            coverage_chart.dataLabels.showVal = True
+            coverage_chart.dataLabels.showSerName = False
+            coverage_chart.dataLabels.showCatName = False
+            coverage_chart.dataLabels.showLegendKey = False
+            coverage_chart.dataLabels.showPercent = False
+            coverage_chart.dataLabels.numFmt = "0.0"
+            coverage_chart.dataLabels.separator = " "
+            _set_bar_series_color(coverage_chart.series[0], COLOR_PENETRACION_BAR)
+            _set_bar_series_color(coverage_chart.series[1], COLOR_COBERTURA_BAR)
+            ws.add_chart(coverage_chart, f"{chart_anchor_col}2")
+
+        # 2) Tendencia (rangos directos para evitar graficos vacios por formulas auxiliares).
+        if trend_start <= trend_end and sell_in_start <= sell_in_end:
+            trend_categories = _Reference(
+                ws,
+                min_col=data_col,
+                min_row=trend_start,
+                max_row=trend_end,
+            )
+            trend_chart = _LineChart()
+            trend_chart.style = 2
+            trend_chart.height = 7.1 * chart_scale
+            trend_chart.width = 16.2 * chart_scale
+            trend_chart.title = f"{chart_titles['trend_title']} | {brand_name} P:{pipeline}"
+            trend_chart.x_axis.number_format = "yyyy-mm"
+            trend_chart.x_axis.numFmt = "yyyy-mm"
+            trend_chart.x_axis.tickLblPos = "low"
+            trend_chart.x_axis.tickLblSkip = 1
+            trend_chart.x_axis.tickMarkSkip = 1
+            trend_chart.x_axis.delete = False
+            trend_chart.legend.position = "b"
+            trend_chart.legend.overlay = False
+            trend_chart.y_axis.scaling.min = 0
+
+            if trend_axis_norm == "doble":
+                trend_chart.y_axis.title = COL_SELL_IN
+                trend_chart.add_data(
+                    _Reference(ws, min_col=sell_in_sim_col, min_row=sell_in_start, max_row=sell_in_end),
+                    titles_from_data=False,
+                )
+                trend_chart.series[-1].title = _SeriesLabel(v=f"{COL_SELL_IN} (P:{pipeline})")
+                trend_chart.set_categories(trend_categories)
+
+                trend_chart2 = _LineChart()
+                trend_chart2.y_axis.axId = 200
+                trend_chart2.y_axis.crosses = "max"
+                trend_chart2.y_axis.title = COL_SELL_OUT
+                trend_chart2.add_data(
+                    _Reference(ws, min_col=sell_out_col, min_row=trend_start, max_row=trend_end),
+                    titles_from_data=False,
+                )
+                trend_chart2.series[-1].title = _SeriesLabel(v=COL_SELL_OUT)
+                trend_chart += trend_chart2
+            else:
+                trend_chart.y_axis.title = f"{COL_SELL_IN} / {COL_SELL_OUT}"
+                trend_chart.add_data(
+                    _Reference(ws, min_col=sell_in_sim_col, min_row=sell_in_start, max_row=sell_in_end),
+                    titles_from_data=False,
+                )
+                trend_chart.series[-1].title = _SeriesLabel(v=f"{COL_SELL_IN} (P:{pipeline})")
+                trend_chart.add_data(
+                    _Reference(ws, min_col=sell_out_col, min_row=trend_start, max_row=trend_end),
+                    titles_from_data=False,
+                )
+                trend_chart.series[-1].title = _SeriesLabel(v=COL_SELL_OUT)
+                trend_chart.set_categories(trend_categories)
+
+            if len(trend_chart.series) >= 1:
+                _set_line_series_color(trend_chart.series[0], COLOR_SELLIN_TREND_LINE)
+            if len(trend_chart.series) >= 2:
+                _set_line_series_color(trend_chart.series[1], COLOR_SELLOUT_TREND_LINE)
+            ws.add_chart(trend_chart, f"{chart_anchor_col}22")
+
+        # 3) Evolucion mensual y variacion interanual (nutrida por columnas V/W del Excel).
+        if (
+            n_data_rows >= 24
+            and trend_start <= trend_end
+            and sell_in_start <= sell_in_end
+            and evo_kantar_col is not None
+            and evo_sellin_col is not None
+        ):
+            evo_start_k = _find_first_nonempty_row(ws, evo_kantar_col, start_row=2, end_row=last_data_row)
+            evo_start_s = _find_first_nonempty_row(ws, evo_sellin_col, start_row=2, end_row=last_data_row)
+            evo_start_s_shifted = (evo_start_s + pipeline) if evo_start_s is not None else None
+            evo_candidates = [r for r in (evo_start_k, evo_start_s_shifted) if r is not None]
+            if not evo_candidates:
+                continue
+            evo_start = max(evo_candidates)
+            if evo_start > last_data_row:
+                continue
+
+            sellin_var_start = max(2, evo_start - pipeline)
+            sellin_var_end = max(2, last_data_row - pipeline)
+            if sellin_var_start > sellin_var_end:
+                continue
+
+            evo_categories = _Reference(
+                ws,
+                min_col=data_col,
+                min_row=evo_start,
+                max_row=last_data_row,
+            )
+
+            if evolution_variant_norm == "simple":
+                evol_chart = _LineChart()
+                evol_chart.style = 13
+                evol_chart.height = 7.5 * chart_scale
+                evol_chart.width = 16.2 * chart_scale
+                evol_chart.title = f"{chart_titles['evolution_title']} | {brand_name} P:{pipeline}"
+                evol_chart.y_axis.title = chart_titles["evolution_var_axis"]
+                evol_chart.y_axis.numFmt = "0.0%"
+                evol_chart.x_axis.number_format = "yyyy-mm"
+                evol_chart.x_axis.numFmt = "yyyy-mm"
+                evol_chart.x_axis.tickLblPos = "low"
+                evol_chart.x_axis.tickLblSkip = 1
+                evol_chart.x_axis.tickMarkSkip = 1
+                evol_chart.x_axis.delete = False
+                evol_chart.legend.position = "b"
+                evol_chart.legend.overlay = False
+                evol_chart.add_data(
+                    _Reference(
+                        ws,
+                        min_col=evo_kantar_col,
+                        min_row=evo_start,
+                        max_row=last_data_row,
+                    ),
+                    titles_from_data=False,
+                )
+                evol_chart.series[-1].title = _SeriesLabel(v=COL_EVO_KANTAR_YOY)
+                evol_chart.add_data(
+                    _Reference(
+                        ws,
+                        min_col=evo_sellin_col,
+                        min_row=sellin_var_start,
+                        max_row=sellin_var_end,
+                    ),
+                    titles_from_data=False,
+                )
+                evol_chart.series[-1].title = _SeriesLabel(v=COL_EVO_SELLIN_YOY)
+                evol_chart.set_categories(evo_categories)
+                if len(evol_chart.series) >= 1:
+                    _set_line_series_color(evol_chart.series[0], COLOR_KANTAR_LINE)
+                    _apply_variation_labels(evol_chart.series[0])
+                if len(evol_chart.series) >= 2:
+                    _set_line_series_color(evol_chart.series[1], COLOR_SELLIN_LINE)
+                    _apply_variation_labels(evol_chart.series[1])
+                ws.add_chart(evol_chart, f"{chart_anchor_col}42")
+            else:
+                # Modo clasico: solo tendencia de variaciones (sin volumen), con etiquetas puntuales.
+                evol_var_chart = _LineChart()
+                evol_var_chart.style = 2
+                evol_var_chart.height = 7.5 * chart_scale
+                evol_var_chart.width = 16.2 * chart_scale
+                evol_var_chart.title = f"{chart_titles['evolution_title']} | {brand_name} P:{pipeline}"
+                evol_var_chart.y_axis.title = chart_titles["evolution_var_axis"]
+                evol_var_chart.y_axis.numFmt = "0.0%"
+                evol_var_chart.x_axis.number_format = "yyyy-mm"
+                evol_var_chart.x_axis.numFmt = "yyyy-mm"
+                evol_var_chart.x_axis.tickLblPos = "low"
+                evol_var_chart.x_axis.tickLblSkip = 1
+                evol_var_chart.x_axis.tickMarkSkip = 1
+                evol_var_chart.x_axis.delete = False
+                evol_var_chart.legend.position = "b"
+                evol_var_chart.legend.overlay = False
+                evol_var_chart.add_data(
+                    _Reference(
+                        ws,
+                        min_col=evo_kantar_col,
+                        min_row=evo_start,
+                        max_row=last_data_row,
+                    ),
+                    titles_from_data=False,
+                )
+                evol_var_chart.series[-1].title = _SeriesLabel(v=COL_EVO_KANTAR_YOY)
+                evol_var_chart.add_data(
+                    _Reference(
+                        ws,
+                        min_col=evo_sellin_col,
+                        min_row=sellin_var_start,
+                        max_row=sellin_var_end,
+                    ),
+                    titles_from_data=False,
+                )
+                evol_var_chart.series[-1].title = _SeriesLabel(v=COL_EVO_SELLIN_YOY)
+                evol_var_chart.set_categories(evo_categories)
+                if len(evol_var_chart.series) >= 1:
+                    _set_line_series_color(evol_var_chart.series[0], COLOR_KANTAR_BAR_VAR)
+                    _apply_variation_labels(evol_var_chart.series[0])
+                if len(evol_var_chart.series) >= 2:
+                    _set_line_series_color(evol_var_chart.series[1], COLOR_SELLIN_BAR_VAR)
+                    _apply_variation_labels(evol_var_chart.series[1])
+                ws.add_chart(evol_var_chart, f"{chart_anchor_col}42")
+
+    wb.save(xlsx_path)
+
+
 def generate_excel_template(
     root_dir: str,
     excel_file_obj: 'pd.ExcelFile',
@@ -3249,7 +3699,10 @@ def generate_excel_template(
     fabricante: str,
     coverage_label: str,
     coverage_type: str,
-    coverage_reason: str
+    coverage_reason: str,
+    trend_axis: str,
+    evolution_slide_variant: str,
+    include_english: bool,
 ) -> Tuple[str, str, str, str]:
     """Genera el archivo Excel temporal y devuelve datos clave."""
     try:
@@ -3595,9 +4048,47 @@ def generate_excel_template(
                     df_averages_excel = pd.DataFrame(avg_formulas)
 
 
+                    # --- 1.10-bis) Variaciones YoY 12m para gráfico de evolución (columnas V y W) ---
+                    evo_kantar_formulas: List[object] = []
+                    evo_sellin_formulas: List[object] = []
+                    for r_idx in range(original_data_rows):
+                        row_excel = r_idx + excel_row_offset
+
+                        # WP by Numerator YoY 12m: (SUM últimos 12) / (SUM 12 previos) - 1
+                        if row_excel >= (excel_row_offset + 23):
+                            num_range_c = f"C{row_excel - 11}:C{row_excel}"
+                            den_range_c = f"C{row_excel - 23}:C{row_excel - 12}"
+                            evo_kantar_formulas.append(
+                                f"=IFERROR(SUM({num_range_c})/IF(SUM({den_range_c})=0,1,SUM({den_range_c}))-1,NA())"
+                            )
+                        else:
+                            evo_kantar_formulas.append(np.nan)
+
+                        # Sell-in YoY 12m SIN pipeline (pipeline se aplica al graficar)
+                        if row_excel >= (excel_row_offset + 23):
+                            sell_end = row_excel
+                            sell_start = sell_end - 11
+                            sell_prev_end = sell_end - 12
+                            sell_prev_start = sell_prev_end - 11
+                            num_range_l = f"L{sell_start}:L{sell_end}"
+                            den_range_l = f"L{sell_prev_start}:L{sell_prev_end}"
+                            evo_sellin_formulas.append(
+                                f"=IFERROR(SUM({num_range_l})/IF(SUM({den_range_l})=0,1,SUM({den_range_l}))-1,NA())"
+                            )
+                        else:
+                            evo_sellin_formulas.append(np.nan)
+
+                    df_evolution_excel = pd.DataFrame(
+                        {
+                            COL_EVO_KANTAR_YOY: evo_kantar_formulas,
+                            COL_EVO_SELLIN_YOY: evo_sellin_formulas,
+                        },
+                        index=df_excel.index[:original_data_rows],
+                    )
+
                     # --- 1.11) Ensamblar DataFrame final para Excel ---
-                    # Unir datos originales con coberturas escalonadas
-                    df_excel_final = pd.concat([df_excel, df_cov_excel_scaled], axis=1)
+                    # Unir datos originales + coberturas + variaciones de evolución (V, W)
+                    df_excel_final = pd.concat([df_excel, df_cov_excel_scaled, df_evolution_excel], axis=1)
 
                     # Crear la sección de resumen (Variaciones, Promedios, Correlación + Estabilidad)
                     # Añadir filas vacías y reorganizar
@@ -3835,6 +4326,60 @@ def generate_excel_template(
                 wb2.save(xlsx_path)
             apply_variations_formatting(excel_temp_path)
             print(Fore.GREEN + "Formato de variaciones aplicado (0.0% + rojo/verde).")
+
+            def apply_coverage_values_formatting(xlsx_path: str) -> None:
+                """Formatea coberturas (P0..P6) y variaciones de evolución (V,W)."""
+                from openpyxl import load_workbook as _load_wb3
+                wb3 = _load_wb3(xlsx_path)
+                for ws in wb3.worksheets:
+                    data_col = None
+                    coverage_cols = []
+                    evolution_var_cols = []
+                    for col in range(1, ws.max_column + 1):
+                        header_value = ws.cell(row=1, column=col).value
+                        if header_value is None:
+                            continue
+                        header_text = str(header_value).strip()
+                        if header_text == COL_DATA:
+                            data_col = col
+                        if header_text in {f"P{i}" for i in range(7)}:
+                            coverage_cols.append(col)
+                        if header_text in {COL_EVO_KANTAR_YOY, COL_EVO_SELLIN_YOY}:
+                            evolution_var_cols.append(col)
+                    if data_col is None or (not coverage_cols and not evolution_var_cols):
+                        continue
+
+                    row = 2
+                    last_data_row = 1
+                    while row <= ws.max_row:
+                        value = ws.cell(row=row, column=data_col).value
+                        if value is None or (isinstance(value, str) and value.strip() == ""):
+                            break
+                        last_data_row = row
+                        row += 1
+                    if last_data_row < 2:
+                        continue
+
+                    for rr in range(2, last_data_row + 1):
+                        for cc in coverage_cols:
+                            ws.cell(row=rr, column=cc).number_format = "0.0"
+                        for cc in evolution_var_cols:
+                            ws.cell(row=rr, column=cc).number_format = "0.0%"
+
+                wb3.save(xlsx_path)
+
+            apply_coverage_values_formatting(excel_temp_path)
+            print(Fore.GREEN + "Formato aplicado: coberturas (1 decimal) y YoY evolución (0.0%).")
+
+            add_native_excel_charts(
+                excel_temp_path,
+                coverage_label=coverage_label,
+                trend_axis=trend_axis,
+                evolution_slide_variant=evolution_slide_variant,
+                include_english=include_english,
+                pais_nombre=pais_nombre,
+            )
+            print(Fore.GREEN + "Graficos nativos de Excel insertados (editables).")
         except Exception as e:
             print(Fore.YELLOW + f"No se pudo aplicar el formato de correlaciones: {e}")
 
@@ -4600,6 +5145,9 @@ class CoverageStudioUltraApp:
                 coverage_label,
                 options.coverage_type,
                 options.coverage_reason,
+                options.trend_axis,
+                options.evolution_slide_variant,
+                options.include_english,
             )
             ruta_ppt_final, df_summary, df_bank = generate_presentation_and_bank(
                 root_dir=self.root_dir,
