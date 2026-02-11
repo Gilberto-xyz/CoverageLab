@@ -3070,12 +3070,19 @@ def generate_excel_template(
     coverage_reason: str
 ) -> Tuple[str, str, str, str]:
     """Genera el archivo Excel temporal y devuelve datos clave."""
-    print(Fore.CYAN + "\nGenerando archivo Excel temporal...")
+    try:
+        console.print("\n[bold cyan]Generando archivo Excel temporal...[/bold cyan]")
+    except Exception:
+        print(Fore.CYAN + "\nGenerando archivo Excel temporal...")
     excel_temp_path = os.path.join(root_dir, EXCEL_TEMP_FILENAME)
     try:
         with pd.ExcelWriter(excel_temp_path) as writer:
             # Recorrer cada hoja (marca) del archivo
-            for marca_sheet_name in tqdm(marcas, desc="Procesando Hojas Excel"):
+            total_sheets = len(marcas) if hasattr(marcas, "__len__") else 0
+            status = console.status("Procesando hojas Excel...", spinner="line")
+            status.start()
+            for idx_sheet, marca_sheet_name in enumerate(marcas, start=1):
+                status.update(f"Procesando hoja {idx_sheet}/{total_sheets}: {marca_sheet_name}")
 
                 # 1.1) Carga y preprocesa la hoja usando la función refactorizada
                 df_marca, measure_unit = load_and_preprocess_sheet(excel_file_obj, marca_sheet_name)
@@ -3087,7 +3094,10 @@ def generate_excel_template(
                 # Guardar número original de filas de datos para fórmulas Excel
                 original_data_rows = len(df_marca)
                 if original_data_rows < 12:
-                    print(f"{Fore.YELLOW}Advertencia: Hoja '{marca_sheet_name}' tiene < 12 meses de datos ({original_data_rows}). Algunos cálculos de Excel pueden fallar o dar NaN.")
+                    console.print(
+                        f"[yellow]Advertencia:[/] Hoja '{marca_sheet_name}' tiene < 12 meses de datos ({original_data_rows}). "
+                        "Algunos calculos de Excel pueden fallar o dar NaN."
+                    )
                     # Continuar de todos modos, pero con precaución
 
                 # Actualizar fecha de referencia global (usará la de la última hoja procesada con éxito)
@@ -3275,9 +3285,10 @@ def generate_excel_template(
 
                 # Limpiar variaciones sin sentido sin crear columnas negativas
                 if missing_periods > 0:
-                    print(
-                        Fore.YELLOW
-                        + f"Correlaciones/variaciones con periodos incompletos para {Fore.GREEN}{marca_sheet_name}{Fore.YELLOW} ({original_data_rows}/{min_periods_for_layout}); se calcula la mayor cantidad posible de correlaciones anuales y se rellenan con '-' los falta"
+                    console.print(
+                        f"[yellow]Advertencia:[/] Correlaciones/variaciones con periodos incompletos para "
+                        f"[green]{marca_sheet_name}[/green] ({original_data_rows}/{min_periods_for_layout}); "
+                        "se calcula la mayor cantidad posible de correlaciones anuales y se rellenan con '-' los faltantes."
                     )
 
 
@@ -3482,6 +3493,8 @@ def generate_excel_template(
 
                 # --- 1.13) Exportar a la hoja de Excel ---
                 df_excel_final.to_excel(writer, sheet_name=marca_sheet_name, index=False)
+
+            status.stop()
 
         print(Fore.GREEN + f"Archivo Excel temporal '{EXCEL_TEMP_FILENAME}' generado.")
 
