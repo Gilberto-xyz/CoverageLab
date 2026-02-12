@@ -2318,6 +2318,121 @@ class SlideBuilder:
         p.font.size = Pt(font_size)
         p.font.color.rgb = font_color if font_color is not None else RGBColor(0, 0, 0)
 
+    @staticmethod
+    def _normalize_summary_table_value(value: object) -> str:
+        if value is None:
+            return "-"
+        try:
+            if "pd" in globals() and pd.isna(value):
+                return "-"
+        except Exception:
+            pass
+        txt = str(value).strip()
+        return txt if txt else "-"
+
+    def _add_editable_summary_table(
+        self,
+        slide,
+        df_summary: "pd.DataFrame",
+        *,
+        left,
+        top,
+        width,
+        max_height,
+    ) -> None:
+        if df_summary is None or df_summary.empty:
+            return
+
+        rows = int(len(df_summary.index)) + 1
+        cols = int(len(df_summary.columns))
+        if rows <= 1 or cols <= 0:
+            return
+
+        max_height = int(max_height)
+        if max_height <= 0:
+            max_height = int(Inches(4.8))
+
+        header_h = int(Inches(0.34))
+        body_rows = max(rows - 1, 0)
+        preferred_body_h = int(Inches(0.25))
+        min_body_h = int(Inches(0.17))
+
+        if body_rows > 0:
+            needed_h = header_h + (body_rows * preferred_body_h)
+            if needed_h <= max_height:
+                body_h = preferred_body_h
+            else:
+                body_h = max(min_body_h, int((max_height - header_h) / body_rows))
+                needed_h = header_h + (body_rows * body_h)
+        else:
+            body_h = 0
+            needed_h = header_h
+
+        table_shape = slide.shapes.add_table(rows, cols, left, top, width, needed_h)
+        table = table_shape.table
+
+        col_weights: List[int] = []
+        for col_name in df_summary.columns:
+            sample_values = df_summary[col_name].head(15).tolist()
+            max_cell_len = max((len(self._normalize_summary_table_value(v)) for v in sample_values), default=0)
+            header_len = len(str(col_name))
+            weight = max(8, min(40, max(max_cell_len, header_len)))
+            col_weights.append(weight)
+        weight_sum = sum(col_weights) if col_weights else cols
+
+        width_assigned = 0
+        for idx, weight in enumerate(col_weights):
+            if idx == cols - 1:
+                col_w = int(width - width_assigned)
+            else:
+                col_w = int(width * (float(weight) / float(weight_sum)))
+                width_assigned += col_w
+            table.columns[idx].width = max(col_w, int(width * 0.04))
+
+        table.rows[0].height = header_h
+        for r in range(1, rows):
+            table.rows[r].height = body_h
+
+        header_bg = RGBColor(217, 225, 242)
+        stripe_bg = RGBColor(245, 247, 251)
+        white_bg = RGBColor(255, 255, 255)
+        black = RGBColor(0, 0, 0)
+
+        if rows <= 9:
+            body_font_size = 10
+        elif rows <= 14:
+            body_font_size = 9
+        else:
+            body_font_size = 8
+
+        for c, col_name in enumerate(df_summary.columns):
+            self._set_table_cell_text(
+                table.cell(0, c),
+                str(col_name),
+                fill_color=header_bg,
+                font_color=black,
+                font_size=10,
+                bold=True,
+                align=2,
+                word_wrap=True,
+            )
+
+        for r, row_values in enumerate(df_summary.itertuples(index=False), start=1):
+            for c in range(cols):
+                val = self._normalize_summary_table_value(row_values[c])
+                align = 1 if c == 0 else 2
+                fill = stripe_bg if r % 2 == 0 else white_bg
+                self._set_table_cell_text(
+                    table.cell(r, c),
+                    val,
+                    fill_color=fill,
+                    font_color=black,
+                    font_size=body_font_size,
+                    bold=False,
+                    align=align,
+                    word_wrap=False,
+                )
+
     def _add_penetration_header_table_shape(
         self,
         slide,
@@ -3106,38 +3221,18 @@ class SlideBuilder:
             print(f"{Fore.YELLOW}Advertencia: No hay datos para generar la tabla de resumen en el PPT.")
             return
         try:
-            extra_cov_cols = [
-                col for col in self.labels.get((self.lang_index, "SummaryExtraCoverageCols"), [])
-                if col in df_summary.columns
-            ]
-
-            def _summary_styler(styler):
-                if not extra_cov_cols:
-                    return styler
-                extra_header_styles = []
-                for col_name in extra_cov_cols:
-                    col_idx = df_summary.columns.get_loc(col_name)
-                    extra_header_styles.append(
-                        {
-                            "selector": f"th.col_heading.level0.col{col_idx}",
-                            "props": [("font-weight", "normal")],
-                        }
-                    )
-                if extra_header_styles:
-                    styler = styler.set_table_styles(extra_header_styles, overwrite=False)
-                return styler
-
-            summary_stream = dataframe_to_bordered_stream(
-                df_summary,
-                hide_index=True,
-                dpi=250,
-                styler_fn=_summary_styler,
-            )
             left = Inches(0.5)
             top = Inches(1.0)
             usable_w = self.ppt.slide_width - 2 * left
-            final_left = int((self.ppt.slide_width - usable_w) // 2)
-            slide_summary.shapes.add_picture(summary_stream, final_left, top, width=usable_w)
+            max_h = Inches(4.8)
+            self._add_editable_summary_table(
+                slide_summary,
+                df_summary,
+                left=left,
+                top=top,
+                width=usable_w,
+                max_height=max_h,
+            )
         except Exception as exc:
             print(f"{Fore.YELLOW}Advertencia: No se pudo generar la tabla resumen en el PPT. Error: {exc}")
         low_penetration_brands = list(low_penetration_brands or [])
