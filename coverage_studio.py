@@ -2278,63 +2278,100 @@ class SlideBuilder:
         return {1: "Estabilidade", 2: "Estabilidad", 3: "Stability"}[self.lang_index]
 
     @staticmethod
-    def _img_add_border(stream: io.BytesIO, border_px: int = 2, color: str = "black") -> io.BytesIO:
-        stream.seek(0)
-        img = Image.open(stream)
-        bordered = ImageOps.expand(img, border=int(border_px), fill=color)
-        out = io.BytesIO()
-        bordered.save(out, format="PNG")
-        out.seek(0)
-        return out
+    def _hex_to_rgb(hex_color: str) -> "RGBColor":
+        raw = str(hex_color or "").strip().lstrip("#")
+        if len(raw) != 6:
+            return RGBColor(0, 0, 0)
+        try:
+            return RGBColor(int(raw[0:2], 16), int(raw[2:4], 16), int(raw[4:6], 16))
+        except Exception:
+            return RGBColor(0, 0, 0)
 
-    def _render_penetration_header_table_img(
+    def _set_table_cell_text(
         self,
+        cell,
+        text: object,
         *,
+        fill_color: Optional["RGBColor"] = None,
+        font_color: Optional["RGBColor"] = None,
+        font_size: int = 12,
+        bold: bool = True,
+        align: int = 2,
+        word_wrap: bool = True,
+    ) -> None:
+        if fill_color is not None:
+            cell.fill.solid()
+            cell.fill.fore_color.rgb = fill_color
+
+        tf = cell.text_frame
+        tf.clear()
+        tf.word_wrap = bool(word_wrap)
+        tf.margin_left = Pt(2)
+        tf.margin_right = Pt(2)
+        tf.margin_top = Pt(2)
+        tf.margin_bottom = Pt(2)
+
+        p = tf.paragraphs[0]
+        p.text = "" if text is None else str(text)
+        p.alignment = align
+        p.font.bold = bool(bold)
+        p.font.size = Pt(font_size)
+        p.font.color.rgb = font_color if font_color is not None else RGBColor(0, 0, 0)
+
+    def _add_penetration_header_table_shape(
+        self,
+        slide,
+        *,
+        left,
+        top,
+        width,
+        height,
         year_header: str,
         pen_header: str,
-        rows: Sequence[Tuple[str, str]],  # [(row_label, value), ...]
-        dpi: int = 220,
-    ) -> io.BytesIO:
-        # Layout 2 cols x (1 header + n data rows)
-        n = max(1, len(rows))
-        fig_w, fig_h = (4.0, 1.25)
-        fig = plt.figure(figsize=(fig_w, fig_h), dpi=dpi, facecolor="white")
-        ax = fig.add_axes([0, 0, 1, 1])
-        ax.set_xlim(0, 1)
-        ax.set_ylim(0, 1)
-        ax.axis("off")
+        rows: Sequence[Tuple[str, str]],
+    ) -> None:
+        table_shape = slide.shapes.add_table(3, 2, left, top, width, height)
+        table_shape.height = height
+        table = table_shape.table
+        table.columns[0].width = int(width * 0.40)
+        table.columns[1].width = width - table.columns[0].width
+        table.rows[0].height = int(height * 0.40)
+        table.rows[1].height = int((height - table.rows[0].height) / 2)
+        table.rows[2].height = height - table.rows[0].height - table.rows[1].height
 
-        col_w = [0.44, 0.56]
-        header_h = 0.40
-        row_h = (1.0 - header_h) / n
+        header_bg = RGBColor(0, 0, 0)
+        body_bg = self._hex_to_rgb("#D9D9D9")
+        white = RGBColor(255, 255, 255)
+        black = RGBColor(0, 0, 0)
 
-        def _rect(x, y, w, h, fc):
-            ax.add_patch(matplotlib.patches.Rectangle((x, y), w, h, facecolor=fc, edgecolor="black", linewidth=1.5))
+        row_values: List[Tuple[str, str]] = list(rows[:2])
+        while len(row_values) < 2:
+            row_values.append(("-", "-"))
 
-        # Header
-        y0 = 1.0 - header_h
-        _rect(0.0, y0, col_w[0], header_h, "#000000")
-        _rect(col_w[0], y0, col_w[1], header_h, "#000000")
-        ax.text(col_w[0] / 2, y0 + header_h / 2, str(year_header), ha="center", va="center", color="white", fontsize=12, fontweight="bold")
-        ax.text(col_w[0] + col_w[1] / 2, y0 + header_h / 2, str(pen_header), ha="center", va="center", color="white", fontsize=12, fontweight="bold")
+        self._set_table_cell_text(table.cell(0, 0), year_header, fill_color=header_bg, font_color=white, font_size=10, align=2)
+        self._set_table_cell_text(
+            table.cell(0, 1),
+            pen_header,
+            fill_color=header_bg,
+            font_color=white,
+            font_size=10,
+            align=2,
+            word_wrap=False,
+        )
 
-        # Rows
-        for i, (lbl, val) in enumerate(rows[:n]):
-            y = y0 - (i + 1) * row_h
-            _rect(0.0, y, col_w[0], row_h, "#D9D9D9")
-            _rect(col_w[0], y, col_w[1], row_h, "#D9D9D9")
-            ax.text(0.02, y + row_h / 2, str(lbl), ha="left", va="center", color="black", fontsize=12, fontweight="bold")
-            ax.text(col_w[0] + col_w[1] - 0.02, y + row_h / 2, str(val), ha="right", va="center", color="black", fontsize=12, fontweight="bold")
+        self._set_table_cell_text(table.cell(1, 0), row_values[0][0], fill_color=body_bg, font_color=black, align=1)
+        self._set_table_cell_text(table.cell(1, 1), row_values[0][1], fill_color=body_bg, font_color=black, align=3)
+        self._set_table_cell_text(table.cell(2, 0), row_values[1][0], fill_color=body_bg, font_color=black, align=1)
+        self._set_table_cell_text(table.cell(2, 1), row_values[1][1], fill_color=body_bg, font_color=black, align=3)
 
-        buf = io.BytesIO()
-        fig.savefig(buf, format="png", dpi=dpi)
-        plt.close(fig)
-        buf.seek(0)
-        return self._img_add_border(buf, border_px=2, color="black")
-
-    def _render_coverage_stability_header_table_img(
+    def _add_coverage_stability_header_table_shape(
         self,
+        slide,
         *,
+        left,
+        top,
+        width,
+        height,
         cov_title: str,
         prev_label: str,
         curr_label: str,
@@ -2342,53 +2379,33 @@ class SlideBuilder:
         cov_prev_txt: str,
         cov_curr_txt: str,
         stability_txt: str,
-        dpi: int = 220,
-    ) -> io.BytesIO:
-        fig_w, fig_h = (5.2, 1.25)
-        fig = plt.figure(figsize=(fig_w, fig_h), dpi=dpi, facecolor="white")
-        ax = fig.add_axes([0, 0, 1, 1])
-        ax.set_xlim(0, 1)
-        ax.set_ylim(0, 1)
-        ax.axis("off")
+    ) -> None:
+        table_shape = slide.shapes.add_table(3, 3, left, top, width, height)
+        table_shape.height = height
+        table = table_shape.table
+        table.columns[0].width = int(width * 0.34)
+        table.columns[1].width = int(width * 0.34)
+        table.columns[2].width = width - table.columns[0].width - table.columns[1].width
+        table.rows[0].height = int(height * 0.34)
+        table.rows[1].height = int(height * 0.28)
+        table.rows[2].height = height - table.rows[0].height - table.rows[1].height
 
-        header_fill = "#355D6C"
-        col_w = [0.34, 0.34, 0.32]
-        h1, h2 = 0.34, 0.28
-        body_h = 1.0 - h1 - h2
+        header_bg = self._hex_to_rgb("#355D6C")
+        white = RGBColor(255, 255, 255)
+        black = RGBColor(0, 0, 0)
+        white_bg = RGBColor(255, 255, 255)
 
-        def _rect(x, y, w, h, fc, ec="black", lw=1.5):
-            ax.add_patch(matplotlib.patches.Rectangle((x, y), w, h, facecolor=fc, edgecolor=ec, linewidth=lw))
+        table.cell(0, 0).merge(table.cell(0, 1))
+        table.cell(0, 2).merge(table.cell(1, 2))
 
-        x0 = 0.0
-        x1 = col_w[0]
-        x2 = col_w[0] + col_w[1]
-        x3 = 1.0
+        self._set_table_cell_text(table.cell(0, 0), cov_title, fill_color=header_bg, font_color=white, font_size=11, align=2)
+        self._set_table_cell_text(table.cell(0, 2), stability_label, fill_color=header_bg, font_color=white, font_size=11, align=2)
+        self._set_table_cell_text(table.cell(1, 0), prev_label, fill_color=header_bg, font_color=white, font_size=11, align=2)
+        self._set_table_cell_text(table.cell(1, 1), curr_label, fill_color=header_bg, font_color=white, font_size=11, align=2)
 
-        # Header blocks (simulate merged cells)
-        _rect(x0, 1.0 - h1, col_w[0] + col_w[1], h1, header_fill)
-        _rect(x2, 1.0 - (h1 + h2), col_w[2], h1 + h2, header_fill)
-        _rect(x0, 1.0 - (h1 + h2), col_w[0], h2, header_fill)
-        _rect(x1, 1.0 - (h1 + h2), col_w[1], h2, header_fill)
-
-        # Header text
-        ax.text((x0 + x2) / 2, 1.0 - h1 / 2, str(cov_title), ha="center", va="center", color="white", fontsize=12, fontweight="bold")
-        ax.text((x2 + x3) / 2, 1.0 - (h1 + h2) / 2, str(stability_label), ha="center", va="center", color="white", fontsize=12, fontweight="bold")
-        ax.text((x0 + x1) / 2, 1.0 - (h1 + h2 / 2), str(prev_label), ha="center", va="center", color="white", fontsize=12, fontweight="bold")
-        ax.text((x1 + x2) / 2, 1.0 - (h1 + h2 / 2), str(curr_label), ha="center", va="center", color="white", fontsize=12, fontweight="bold")
-
-        # Body row
-        _rect(x0, 0.0, col_w[0], body_h, "#FFFFFF")
-        _rect(x1, 0.0, col_w[1], body_h, "#FFFFFF")
-        _rect(x2, 0.0, col_w[2], body_h, "#FFFFFF")
-        ax.text((x0 + x1) / 2, body_h / 2, str(cov_prev_txt), ha="center", va="center", color="black", fontsize=12, fontweight="bold")
-        ax.text((x1 + x2) / 2, body_h / 2, str(cov_curr_txt), ha="center", va="center", color="black", fontsize=12, fontweight="bold")
-        ax.text((x2 + x3) / 2, body_h / 2, str(stability_txt), ha="center", va="center", color="black", fontsize=12, fontweight="bold")
-
-        buf = io.BytesIO()
-        fig.savefig(buf, format="png", dpi=dpi)
-        plt.close(fig)
-        buf.seek(0)
-        return self._img_add_border(buf, border_px=2, color="black")
+        self._set_table_cell_text(table.cell(2, 0), cov_prev_txt, fill_color=white_bg, font_color=black, align=2)
+        self._set_table_cell_text(table.cell(2, 1), cov_curr_txt, fill_color=white_bg, font_color=black, align=2)
+        self._set_table_cell_text(table.cell(2, 2), stability_txt, fill_color=white_bg, font_color=black, align=2)
 
     def _add_cov_slide_header_boxes(self, slide, assets: PipelineAssets) -> None:
         """Header del slide de Cobertura en modo 'complemented'."""
@@ -2433,13 +2450,38 @@ class SlideBuilder:
             else:
                 stability_txt = f"{(float(cov_curr) - float(cov_prev)):.1f}"
 
-        # Render con matplotlib (dataframe_image con conversion="matplotlib" no respeta backgrounds de CSS).
-        pen_stream = self._render_penetration_header_table_img(
+        # Construye tablas nativas de PowerPoint para que el texto sea editable.
+
+        # --- Layout superior: dos cajas en una banda encima del gráfico ---
+        # Alinear con el inicio/fin del gráfico de coberturas (que arranca en x=0.5in).
+        top = Inches(0.95)
+        chart_left = Inches(0.5)
+        chart_right = self.ppt.slide_width - Inches(0.5)
+        shared_h = Inches(0.90)
+        # Cuadros mas angostos, manteniendo posiciones originales:
+        # penetracion a la izquierda y cobertura a la derecha.
+        total_w = chart_right - chart_left
+        left_w = int(total_w * 0.27)
+        right_w = int(total_w * 0.37)
+        right_left = chart_right - right_w
+        pen_top = top - Inches(0.03)
+
+        self._add_penetration_header_table_shape(
+            slide,
+            left=chart_left,
+            top=pen_top,
+            width=left_w,
+            height=shared_h,
             year_header=year_col,
             pen_header=pen_col,
             rows=[(mat_curr, pen_curr_txt), (mat_prev, pen_prev_txt)],
         )
-        cov_stream = self._render_coverage_stability_header_table_img(
+        self._add_coverage_stability_header_table_shape(
+            slide,
+            left=right_left,
+            top=top,
+            width=right_w,
+            height=shared_h,
             cov_title=cov_title,
             prev_label=prev_label,
             curr_label=curr_label,
@@ -2447,38 +2489,6 @@ class SlideBuilder:
             cov_prev_txt=_fmt_cov(cov_prev),
             cov_curr_txt=_fmt_cov(cov_curr),
             stability_txt=stability_txt,
-        )
-
-        # --- Layout superior: dos cajas en una banda encima del gráfico ---
-        # Alinear con el inicio/fin del gráfico de coberturas (que arranca en x=0.5in).
-        top = Inches(0.95)
-        chart_left = Inches(0.5)
-        chart_right = self.ppt.slide_width - Inches(0.5)
-        gap = Inches(0.20)
-        box_h = Inches(0.90)
-        total_w = chart_right - chart_left
-        left_w = int(total_w * 0.42)
-        right_w = total_w - left_w - gap
-
-        self._add_picture_fit(
-            slide,
-            pen_stream,
-            left=chart_left,
-            top=top,
-            width=left_w,
-            height=box_h,
-            halign="left",
-            valign="top",
-        )
-        self._add_picture_fit(
-            slide,
-            cov_stream,
-            left=chart_left + left_w + gap,
-            top=top,
-            width=right_w,
-            height=box_h,
-            halign="right",
-            valign="top",
         )
 
     @staticmethod
