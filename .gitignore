@@ -16,7 +16,7 @@
 # Scripts base del proyecto
 !coverage_studio.py
 !archivos_studio.py
-!interactive_scorecards_export.py
+!scorecards_studio.py
 
 # Activos base necesarios (presentes en el repo)
 !Modelo_PPT.pptx
