@@ -2330,6 +2330,38 @@ class SlideBuilder:
         txt = str(value).strip()
         return txt if txt else "-"
 
+    @staticmethod
+    def _parse_summary_percent_value(value: object) -> Optional[float]:
+        txt = SlideBuilder._normalize_summary_table_value(value)
+        if txt in {"-", ""}:
+            return None
+        txt = txt.replace("%", "").replace(",", ".").strip()
+        try:
+            return float(txt)
+        except Exception:
+            return None
+
+    @staticmethod
+    def _normalize_brand_key(value: object) -> str:
+        txt = SlideBuilder._normalize_summary_table_value(value)
+        if txt == "-":
+            return ""
+        txt = unicodedata.normalize("NFD", txt)
+        txt = "".join(ch for ch in txt if unicodedata.category(ch) != "Mn")
+        txt = re.sub(r"\s+", " ", txt).strip().lower()
+        return txt
+
+    @classmethod
+    def _summary_row_fails_robustness(cls, row_values: Sequence[object], cols: int) -> bool:
+        # Robustez: misma tendencia entre %VAR cliente y %VAR WP by Numerator.
+        if cols < 5:
+            return False
+        var_cliente = cls._parse_summary_percent_value(row_values[3])
+        var_wp = cls._parse_summary_percent_value(row_values[4])
+        if var_cliente is None or var_wp is None:
+            return False
+        return not ((var_cliente * var_wp) > 0 or (var_cliente == 0 and var_wp == 0))
+
     def _add_editable_summary_table(
         self,
         slide,
@@ -2339,6 +2371,7 @@ class SlideBuilder:
         top,
         width,
         max_height,
+        low_penetration_brands: Optional[Sequence[str]] = None,
     ) -> None:
         if df_summary is None or df_summary.empty:
             return
@@ -2396,6 +2429,7 @@ class SlideBuilder:
         header_bg = RGBColor(217, 225, 242)
         stripe_bg = RGBColor(245, 247, 251)
         white_bg = RGBColor(255, 255, 255)
+        soft_red_bg = RGBColor(255, 235, 235)
         black = RGBColor(0, 0, 0)
 
         if rows <= 9:
@@ -2404,6 +2438,11 @@ class SlideBuilder:
             body_font_size = 9
         else:
             body_font_size = 8
+        low_penetration_keys: Set[str] = set()
+        for brand in (low_penetration_brands or []):
+            key = self._normalize_brand_key(brand)
+            if key:
+                low_penetration_keys.add(key)
 
         for c, col_name in enumerate(df_summary.columns):
             self._set_table_cell_text(
@@ -2418,10 +2457,15 @@ class SlideBuilder:
             )
 
         for r, row_values in enumerate(df_summary.itertuples(index=False), start=1):
+            brand_key = self._normalize_brand_key(row_values[0]) if cols > 0 else ""
+            if low_penetration_keys:
+                row_fails_robustness = brand_key in low_penetration_keys
+            else:
+                row_fails_robustness = self._summary_row_fails_robustness(row_values, cols)
             for c in range(cols):
                 val = self._normalize_summary_table_value(row_values[c])
                 align = 1 if c == 0 else 2
-                fill = stripe_bg if r % 2 == 0 else white_bg
+                fill = soft_red_bg if row_fails_robustness else (stripe_bg if r % 2 == 0 else white_bg)
                 self._set_table_cell_text(
                     table.cell(r, c),
                     val,
@@ -3220,6 +3264,7 @@ class SlideBuilder:
         if df_summary.empty:
             print(f"{Fore.YELLOW}Advertencia: No hay datos para generar la tabla de resumen en el PPT.")
             return
+        low_penetration_brands = list(low_penetration_brands or [])
         try:
             left = Inches(0.5)
             top = Inches(1.0)
@@ -3232,10 +3277,10 @@ class SlideBuilder:
                 top=top,
                 width=usable_w,
                 max_height=max_h,
+                low_penetration_brands=low_penetration_brands,
             )
         except Exception as exc:
             print(f"{Fore.YELLOW}Advertencia: No se pudo generar la tabla resumen en el PPT. Error: {exc}")
-        low_penetration_brands = list(low_penetration_brands or [])
         if low_penetration_brands:
             unique_brands = sorted({str(b).strip() for b in low_penetration_brands if str(b).strip()})
             n = len(unique_brands)
