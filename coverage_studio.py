@@ -14,6 +14,8 @@ import sys
 import threading
 import time
 import unicodedata
+import colorsys
+import hashlib
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Dict, Iterable, List, Optional, Sequence, Tuple, Callable, Set
@@ -61,6 +63,71 @@ MONTH_TOKEN_TO_NUMBER: Dict[str, int] = {
     "nov": 11, "noviembre": 11, "novembro": 11, "november": 11,
     "dic": 12, "diciembre": 12, "dez": 12, "dezembro": 12, "dec": 12, "december": 12,
 }
+
+ANSI_RESET = "\033[0m"
+PREVIEW_COPY_SUFFIX_RE = re.compile(
+    r"^(?P<brand>.+?)(?P<suffix>\s*[-‑–—−‒]\s*(?:copia|copy|preview|previa?|borrador|draft).*)?$",
+    re.IGNORECASE,
+)
+# Umbral mínimo para que los nombres resaltados sean legibles en fondos oscuros
+# o temas de terminal con bajo contraste.
+MIN_READABLE_LUMINANCE = 170.0
+
+
+def normalize_brand_key(brand: str) -> str:
+    """Normaliza fabricante para mapearlo siempre al mismo color."""
+    normalized = unicodedata.normalize("NFKD", str(brand or ""))
+    normalized = "".join(ch for ch in normalized if not unicodedata.combining(ch))
+    normalized = re.sub(r"\s+", " ", normalized).strip().lower()
+    return normalized
+
+
+def parse_filename_brand(filename: str) -> Tuple[str, str, str, str]:
+    """Separa nombre de archivo en prefijo, marca, sufijo y extensión."""
+    base, ext = os.path.splitext(filename)
+    parts = base.split("_", 2)
+    if len(parts) < 3:
+        return "", "", "", ext
+    prefix = f"{parts[0]}_{parts[1]}_"
+    raw_brand_segment = parts[2].strip()
+    if not raw_brand_segment:
+        return prefix, "", "", ext
+    # Conserva sufijos como "- copia"/"- preview" fuera del texto coloreado para
+    # que el color represente únicamente al fabricante.
+    match = PREVIEW_COPY_SUFFIX_RE.match(raw_brand_segment)
+    if not match:
+        return prefix, raw_brand_segment, "", ext
+    brand = (match.group("brand") or "").strip()
+    suffix = match.group("suffix") or ""
+    return prefix, brand, suffix, ext
+
+
+def ansi_truecolor(text: str, rgb: Tuple[int, int, int]) -> str:
+    """Envuelve texto con ANSI 24-bit."""
+    r, g, b = rgb
+    return f"\033[38;2;{r};{g};{b}m{text}{ANSI_RESET}"
+
+
+def relative_luminance(rgb: Tuple[int, int, int]) -> float:
+    """Calcula luminancia relativa simple para evitar colores oscuros."""
+    r, g, b = rgb
+    return (0.2126 * r) + (0.7152 * g) + (0.0722 * b)
+
+
+def lift_color_to_min_luminance(
+    rgb: Tuple[int, int, int], min_luminance: float = MIN_READABLE_LUMINANCE
+) -> Tuple[int, int, int]:
+    """Aclara un color mezclándolo con blanco hasta alcanzar luminancia mínima."""
+    lum = relative_luminance(rgb)
+    if lum >= min_luminance:
+        return rgb
+    r, g, b = rgb
+    # Mezcla lineal con blanco; evita colores apagados/obscuros en terminal.
+    mix = min(0.7, max(0.0, (min_luminance - lum) / 255.0))
+    r = int(round(r + (255 - r) * mix))
+    g = int(round(g + (255 - g) * mix))
+    b = int(round(b + (255 - b) * mix))
+    return (r, g, b)
 
 def normalize_variations_box_style(raw_value: Optional[str]) -> str:
     """Normaliza el estilo del cuadro de variaciones (classic | pretty)."""
@@ -5161,9 +5228,42 @@ class CoverageStudioUltraApp:
         os.chdir(self.root_dir)
         self.categories: Optional["pd.DataFrame"] = None
         self._script_start_monotonic: Optional[float] = None
+        # Mantiene una asignación estable de fabricante->color durante toda la corrida.
+        self._brand_color_cache: Dict[str, Tuple[int, int, int]] = {}
 
     def list_excel_files(self) -> List[str]:
         return [f for f in os.listdir(self.root_dir) if f.endswith('.xlsx') and not f.startswith('~$') and f != EXCEL_TEMP_FILENAME]
+
+    def _brand_color_rgb(self, brand: str) -> Tuple[int, int, int]:
+        """Asigna un color consistente por fabricante usando hash + HSV."""
+        key = normalize_brand_key(brand)
+        if not key:
+            return (255, 235, 59)
+        cached = self._brand_color_cache.get(key)
+        if cached:
+            return cached
+        # Hash determinístico: misma marca => mismo color, sin depender de categoría.
+        digest = hashlib.sha1(key.encode("utf-8")).digest()
+        hue = int.from_bytes(digest[:2], "big") / 65535.0
+        # Rango claro para evitar colores oscuros en terminal.
+        saturation = 0.38 + (digest[2] / 255.0) * 0.27
+        value = 0.88 + (digest[3] / 255.0) * 0.10
+        r_f, g_f, b_f = colorsys.hsv_to_rgb(hue, saturation, value)
+        rgb = (int(r_f * 255), int(g_f * 255), int(b_f * 255))
+        # Último ajuste de legibilidad para evitar marcas poco visibles.
+        rgb = lift_color_to_min_luminance(rgb)
+        self._brand_color_cache[key] = rgb
+        return rgb
+
+    def _colorize_filename_brand(self, filename: str) -> str:
+        """Colorea solo el fabricante dentro del nombre del .xlsx."""
+        prefix, brand, suffix, ext = parse_filename_brand(filename)
+        if not brand:
+            return filename
+        rgb = self._brand_color_rgb(brand)
+        # Se usa ANSI truecolor (24-bit) para tener una paleta amplia.
+        brand_colored = ansi_truecolor(brand, rgb)
+        return f"{prefix}{brand_colored}{Fore.BLUE}{suffix}{ext}"
 
     def ensure_categories_loaded(self) -> None:
         if self.categories is None:
@@ -5174,10 +5274,11 @@ class CoverageStudioUltraApp:
         print(Fore.CYAN + "Archivos Excel (.xlsx) encontrados:")
         for i, archivo in enumerate(excel_list, start=1):
             meta = quick_file_metadata(archivo)
+            archivo_coloreado = self._colorize_filename_brand(archivo)
             if meta:
-                print(Fore.BLUE + f"{i}. {archivo} " + Fore.YELLOW + f"| {meta}")
+                print(Fore.BLUE + f"{i}. {archivo_coloreado} " + Fore.YELLOW + f"| {meta}")
             else:
-                print(Fore.BLUE + f"{i}. {archivo}")
+                print(Fore.BLUE + f"{i}. {archivo_coloreado}")
         while True:
             opcion = input(
                 Fore.WHITE
