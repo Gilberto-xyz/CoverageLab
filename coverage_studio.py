@@ -72,6 +72,15 @@ PREVIEW_COPY_SUFFIX_RE = re.compile(
 # Umbral mínimo para que los nombres resaltados sean legibles en fondos oscuros
 # o temas de terminal con bajo contraste.
 MIN_READABLE_LUMINANCE = 170.0
+TEMPLATE_TAB_COLOR_SEQUENCE: List[str] = [
+    "#1F77B4", "#FF7F0E", "#2CA02C", "#D62728", "#9467BD", "#8C564B", "#E377C2", "#7F7F7F", "#BCBD22", "#17BECF",
+    "#AEC7E8", "#FFBB78", "#98DF8A", "#FF9896", "#C5B0D5", "#C49C94", "#F7B6D2", "#C7C7C7", "#DBDB8D", "#9EDAE5",
+    "#393B79", "#5254A3", "#6B6ECF", "#9C9EDE", "#637939", "#8CA252", "#B5CF6B", "#CEDB9C", "#8C6D31", "#BD9E39",
+    "#E7BA52", "#E7CB94", "#843C39", "#AD494A", "#D6616B", "#E7969C", "#7B4173", "#A55194", "#CE6DBD", "#DE9ED6",
+    "#3182BD", "#6BAED6", "#9ECAE1", "#C6DBEF", "#E6550D", "#FD8D3C", "#FDAE6B", "#FDD0A2", "#31A354", "#74C476",
+    "#A1D99B", "#C7E9C0", "#756BB1", "#9E9AC8", "#BCBDDC", "#DADAEB", "#636363", "#969696", "#BDBDBD", "#D9D9D9",
+    "#393E46", "#00ADB5", "#FF5722", "#795548", "#607D8B", "#8BC34A", "#CDDC39", "#FFC107", "#FF4081", "#3F51B5",
+]
 
 
 def normalize_brand_key(brand: str) -> str:
@@ -128,6 +137,48 @@ def lift_color_to_min_luminance(
     g = int(round(g + (255 - g) * mix))
     b = int(round(b + (255 - b) * mix))
     return (r, g, b)
+
+def _hex_to_tab_argb(hex_color: str) -> str:
+    """Convierte #RRGGBB a AARRGGBB para color de pestaña de Excel."""
+    value = str(hex_color or "").strip()
+    if value.startswith("#"):
+        value = value[1:]
+    if len(value) != 6:
+        return "FF808080"
+    return f"FF{value.upper()}"
+
+def assign_brand_tab_color(brand_label: str, brand_color_lookup: Dict[str, str]) -> str:
+    """
+    Asigna color consistente por marca usando la misma lógica de paleta del generador de informe:
+    primer color libre no usado, fallback cíclico.
+    """
+    key = normalize_brand_key(brand_label)
+    if not key:
+        return TEMPLATE_TAB_COLOR_SEQUENCE[0]
+    existing = brand_color_lookup.get(key)
+    if existing:
+        return existing
+    used_colors = {color for color in brand_color_lookup.values() if color}
+    for candidate in TEMPLATE_TAB_COLOR_SEQUENCE:
+        if candidate not in used_colors:
+            brand_color_lookup[key] = candidate
+            return candidate
+    fallback = TEMPLATE_TAB_COLOR_SEQUENCE[len(brand_color_lookup) % len(TEMPLATE_TAB_COLOR_SEQUENCE)]
+    brand_color_lookup[key] = fallback
+    return fallback
+
+def apply_template_tab_colors(xlsx_path: str, marcas: Sequence[str]) -> None:
+    """Pinta pestañas del template por marca para facilitar lectura de agrupado."""
+    from openpyxl import load_workbook as _load_wb_tabs
+    wb_tabs = _load_wb_tabs(xlsx_path)
+    color_lookup: Dict[str, str] = {}
+    for brand in marcas:
+        if brand not in wb_tabs.sheetnames:
+            continue
+        color_hex = assign_brand_tab_color(brand, color_lookup)
+        ws = wb_tabs[brand]
+        ws.sheet_properties.tabColor = _hex_to_tab_argb(color_hex)
+    wb_tabs.save(xlsx_path)
 
 def normalize_variations_box_style(raw_value: Optional[str]) -> str:
     """Normaliza el estilo del cuadro de variaciones (classic | pretty)."""
@@ -4629,6 +4680,10 @@ def generate_excel_template(
                 pais_nombre=pais_nombre,
             )
             print(Fore.GREEN + "Graficos nativos de Excel insertados (editables).")
+
+            # Colorear pestañas por marca para identificar rápidamente cada grupo de hojas.
+            apply_template_tab_colors(excel_temp_path, marcas)
+            print(Fore.GREEN + "Color de pestañas aplicado por marca en el template.")
         except Exception as e:
             print(Fore.YELLOW + f"No se pudo aplicar el formato de correlaciones: {e}")
 
@@ -4667,7 +4722,7 @@ def generate_excel_template(
     else:
         print(Fore.YELLOW + "Carpeta de salida ya existe, no se creara de nuevo")
 
-    nombre_template_final = f"{nombre_base_archivo}.xlsx"
+    nombre_template_final = f"Template_{nombre_base_archivo}.xlsx"
     ruta_template_final = os.path.join(carpeta_salida, nombre_template_final)
 
     try:
