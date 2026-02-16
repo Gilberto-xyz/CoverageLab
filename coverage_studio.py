@@ -5327,13 +5327,17 @@ class CoverageStudioUltraApp:
 
     def select_files(self, excel_list: Sequence[str]) -> List[str]:
         print(Fore.CYAN + "Archivos Excel (.xlsx) encontrados:")
+        max_name_len = max((len(archivo) for archivo in excel_list), default=0)
+        idx_width = len(str(len(excel_list))) if excel_list else 1
         for i, archivo in enumerate(excel_list, start=1):
             meta = quick_file_metadata(archivo)
             archivo_coloreado = self._colorize_filename_brand(archivo)
+            prefix = Fore.BLUE + f"{i:>{idx_width}}. "
+            pad = " " * (max_name_len - len(archivo) + 3)
             if meta:
-                print(Fore.BLUE + f"{i}. {archivo_coloreado} " + Fore.YELLOW + f"| {meta}")
+                print(prefix + f"{archivo_coloreado}{pad}" + Fore.YELLOW + f"| {meta}")
             else:
-                print(Fore.BLUE + f"{i}. {archivo_coloreado}")
+                print(prefix + f"{archivo_coloreado}")
         while True:
             opcion = input(
                 Fore.WHITE
