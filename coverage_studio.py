@@ -606,6 +606,24 @@ for _line in CATEGORIES_CSV_DATA.splitlines()[1:]:
 PPT_LAYOUT_INDEX = 1
 DEFAULT_POP_COVERAGE = "100%"
 EXCEL_TEMP_FILENAME = "file_temp_coverage.xlsx"
+POP_COVERAGE_MAP = {
+    "Argentina": "90%",
+    "Bolivia": "60%",
+    "Brasil": "82%",
+    "Chile": "78%",
+    "Colombia": "65%",
+    "Ecuador": "61%",
+    "Mexico": "64%",
+    "Peru": "66%",
+    "CAM": "74%",
+    "Costa Rica": "94%",
+    "El Salvador": "86%",
+    "Guatemala": "69%",
+    "Honduras": "65%",
+    "Nicaragua": "57%",
+    "Panama": "92%",
+    "Republica Dominicana": "63%",
+}
 
 COL_DATA = "Data"
 COL_SELL_IN = "Sell_in"
@@ -690,24 +708,7 @@ def _load_heavy_modules() -> None:
         _codes = sorted((int(k), v) for k, v in COUNTRY_MAP.items())
         pais = pd.DataFrame({"cod": [c for c, _ in _codes], "pais": [v for _, v in _codes]})
 
-        pop_coverage = {
-            "Argentina": "90%",
-            "Bolivia": "60%",
-            "Brasil": "82%",
-            "Chile": "78%",
-            "Colombia": "65%",
-            "Ecuador": "55%",
-            "Mexico": "64%",
-            "Peru": "66%",
-            "CAM": "74%",
-            "Costa Rica": "94%",
-            "El Salvador": "85%",
-            "Guatemala": "69%",
-            "Honduras": "65%",
-            "Nicaragua": "57%",
-            "Panama": "92%",
-            "Republica Dominicana": "63.29%",
-        }
+        pop_coverage = dict(POP_COVERAGE_MAP)
     finally:
         LOADER_READY.set()
 
@@ -724,6 +725,28 @@ _loader_thread.start()
 
 SELECTIONS: Dict[str, str] = {}
 ROUND_COVERAGE = False
+
+def _normalize_lookup_text(value: object) -> str:
+    text = str(value or "").strip().lower()
+    normalized = unicodedata.normalize("NFKD", text)
+    text = "".join(ch for ch in normalized if not unicodedata.combining(ch))
+    return re.sub(r"\s+", " ", text).strip()
+
+def _parse_percent_value(raw_value: object, fallback: float) -> float:
+    try:
+        return float(str(raw_value).replace("%", "").strip())
+    except Exception:
+        return fallback
+
+DEFAULT_POP_COVERAGE_PERCENT = _parse_percent_value(DEFAULT_POP_COVERAGE, 100.0)
+POP_COVERAGE_PERCENT_BY_COUNTRY_NORM: Dict[str, float] = {
+    _normalize_lookup_text(country_name): _parse_percent_value(raw_percent, DEFAULT_POP_COVERAGE_PERCENT)
+    for country_name, raw_percent in POP_COVERAGE_MAP.items()
+}
+
+def get_population_coverage_percent(country_name: str) -> float:
+    target = _normalize_lookup_text(country_name)
+    return POP_COVERAGE_PERCENT_BY_COUNTRY_NORM.get(target, DEFAULT_POP_COVERAGE_PERCENT)
 
 def quick_file_metadata(filename: str) -> str:
     """Obtiene metadatos básicos del nombre de archivo."""
@@ -4043,7 +4066,7 @@ def generate_excel_template(
                         df_excel.loc[i, COL_ACUM_SELL_IN] = f"=SUM(L{row_excel - 11}:L{row_excel})" # Usa Sell_in_sim (L)
 
                     # --- 1.6) Cálculo de coberturas (pipeline 0 a 6) en Excel ---
-                    pop_value_str = pop_coverage.get(pais_nombre, DEFAULT_POP_COVERAGE)
+                    pop_value_decimal = get_population_coverage_percent(pais_nombre) / 100.0
                     cov_formulas_list = []
                     max_rows_excel = original_data_rows + excel_row_offset -1 # Última fila con datos en Excel
 
@@ -4063,8 +4086,6 @@ def generate_excel_template(
                                     #anterior  m{den_row_excel}/n{num_row_excel}*100
                                     base_formula = f"M{num_row_excel}/N{den_row_excel}*100"
                                     if coverage_type == "relativa":
-                                        # CORRECCIÓN: Cambiar formato de porcentaje y usar NA()
-                                        pop_value_decimal = float(pop_value_str.replace("%", "")) / 100
                                         formula = f"=IFERROR(({base_formula})/{pop_value_decimal},NA())"
                                     else:
                                         formula = f"=IFERROR({base_formula},NA())"
@@ -4770,7 +4791,7 @@ def compute_coverage_dataframe(
         coverage_p = (acum_sell_out_py / acum_sell_in_shifted) * 100
         coverage_p = coverage_p.replace([np.inf, -np.inf], np.nan)
         df_coverage[f'P{p}'] = coverage_p
-    pop_val_num = float(pop_coverage.get(pais_nombre, DEFAULT_POP_COVERAGE).replace('%', '')) / 100.0
+    pop_val_num = get_population_coverage_percent(pais_nombre) / 100.0
     if coverage_type.lower() == "relativa" and pop_val_num > 0:
         df_coverage = df_coverage / pop_val_num
     if round_coverage:
