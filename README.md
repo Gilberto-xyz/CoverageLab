@@ -124,16 +124,16 @@ flowchart TD
     A[Inicio] --> B{Ya tienes Excel de entrada?}
     B -- No --> C[Ejecutar python archivos_studio.py]
     C --> D[Llenar datos en el Excel generado]
-    B -- Si --> E[Usar Excel existente<br/>&lt;codPais&gt;_&lt;codCategoria&gt;_&lt;fabricante&gt;.xlsx]
+    B -- Si --> E[Usar Excel existente codigoPais_codigoCategoria_fabricante.xlsx]
     D --> F[Ejecutar python coverage_studio.py]
     E --> F
-    F --> G[Seleccionar archivo(s) .xlsx]
-    G --> H[Configurar opciones<br/>cobertura, razon, ejes, slides, idioma]
+    F --> G[Seleccionar archivos xlsx]
+    G --> H[Configurar opciones cobertura razon ejes slides idioma]
     H --> I[Procesamiento por marca y pipeline]
     I --> J[Genera carpeta de salida]
-    J --> K[Guarda Template_...xlsx]
-    J --> L[Guarda ...pptx]
-    J --> M[Guarda Banco_...xlsx]
+    J --> K[Guardar Template xlsx]
+    J --> L[Guardar reporte pptx]
+    J --> M[Guardar banco de coberturas xlsx]
     M --> N[Fin]
 ```
 
