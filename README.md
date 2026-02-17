@@ -1,131 +1,147 @@
-# coverage_studio.py
+# CoverageLab
 
 ![Bienvenida](https://i.imgur.com/rZoALwD.jpeg)
 
-## Descripción General
+`coverage_studio.py` automatiza el analisis de cobertura y genera 3 salidas por corrida:
+- un Excel template con calculos (`Template_...xlsx`)
+- un PowerPoint final (`...pptx`)
+- un banco de coberturas (`Banco_...xlsx`)
 
-Este script es una herramienta avanzada para el procesamiento, análisis y visualización de datos de cobertura y penetración de marcas en mercados de consumo masivo, especialmente diseñada para equipos de inteligencia comercial, marketing y ventas. Automatiza la generación de reportes en Excel y presentaciones PowerPoint a partir de archivos de datos mensuales, permitiendo comparar la información de ventas (Sell-in) y consumo (Sell-out/Kantar) bajo diferentes pipelines y metodologías de cobertura.
-
----
-
-## Alcances y Funcionalidades
-
-- **Carga y preprocesamiento de datos**: Lee archivos Excel con múltiples hojas (cada una representando una marca), limpia y estandariza los datos, y extrae metadatos clave del nombre del archivo (país, categoría, fabricante).
-- **Cálculo de indicadores clave**:
-  - Cobertura absoluta y relativa (ajustada por cobertura poblacional del país).
-  - Penetración y número de compradores (Buyers) en año móvil (MAT).
-  - Variaciones interanuales (Y-1, Y-2) en ventas y cobertura (anual, semestral, trimestral).
-  - Correlación entre Sell-in y Sell-out (Pearson, MAT).
-  - Estabilidad de la cobertura (diferencia entre último valor y hace 12 meses).
-- **Automatización de reportes**:
-  - Genera un archivo Excel con fórmulas dinámicas, acumulados, coberturas escalonadas y resúmenes listos para análisis.
-  - Crea una carpeta de salida organizada por país, categoría, fabricante y fecha de referencia.
-- **Visualización avanzada**:
-  - Presentación PowerPoint con gráficos de barras (Cobertura vs Penetración), líneas (Tendencia Sell-in/Sell-out), y evolución mensual con variaciones YOY.
-  - Tablas resumen y banco de coberturas exportados como imágenes de alta calidad.
-  - Personalización de idioma (ES/PT) y etiquetas según país.
-- **Interactividad**:
-  - Selección interactiva de archivo, tipo de cobertura, razón de análisis y configuración de gráficos.
-  - Progreso visual con barra (rich/tqdm) y mensajes de advertencia/éxito en colores.
-
----
-
-## Estructura del Script
-
-1. **Configuración y dependencias**: Importa librerías clave (pandas, numpy, matplotlib, pptx, openpyxl, rich, etc.) y define constantes globales, colores y catálogos embebidos (países, categorías).
-2. **Funciones utilitarias**: Incluye utilidades para limpieza, escalonamiento de datos, cálculo de variaciones, correlaciones y manejo de fechas.
-3. **Procesamiento principal**:
-   - Selección y validación del archivo Excel.
-   - Extracción de metadatos del nombre del archivo.
-   - Preprocesamiento de cada hoja/marca.
-   - Generación de archivo Excel temporal con fórmulas y resúmenes.
-   - Renombrado y organización de archivos de salida.
-4. **Generación de PowerPoint**:
-   - Para cada marca y pipeline, crea slides con gráficos y tablas.
-   - Slide resumen con tabla consolidada y espacio para comentarios.
-   - Banco de coberturas exportado a Excel.
-
----
-
-## Cómo Funciona
-
-1. **Ejecución**: Al correr el script, se listan los archivos Excel disponibles. El usuario selecciona el archivo y responde preguntas interactivas sobre el tipo de cobertura y razón del análisis.
-2. **Procesamiento**: El script procesa cada hoja del archivo, calcula los indicadores y genera un Excel temporal con fórmulas listas para análisis y auditoría.
-3. **Visualización**: Se generan gráficos y tablas, que se insertan automáticamente en una presentación PowerPoint basada en una plantilla.
-4. **Salida**: Todos los archivos generados (Excel final, PPT, banco de coberturas) se guardan en una carpeta específica, nombrada con los metadatos clave.
-
----
-
-## Personalización y Mejora
-
-- **Fácil actualización**: El código está modularizado y documentado, facilitando la adición de nuevas métricas, gráficos o ajustes en la lógica de negocio.
-- **Soporte para nuevos países/categorías**: Solo es necesario actualizar los catálogos embebidos.
-- **Internacionalización**: Las etiquetas y textos pueden adaptarse fácilmente a otros idiomas.
-- **Escalabilidad**: Permite procesar grandes volúmenes de datos y múltiples marcas en una sola ejecución.
-
----
-
-## Guía de Ejecución Paso a Paso
-
-### Paso 1: Generar Excel con archivos_studio.py
-1. Ejecuta el archivo `archivos_studio.py`
-```bash
-python archivos_studio.py
-```
-2. Este script generará los archivos Excel base necesarios para el análisis
-3. Los archivos Excel creados contendrán las plantillas y estructuras requeridas
-
-### Paso 2: Llenar la Información en Excel
-1. Abre los archivos Excel generados en el Paso 1
-2. Completa toda la información requerida en las hojas correspondientes:
-   - Datos de ventas (Sell-in)
-   - Datos de consumo (Sell-out/Kantar)
-   - Información de marcas y categorías
-   - Datos poblacionales por país
-3. Guarda los cambios en los archivos Excel
-
-### Paso 3: Ejecutar Estudio de Cobertura con coverage_studio.py
-1. Ejecuta el archivo `coverage_studio.py`
-```bash
-python coverage_studio.py
-```
-2. Selecciona el archivo Excel que llenaste en el Paso 2
-3. Sigue las instrucciones interactivas para configurar:
-   - Tipo de cobertura deseado
-   - Razón del análisis
-   - Configuración de gráficos
-4. El script procesará los datos y generará:
-   - Reporte Excel con análisis detallado
-   - Presentación PowerPoint con visualizaciones
-   - Banco de coberturas
+## Scripts del proyecto
+- `coverage_studio.py`: motor principal de analisis y generacion de entregables.
+- `archivos_studio.py`: generador de archivos Excel base para captura manual.
+- `scorecards_studio.py`: utilitario adicional del repositorio.
+- `Modelo_PPT.pptx`: plantilla obligatoria para construir la presentacion.
 
 ## Requisitos
-
 - Python 3.8+
-- Bibliotecas: pandas, numpy, matplotlib, openpyxl, tqdm, colorama, rich, dataframe_image, scipy, python-pptx, pillow
-- Plantilla PowerPoint: `Modelo_Revision.pptx` en el mismo directorio
+- Dependencias:
+  - `pandas`
+  - `numpy`
+  - `matplotlib`
+  - `openpyxl`
+  - `tqdm`
+  - `colorama`
+  - `rich`
+  - `dataframe_image`
+  - `scipy`
+  - `python-pptx`
+  - `pillow`
 
-Instalación de dependencias:
+Instalacion:
+
 ```bash
 pip install pandas numpy matplotlib openpyxl tqdm colorama rich dataframe_image scipy python-pptx pillow
 ```
 
----
+## Inicio rapido
 
-## Notas Técnicas
+### Opcion A (recomendada): generar base primero
+1. Ejecuta:
 
-- El script es interactivo y requiere ejecución en terminal/IDE con soporte de entrada estándar.
-- Los archivos temporales y de salida se gestionan automáticamente.
-- El código maneja errores y advertencias para asegurar robustez y trazabilidad.
+```bash
+python archivos_studio.py
+```
 
----
+2. Completa el Excel generado con tus datos.
+3. Ejecuta:
 
-## Créditos y Contacto
+```bash
+python coverage_studio.py
+```
 
-Desarrollado por el equipo de inteligencia de coberturas. Para soporte, mejoras o reportar bugs, contactar a: [LatAmDQ.Coverage@kantar.com]
+### Opcion B: usar un Excel ya existente
+1. Coloca el archivo `.xlsx` en la misma carpeta del script.
+2. Ejecuta:
 
----
+```bash
+python coverage_studio.py
+```
+
+## Formato esperado del archivo de entrada
+
+### Nombre del archivo
+- Formato: `<codPais>_<codCategoria>_<fabricante>.xlsx`
+- Ejemplo: `52_CARB_Coca Cola.xlsx`
+
+Nota importante:
+- El parser usa solo las primeras 3 partes separadas por `_`.
+- Para evitar truncamiento en fabricante, evita usar `_` dentro del nombre del fabricante.
+
+### Hojas
+- Cada hoja se interpreta como marca a procesar.
+- Si una hoja comienza con `P0_` ... `P6_`, ese prefijo se usa como pipeline en graficos nativos de Excel.
+- Si no tiene prefijo `P#_`, se procesa como pipeline `0`.
+
+## Flujo interactivo de `coverage_studio.py`
+Durante la ejecucion, el script solicita:
+1. Archivo(s) Excel a procesar.
+2. Tipo de cobertura:
+   - `1` Absoluta
+   - `2` Relativa
+   - `3` AUTO (usa configuracion predeterminada)
+3. Razon del analisis.
+4. Tipo de eje para tendencia (simple o doble).
+5. Estilo del cuadro de variaciones (clasico o bonito).
+6. Modo del slide de cobertura (clasico o complementado).
+7. Modo del slide de evolucion (clasico o simple).
+8. Idioma ingles (si/no).
+9. Redondeo de cobertura (si/no).
+10. Meses extra para summary (opcional) y modo de comparacion.
+
+## Variables de entorno (modo automatico)
+Si defines `AUTO_FILE`, el script corre en modo automatico sin preguntas.
+
+Variables principales:
+- `AUTO_FILE`: archivo `.xlsx` a procesar.
+- `AUTO_COV_TYPE`: `Absoluta`, `relativa` o `AUTO`.
+- `AUTO_RAZON`: razon del analisis.
+- `AUTO_EJE`: `simple` o `doble`.
+- `AUTO_ENGLISH`: `1/0`.
+- `AUTO_ROUND_COV`: `1/0`.
+- `AUTO_VAR_BOX_STYLE` o `AUTO_VAR_STYLE`: `classic` o `pretty`.
+- `AUTO_COV_SLIDE` o `AUTO_COV_SLIDE_STYLE`: `classic` o `complemented`.
+- `AUTO_EVO_SLIDE` o `AUTO_EVO_SLIDE_STYLE`: `classic` o `simple`.
+- `AUTO_EXTEA` o `AUTO_EXTRA_MONTHS`: meses extra para summary (ej. `8,11`).
+- `AUTO_EXTEA_MODE` o `AUTO_EXTRA_MONTHS_MODE`: `recent` o `both`.
+
+## Salidas generadas
+Para cada archivo procesado se crea una carpeta:
+- `<Pais>-<CategoriaCorta>-<Fabricante>-<Ref>_<CoverageLabel>`
+
+Dentro de esa carpeta se guarda:
+1. `Template_<Pais>-<CategoriaCorta>-<Fabricante>-<Ref>_<CoverageLabel>.xlsx`
+2. `<Pais>-<CategoriaCorta>-<Fabricante>-<Ref>_<CoverageLabel>.pptx`
+3. `Banco_<Fabricante>_<Categoria>_<Pais>_<Ref>_<CoverageLabel>.xlsx`
+
+Adicional:
+- Se usa una carpeta temporal `tmp/` durante el proceso y se elimina al final.
+
+## Flujo general (Mermaid)
+
+```mermaid
+flowchart TD
+    A[Inicio] --> B{Ya tienes Excel de entrada?}
+    B -- No --> C[Ejecutar python archivos_studio.py]
+    C --> D[Llenar datos en el Excel generado]
+    B -- Si --> E[Usar Excel existente<br/>&lt;codPais&gt;_&lt;codCategoria&gt;_&lt;fabricante&gt;.xlsx]
+    D --> F[Ejecutar python coverage_studio.py]
+    E --> F
+    F --> G[Seleccionar archivo(s) .xlsx]
+    G --> H[Configurar opciones<br/>cobertura, razon, ejes, slides, idioma]
+    H --> I[Procesamiento por marca y pipeline]
+    I --> J[Genera carpeta de salida]
+    J --> K[Guarda Template_...xlsx]
+    J --> L[Guarda ...pptx]
+    J --> M[Guarda Banco_...xlsx]
+    M --> N[Fin]
+```
+
+## Troubleshooting rapido
+- Error de plantilla: valida que `Modelo_PPT.pptx` exista en la misma carpeta.
+- No aparecen archivos Excel: revisa que terminen en `.xlsx` y no esten abiertos/bloqueados.
+- Error de metadata en nombre: revisa formato `<codPais>_<codCategoria>_<fabricante>.xlsx`.
+- Inconsistencias de salida: verifica que las hojas tengan estructura de datos completa y fechas validas.
 
 ## Licencia
-
-Uso interno. Adaptable bajo requerimiento del área de negocio.
+Uso interno del equipo.
