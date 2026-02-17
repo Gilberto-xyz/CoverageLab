@@ -54,7 +54,7 @@ POP_COVERAGE_MAP = {
     "Brasil": "82%",
     "Chile": "78%",
     "Colombia": "65%",
-    "Ecuador": "55%",
+    "Ecuador": "61%",
     "Mexico": "64%",
     "Peru": "66%",
     "CAM": "74%",
@@ -64,7 +64,7 @@ POP_COVERAGE_MAP = {
     "Honduras": "65%",
     "Nicaragua": "57%",
     "Panama": "92%",
-    "Republica Dominicana": "63.29%",
+    "Republica Dominicana": "63%",
 }
 
 
