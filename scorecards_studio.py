@@ -59,7 +59,7 @@ POP_COVERAGE_MAP = {
     "Peru": "66%",
     "CAM": "74%",
     "Costa Rica": "94%",
-    "El Salvador": "85%",
+    "El Salvador": "86%",
     "Guatemala": "69%",
     "Honduras": "65%",
     "Nicaragua": "57%",
