@@ -2,146 +2,152 @@
 
 ![Bienvenida](https://i.imgur.com/rZoALwD.jpeg)
 
-`coverage_studio.py` automatiza el analisis de cobertura y genera 3 salidas por corrida:
-- un Excel template con calculos (`Template_...xlsx`)
-- un PowerPoint final (`...pptx`)
-- un banco de coberturas (`Banco_...xlsx`)
+Automatiza el flujo de coberturas desde archivos Excel de entrada hasta entregables finales de negocio.
 
-## Scripts del proyecto
-- `coverage_studio.py`: motor principal de analisis y generacion de entregables.
-- `archivos_studio.py`: generador de archivos Excel base para captura manual.
-- `scorecards_studio.py`: utilitario adicional del repositorio.
-- `Modelo_PPT.pptx`: plantilla obligatoria para construir la presentacion.
+`coverage_studio.py` genera tres salidas por corrida:
+- `Template_...xlsx` con cálculos y estructura de trabajo.
+- `...pptx` con la presentación final.
+- `Banco_...xlsx` con el banco de coberturas.
+
+## Contenido
+- [Scripts principales](#scripts-principales)
+- [Requisitos](#requisitos)
+- [Instalación](#instalación)
+- [Inicio rápido](#inicio-rápido)
+- [Formato del archivo de entrada](#formato-del-archivo-de-entrada)
+- [Modo automático (variables de entorno)](#modo-automático-variables-de-entorno)
+- [Salidas generadas](#salidas-generadas)
+- [Flujo general](#flujo-general)
+- [Troubleshooting](#troubleshooting)
+- [Licencia](#licencia)
+
+## Scripts principales
+- `coverage_studio.py`: motor principal de análisis y generación de entregables (Excel + PPT + banco).
+- `archivos_studio.py`: asistente para crear archivos base de captura (`<codPais>_<codCategoria>_<fabricante>.xlsx`).
+- `scorecards_studio.py`: exportador de scorecards en Excel a partir de archivos de cobertura.
+- `Modelo_PPT.pptx`: plantilla obligatoria para construir la presentación.
 
 ## Requisitos
-- Python 3.8+
-- Dependencias:
-  - `pandas`
-  - `numpy`
-  - `matplotlib`
-  - `openpyxl`
-  - `tqdm`
-  - `colorama`
-  - `rich`
-  - `dataframe_image`
-  - `scipy`
-  - `python-pptx`
-  - `pillow`
+- Python 3.8 o superior.
+- `pip` actualizado.
+- Dependencias Python definidas en `requirements.txt`.
 
-Instalacion:
+## Instalación
 
+### Opción recomendada
+```bash
+pip install -r requirements.txt
+```
+
+### Opción manual
 ```bash
 pip install pandas numpy matplotlib openpyxl tqdm colorama rich dataframe_image scipy python-pptx pillow
 ```
 
-## Inicio rapido
+## Inicio rápido
 
-### Opcion A (recomendada): generar base primero
-1. Ejecuta:
-
+### Flujo A (recomendado): crear base y luego procesar
+1. Genera un archivo base:
 ```bash
 python archivos_studio.py
 ```
-
-2. Completa el Excel generado con tus datos.
-3. Ejecuta:
-
+2. Completa el Excel con tus datos.
+3. Ejecuta el procesamiento:
 ```bash
 python coverage_studio.py
 ```
 
-### Opcion B: usar un Excel ya existente
-1. Coloca el archivo `.xlsx` en la misma carpeta del script.
+### Flujo B: procesar un Excel existente
+1. Coloca el `.xlsx` en la misma carpeta del proyecto.
 2. Ejecuta:
-
 ```bash
 python coverage_studio.py
 ```
 
-## Formato esperado del archivo de entrada
+### Flujo C: exportar scorecards
+```bash
+python scorecards_studio.py
+```
+
+## Formato del archivo de entrada
 
 ### Nombre del archivo
-- Formato: `<codPais>_<codCategoria>_<fabricante>.xlsx`
+- Formato esperado: `<codPais>_<codCategoria>_<fabricante>.xlsx`
 - Ejemplo: `52_CARB_Coca Cola.xlsx`
-
-Nota importante:
-- El parser usa solo las primeras 3 partes separadas por `_`.
-- Para evitar truncamiento en fabricante, evita usar `_` dentro del nombre del fabricante.
+- El parser usa solo las primeras tres secciones separadas por `_`.
+- Recomendación: evita usar `_` dentro del nombre del fabricante.
 
 ### Hojas
-- Cada hoja se interpreta como marca a procesar.
-- Si una hoja comienza con `P0_` ... `P6_`, ese prefijo se usa como pipeline en graficos nativos de Excel.
+- Cada hoja se interpreta como una marca.
+- Si una hoja empieza con `P0_` a `P6_`, ese prefijo se usa como pipeline.
 - Si no tiene prefijo `P#_`, se procesa como pipeline `0`.
 
-## Flujo interactivo de `coverage_studio.py`
-Durante la ejecucion, el script solicita:
-1. Archivo(s) Excel a procesar.
-2. Tipo de cobertura:
-   - `1` Absoluta
-   - `2` Relativa
-   - `3` AUTO (usa configuracion predeterminada)
-3. Razon del analisis.
-4. Tipo de eje para tendencia (simple o doble).
-5. Estilo del cuadro de variaciones (clasico o bonito).
-6. Modo del slide de cobertura (clasico o complementado).
-7. Modo del slide de evolucion (clasico o simple).
-8. Idioma ingles (si/no).
-9. Redondeo de cobertura (si/no).
-10. Meses extra para summary (opcional) y modo de comparacion.
-
-## Variables de entorno (modo automatico)
-Si defines `AUTO_FILE`, el script corre en modo automatico sin preguntas.
+## Modo automático (variables de entorno)
+Si defines `AUTO_FILE`, `coverage_studio.py` corre sin preguntas interactivas.
 
 Variables principales:
 - `AUTO_FILE`: archivo `.xlsx` a procesar.
 - `AUTO_COV_TYPE`: `Absoluta`, `relativa` o `AUTO`.
-- `AUTO_RAZON`: razon del analisis.
+- `AUTO_RAZON`: razón del análisis.
 - `AUTO_EJE`: `simple` o `doble`.
-- `AUTO_ENGLISH`: `1/0`.
-- `AUTO_ROUND_COV`: `1/0`.
+- `AUTO_ENGLISH`: `1/0` (incluye etiquetas en inglés).
+- `AUTO_ROUND_COV`: `1/0` (redondeo de cobertura).
 - `AUTO_VAR_BOX_STYLE` o `AUTO_VAR_STYLE`: `classic` o `pretty`.
 - `AUTO_COV_SLIDE` o `AUTO_COV_SLIDE_STYLE`: `classic` o `complemented`.
 - `AUTO_EVO_SLIDE` o `AUTO_EVO_SLIDE_STYLE`: `classic` o `simple`.
-- `AUTO_EXTEA` o `AUTO_EXTRA_MONTHS`: meses extra para summary (ej. `8,11`).
+- `AUTO_EXTEA` o `AUTO_EXTRA_MONTHS`: meses extra para summary, por ejemplo `8,11`.
 - `AUTO_EXTEA_MODE` o `AUTO_EXTRA_MONTHS_MODE`: `recent` o `both`.
+- `AUTO_INDEX` y `AUTO_TOTAL`: opcionales para corridas batch.
+
+Ejemplo (PowerShell):
+```powershell
+$env:AUTO_FILE = "52_CARB_Coca Cola.xlsx"
+$env:AUTO_COV_TYPE = "Absoluta"
+$env:AUTO_RAZON = "Otras"
+$env:AUTO_EJE = "simple"
+$env:AUTO_ENGLISH = "0"
+$env:AUTO_ROUND_COV = "1"
+python coverage_studio.py
+```
 
 ## Salidas generadas
-Para cada archivo procesado se crea una carpeta:
+Por cada archivo procesado se crea una carpeta:
 - `<Pais>-<CategoriaCorta>-<Fabricante>-<Ref>_<CoverageLabel>`
 
-Dentro de esa carpeta se guarda:
+Dentro se generan:
 1. `Template_<Pais>-<CategoriaCorta>-<Fabricante>-<Ref>_<CoverageLabel>.xlsx`
 2. `<Pais>-<CategoriaCorta>-<Fabricante>-<Ref>_<CoverageLabel>.pptx`
 3. `Banco_<Fabricante>_<Categoria>_<Pais>_<Ref>_<CoverageLabel>.xlsx`
 
-Adicional:
-- Se usa una carpeta temporal `tmp/` durante el proceso y se elimina al final.
+Notas:
+- Se usa la carpeta temporal `tmp/` durante la ejecución y se elimina al final.
+- El archivo `file_temp_coverage.xlsx` es auxiliar interno del proceso.
 
-## Flujo general (Mermaid)
+## Flujo general
 
 ```mermaid
 flowchart TD
-    A[Inicio] --> B{Ya tienes Excel de entrada?}
+    A[Inicio] --> B{Ya tienes Excel de entrada}
     B -- No --> C[Ejecutar python archivos_studio.py]
     C --> D[Llenar datos en el Excel generado]
-    B -- Si --> E[Usar Excel existente codigoPais_codigoCategoria_fabricante.xlsx]
+    B -- Si --> E[Usar Excel existente]
     D --> F[Ejecutar python coverage_studio.py]
     E --> F
-    F --> G[Seleccionar archivos xlsx]
-    G --> H[Configurar opciones cobertura razon ejes slides idioma]
+    F --> G[Seleccionar archivo(s) xlsx]
+    G --> H[Configurar opciones de cobertura]
     H --> I[Procesamiento por marca y pipeline]
-    I --> J[Genera carpeta de salida]
+    I --> J[Crear carpeta de salida]
     J --> K[Guardar Template xlsx]
     J --> L[Guardar reporte pptx]
     J --> M[Guardar banco de coberturas xlsx]
     M --> N[Fin]
 ```
 
-## Troubleshooting rapido
-- Error de plantilla: valida que `Modelo_PPT.pptx` exista en la misma carpeta.
-- No aparecen archivos Excel: revisa que terminen en `.xlsx` y no esten abiertos/bloqueados.
-- Error de metadata en nombre: revisa formato `<codPais>_<codCategoria>_<fabricante>.xlsx`.
-- Inconsistencias de salida: verifica que las hojas tengan estructura de datos completa y fechas validas.
+## Troubleshooting
+- Error de plantilla: valida que `Modelo_PPT.pptx` exista en la raíz del proyecto.
+- No aparecen archivos Excel: verifica que terminen en `.xlsx`, no empiecen con `~$` y no estén bloqueados.
+- Error de metadata en nombre: revisa el formato `<codPais>_<codCategoria>_<fabricante>.xlsx`.
+- Error por dependencias faltantes: ejecuta `pip install -r requirements.txt`.
 
 ## Licencia
 Uso interno del equipo.
