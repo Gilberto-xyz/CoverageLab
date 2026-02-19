@@ -133,7 +133,7 @@ flowchart TD
     B -- Si --> E[Usar Excel existente]
     D --> F[Ejecutar python coverage_studio.py]
     E --> F
-    F --> G[Seleccionar archivo(s) xlsx]
+    F --> G[Seleccionar archivos xlsx]
     G --> H[Configurar opciones de cobertura]
     H --> I[Procesamiento por marca y pipeline]
     I --> J[Crear carpeta de salida]
