@@ -4125,60 +4125,20 @@ def generate_excel_template(
                         """
                         return f"=IF(OR(COUNTIF({num_range},0)>0,COUNTIF({den_range},0)>0),\"-\",{formula_body})"
 
-                    # ---------- Y-1 -------------------------------------------------
-                    var = pd.DataFrame([
-                        ['Anual',      "MAT " + df_excel.loc[original_data_rows-1, COL_DATA].strftime('%b-%y') +
-                                    " x MAT " + df_excel.loc[original_data_rows-1-12, COL_DATA].strftime('%b-%y')],
-                        ['Semestral',  "SEM " + df_excel.loc[original_data_rows-1, COL_DATA].strftime('%b-%y') +
-                                    " x SEM " + df_excel.loc[original_data_rows-1-6,  COL_DATA].strftime('%b-%y')],
-                        ['Trimestral', "TRI " + df_excel.loc[original_data_rows-1, COL_DATA].strftime('%b-%y') +
-                                    " x TRI " + df_excel.loc[original_data_rows-1-3,  COL_DATA].strftime('%b-%y')]
-                    ], columns=['Tipo', 'Periodo'])
-
-                    # Variaciones WP by Numerator
-                    var_wp = []
-                    for i, j in zip([10, 4, 1], [11, 5, 2]):
-                        num_start = original_data_rows + excel_row_offset - i - 2
-                        num_end = original_data_rows + excel_row_offset - 1
-                        den_start = original_data_rows + excel_row_offset - 2 * j - 2
-                        den_end = original_data_rows + excel_row_offset - j - 2
-                        num_range = f"C{num_start}:C{num_end}"
-                        den_range = f"C{den_start}:C{den_end}"
-                        formula_body = f"SUM({num_range})/SUM({den_range})-1"
-                        var_wp.append(build_if_no_zero(num_range, den_range, formula_body))
-                    var['WP by Numerator'] = var_wp
-
-                    # Variaciones Cliente
-                    for p in range(7):
-                        cli_var = []
-                        for i, j in zip([10, 4, 1], [11, 5, 2]):
-                            num_start = original_data_rows + excel_row_offset - i - p - 2
-                            num_end = original_data_rows + excel_row_offset - p - 1
-                            den_start = original_data_rows + excel_row_offset - 2 * j - p - 2
-                            den_end = original_data_rows + excel_row_offset - j - p - 2
-                            num_range = f"L{num_start}:L{num_end}"
-                            den_range = f"L{den_start}:L{den_end}"
-                            formula_body = f"SUM({num_range})/SUM({den_range})-1"
-                            cli_var.append(build_if_no_zero(num_range, den_range, formula_body))
-                        var[f'Cliente P{p}'] = cli_var
-
-                    # ---------- Y-2 -------------------------------------------------
-                    # Ventanas: MAT=12, SEM=6, TRI=3  (todas comparadas contra el mismo tamaño W, 24 meses antes)
-                    periods = [
-                        ('Anual',      12,  24),   # (nombre, meses_ventana, lag_meses)
-                        ('Semestral',   6,  24),
-                        ('Trimestral',  3,  24),
-                    ]
-
-                    # Texto de periodo (tu formato actual)
-                    aux = pd.DataFrame([
-                        ['Anual',      "MAT " + df_excel.loc[original_data_rows-1,     COL_DATA].strftime('%b-%y') +
-                                    " x MAT " + df_excel.loc[original_data_rows-1-24, COL_DATA].strftime('%b-%y')],
-                        ['Semestral',  "SEM " + df_excel.loc[original_data_rows-1,     COL_DATA].strftime('%b-%y') +
-                                    " x SEM " + df_excel.loc[original_data_rows-1-24, COL_DATA].strftime('%b-%y')],
-                        ['Trimestral', "TRI " + df_excel.loc[original_data_rows-1,     COL_DATA].strftime('%b-%y') +
-                                    " x TRI " + df_excel.loc[original_data_rows-1-24, COL_DATA].strftime('%b-%y')]
-                    ], columns=['Tipo', 'Periodo'])
+                    def format_period_label(prefix: str, lag_meses: int) -> str:
+                        """
+                        Construye etiquetas tipo 'MAT ene-26 x MAT ene-25' de forma segura.
+                        Si no hay historia suficiente, devuelve '-'.
+                        """
+                        idx_curr = n_data - 1
+                        idx_prev = idx_curr - lag_meses
+                        if idx_curr < 0 or idx_prev < 0 or idx_curr >= n_data or idx_prev >= n_data:
+                            return "-"
+                        fecha_curr = pd.to_datetime(df_excel.iloc[idx_curr][COL_DATA], errors="coerce")
+                        fecha_prev = pd.to_datetime(df_excel.iloc[idx_prev][COL_DATA], errors="coerce")
+                        if pd.isna(fecha_curr) or pd.isna(fecha_prev):
+                            return "-"
+                        return f"{prefix} {fecha_curr.strftime('%b-%y')} x {prefix} {fecha_prev.strftime('%b-%y')}"
 
                     def rango_excel(end_row: int, meses: int) -> tuple[int, int]:
                         """Devuelve (inicio, fin) inclusivo para una ventana de 'meses' que termina en 'end_row'."""
@@ -4199,6 +4159,60 @@ def generate_excel_template(
                         formula_body = f"SUM({num_range})/SUM({den_range})-1"
                         return build_if_no_zero(num_range, den_range, formula_body)
 
+                    # ---------- Y-1 -------------------------------------------------
+                    # Ventanas: MAT=12, SEM=6, TRI=3 comparadas contra su misma ventana 12/6/3 meses antes.
+                    y1_periods = [
+                        ("Anual", "MAT", 12, 12),       # (tipo, etiqueta, meses_ventana, lag_meses)
+                        ("Semestral", "SEM", 6, 6),
+                        ("Trimestral", "TRI", 3, 3),
+                    ]
+                    var = pd.DataFrame(
+                        [
+                            [tipo, format_period_label(etiqueta, lag)]
+                            for tipo, etiqueta, _, lag in y1_periods
+                        ],
+                        columns=['Tipo', 'Periodo']
+                    )
+
+                    # Variaciones WP by Numerator
+                    var_wp = []
+                    for _, _, meses, lag in y1_periods:
+                        required = meses + lag
+                        if n_data >= required:
+                            var_wp.append(formula_yoy_excel("C", last_row_excel, meses, lag))
+                        else:
+                            var_wp.append("-")
+                    var['WP by Numerator'] = var_wp
+
+                    # Variaciones Cliente
+                    for p in range(7):
+                        end_row_p = last_row_excel - p
+                        cli_var = []
+                        for _, _, meses, lag in y1_periods:
+                            required = meses + lag
+                            if (n_data - p) >= required:
+                                cli_var.append(formula_yoy_excel("L", end_row_p, meses, lag))
+                            else:
+                                cli_var.append("-")
+                        var[f'Cliente P{p}'] = cli_var
+
+                    # ---------- Y-2 -------------------------------------------------
+                    # Ventanas: MAT=12, SEM=6, TRI=3  (todas comparadas contra el mismo tamaño W, 24 meses antes)
+                    periods = [
+                        ('Anual',      'MAT', 12,  24),   # (tipo, etiqueta, meses_ventana, lag_meses)
+                        ('Semestral',  'SEM', 6,   24),
+                        ('Trimestral', 'TRI', 3,   24),
+                    ]
+
+                    # Texto de periodo (formato robusto para evitar KeyError con pocos meses)
+                    aux = pd.DataFrame(
+                        [
+                            [tipo, format_period_label(etiqueta, lag)]
+                            for tipo, etiqueta, _, lag in periods
+                        ],
+                        columns=['Tipo', 'Periodo']
+                    )
+
                     # Reglas de suficiencia de datos por ventana para Y-2:
                     #  - MAT (12): requiere >= 12 + 24 = 36 meses
                     #  - SEM (6):  requiere >= 6  + 24 = 30 meses
@@ -4206,7 +4220,7 @@ def generate_excel_template(
 
                     # ► WP by Numerator (columna C)
                     wp_y2_formulas = []
-                    for _, meses, lag in periods:
+                    for _, _, meses, lag in periods:
                         required = meses + lag
                         if n_data >= required:
                             wp_y2_formulas.append(formula_yoy_excel("C", last_row_excel, meses, lag))
@@ -4218,7 +4232,7 @@ def generate_excel_template(
                     for p in range(7):
                         end_row_p = last_row_excel - p
                         cli_y2 = []
-                        for _, meses, lag in periods:
+                        for _, _, meses, lag in periods:
                             required = meses + lag
                             # Suficiencia: descontamos 'p' del total disponible para ese cliente
                             if (n_data - p) >= required:
