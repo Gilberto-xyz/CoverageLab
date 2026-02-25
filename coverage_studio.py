@@ -701,7 +701,14 @@ def _load_heavy_modules() -> None:
         )
         from PIL import Image, ImageOps
 
-        pd.set_option('future.no_silent_downcasting', True)
+        # This option is deprecated in pandas 3.x and removed in pandas 4.x.
+        # Keep it only for older versions where it still applies.
+        try:
+            pandas_major = int(str(pd.__version__).split('.', 1)[0])
+        except (TypeError, ValueError):
+            pandas_major = 0
+        if pandas_major < 3:
+            pd.set_option('future.no_silent_downcasting', True)
         pd.set_option('mode.chained_assignment', None)
         warnings.filterwarnings('ignore')
 
@@ -3317,7 +3324,11 @@ class SlideBuilder:
                                 return "background-color: #FFC7CE; color: #9C0006"
                             return ""
 
-                        styler = styler.applymap(_colorize, subset=value_columns)
+                        # pandas >= 3 removed Styler.applymap in favor of Styler.map.
+                        if hasattr(styler, "map"):
+                            styler = styler.map(_colorize, subset=value_columns)
+                        else:
+                            styler = styler.applymap(_colorize, subset=value_columns)
                     text_columns = [col for col in ('Tipo', 'Periodo') if col in assets.variations_detail.columns]
                     if text_columns:
                         styler = styler.set_properties(subset=text_columns, **{"text-align": "left"})
