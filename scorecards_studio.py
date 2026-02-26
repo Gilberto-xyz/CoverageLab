@@ -631,20 +631,9 @@ def _build_scorecards(pais, criterio, sheet_names, pipeline_by_brand):
         brand_name = _clean_brand_name_from_sheet(sheet_name)
         pipelines = _pipelines_to_run_for_sheet(sheet_name)
 
-        if len(pipelines) == 1 and _extract_preassigned_pipeline(sheet_name) is not None:
-            print(
-                f"  {Colors.OKGREEN}Marca:{Colors.ENDC} {brand_name} "
-                f"{Colors.WARNING}| Pipeline preasignado desde hoja '{sheet_name}': {pipelines[0]}{Colors.ENDC}"
-            )
-        else:
-            print(
-                f"  {Colors.OKGREEN}Marca:{Colors.ENDC} {brand_name} "
-                f"{Colors.WARNING}| Sin prefijo pN_ en hoja '{sheet_name}', se ejecutan pipelines 0-6{Colors.ENDC}"
-            )
-
         for pipeline in pipelines:
             progress += 1
-            print(f"    {Colors.OKBLUE}[{progress}/{total}]{Colors.ENDC} {brand_name} -> Pipeline {pipeline}")
+            print(f"{Colors.OKBLUE}[{progress}/{total}]{Colors.ENDC} Marca: {brand_name} | Pipeline: {pipeline}")
             entry = _compute_scorecard(brand_df, brand_name, pipeline, pais, criterio)
             entries.append(entry)
 
