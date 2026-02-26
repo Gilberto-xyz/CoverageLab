@@ -67,6 +67,13 @@ POP_COVERAGE_MAP = {
     "Republica Dominicana": "63%",
 }
 
+BRASIL_BENCHMARK_BY_PENETRATION = [
+    ("1% - 5%", "40%"),
+    ("6% - 10%", "53%"),
+    ("11% - 30%", "54%"),
+    ("31% - 70%", "59%"),
+]
+
 
 def _load_categories_map_from_coverage_studio():
     studio_path = Path(__file__).with_name("coverage_studio.py")
@@ -240,10 +247,29 @@ def _normalize_text(value):
 
 
 def _country_from_source_file(source_file):
-    parts = Path(source_file).stem.split("_")
+    stem = Path(source_file).stem
+    parts = re.split(r"[_\-]+", stem)
     if not parts:
         return None
-    return COUNTRY_MAP.get(parts[0])
+
+    # Intento 1: prefijo por código de país (ej. 55_xxxx).
+    by_code = COUNTRY_MAP.get(parts[0])
+    if by_code:
+        return by_code
+
+    # Intento 2: país explícito en el nombre (ej. Brasil_xxxx o Brazil-xxxx).
+    normalized_stem = _normalize_text(stem)
+    country_aliases = {
+        "brasil": "Brasil",
+        "brazil": "Brasil",
+    }
+    for country in COUNTRY_MAP.values():
+        country_aliases[_normalize_text(country)] = country
+
+    for alias, canonical in country_aliases.items():
+        if alias and alias in normalized_stem:
+            return canonical
+    return None
 
 
 def _select_country_for_source(source_file):
@@ -274,15 +300,39 @@ def _infer_sample_size(brand_df):
     return int(round(value))
 
 
+def _print_brazil_benchmark_notification():
+    message = (
+        "Notificacion: Se detecto Brasil. "
+        "Se utilizaran los valores del Benchmark de Cobertura por nivel de penetracion."
+    )
+    print(f"\n{Colors.WARNING}{message}{Colors.ENDC}")
+
+    headers = ("Rango de Penetracion", "Cobertura Benchmark")
+    col1_width = max(len(headers[0]), max(len(row[0]) for row in BRASIL_BENCHMARK_BY_PENETRATION))
+    col2_width = max(len(headers[1]), max(len(row[1]) for row in BRASIL_BENCHMARK_BY_PENETRATION))
+    separator = "-" * (col1_width + col2_width + 3)
+
+    print(f"{Colors.OKCYAN}{separator}{Colors.ENDC}")
+    print(f"{Colors.OKCYAN}{headers[0].ljust(col1_width)} | {headers[1].ljust(col2_width)}{Colors.ENDC}")
+    print(f"{Colors.OKCYAN}{separator}{Colors.ENDC}")
+    for penetration_range, coverage in BRASIL_BENCHMARK_BY_PENETRATION:
+        print(f"{penetration_range.ljust(col1_width)} | {coverage.ljust(col2_width)}")
+    print(f"{Colors.OKCYAN}{separator}{Colors.ENDC}")
+    print("Nota: Fuera de esos rangos, se aplica 82% como cobertura base para Brasil.")
+
+
 def _get_population_coverage(pais, penet1):
     if _normalize_text(pais) == "brasil":
-        if penet1 <= 5:
+        penet = _safe_float(penet1)
+        if penet is None:
+            return 82
+        if 1 <= penet <= 5:
             return 40
-        if penet1 <= 10:
+        if 5 < penet <= 10:
             return 53
-        if penet1 <= 30:
+        if 10 < penet <= 30:
             return 54
-        if penet1 <= 70:
+        if 30 < penet <= 70:
             return 59
         return 82
 
@@ -722,6 +772,8 @@ def main():
         try:
             category_name, sheet_names, _, pipeline_by_brand = _load_source_data(source_file)
             pais = _select_country_for_source(source_file)
+            if _normalize_text(pais) == "brasil":
+                _print_brazil_benchmark_notification()
             output_dir, default_output_name = _resolve_output_target(
                 source_file=source_file,
                 sheet_names=sheet_names,
