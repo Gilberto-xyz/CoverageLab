@@ -68,7 +68,7 @@ POP_COVERAGE_MAP = {
 }
 
 BRASIL_BENCHMARK_BY_PENETRATION = [
-    ("1% - 5%", "40%"),
+    ("0% - 5%", "40%"),
     ("6% - 10%", "53%"),
     ("11% - 30%", "54%"),
     ("31% - 70%", "59%"),
@@ -326,7 +326,7 @@ def _get_population_coverage(pais, penet1):
         penet = _safe_float(penet1)
         if penet is None:
             return 82
-        if 1 <= penet <= 5:
+        if 0 <= penet <= 5:
             return 40
         if 5 < penet <= 10:
             return 53
@@ -607,6 +607,8 @@ def _compute_scorecard(brand_df, brand, pipeline, pais, criterio):
         "marca": brand,
         "pipeline": pipeline,
         "scorecard": scorecard_df,
+        "penet_12m": float(round(penet1, 2)),
+        "cobertura_benchmark": float(round(cobertura_poblacional, 2)),
         "lim_inf_verde": float(limit_inferior_verde),
         "lim_sup_verde": float(limit_superior_verde),
         "lim_inf_rojo": float(limit_inferior_rojo),
@@ -674,7 +676,7 @@ def export_scorecards_single_sheet(scorecards, output_dir, output_file, sheet_na
         scorecard_df = entry["scorecard"].copy()
         scorecard_df.insert(0, "Score Card", scorecard_df.index)
 
-        headers = ["Marca", "Pipeline"] + list(scorecard_df.columns)
+        headers = ["Marca", "Pipeline"] + list(scorecard_df.columns) + ["", "Penetracion Prom 12M", "Cobertura Benchmark"]
         sheet.append(headers)
         header_row = sheet.max_row
         for col_idx in range(1, len(headers) + 1):
@@ -686,12 +688,16 @@ def export_scorecards_single_sheet(scorecards, output_dir, output_file, sheet_na
 
         start_row = sheet.max_row + 1
         for values in scorecard_df.itertuples(index=False, name=None):
-            sheet.append([entry["marca"], entry["pipeline"]] + list(values))
+            penet_value = float(entry.get("penet_12m", 0.0))
+            cobertura_benchmark = float(entry.get("cobertura_benchmark", 0.0))
+            sheet.append([entry["marca"], entry["pipeline"]] + list(values) + [None, penet_value, cobertura_benchmark])
         end_row = sheet.max_row
 
         if end_row > start_row:
             sheet.merge_cells(start_row=start_row, start_column=1, end_row=end_row, end_column=1)
             sheet.merge_cells(start_row=start_row, start_column=2, end_row=end_row, end_column=2)
+            sheet.merge_cells(start_row=start_row, start_column=10, end_row=end_row, end_column=10)
+            sheet.merge_cells(start_row=start_row, start_column=11, end_row=end_row, end_column=11)
 
         coverage_row = None
         stab_row = None
@@ -729,8 +735,10 @@ def export_scorecards_single_sheet(scorecards, output_dir, output_file, sheet_na
             sheet.cell(row=row_idx, column=6).fill = fills["green"]
             sheet.cell(row=row_idx, column=7).fill = fills["yellow"]
             sheet.cell(row=row_idx, column=8).fill = fills["red"]
+            sheet.cell(row=row_idx, column=10).number_format = '0.0"%"'
+            sheet.cell(row=row_idx, column=11).number_format = '0.0"%"'
 
-            for col_idx in range(1, 9):
+            for col_idx in range(1, len(headers) + 1):
                 cell = sheet.cell(row=row_idx, column=col_idx)
                 cell.font = normal_font
                 cell.alignment = align_center
