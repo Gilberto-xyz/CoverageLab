@@ -1975,6 +1975,18 @@ def generar_grafico_tendencia(
         labs = [l.get_label() for l in lns]
         ax_trend.legend(lns, labs, loc='lower center', bbox_to_anchor=(0.5, legend_y), frameon=False, prop={'size': 11}, ncol=2)
 
+    # Divisores de ciclo anual: cada 12 meses hacia atrás desde el último dato.
+    if len(x_labels) > 12:
+        for idx in range(len(x_labels) - 13, -1, -12):
+            ax_trend.axvline(
+                x=x_labels[idx],
+                color="#B0B0B0",
+                linestyle="--",
+                linewidth=1.1,
+                alpha=0.35,
+                zorder=0,
+            )
+
     ax_trend.tick_params(axis='x', rotation=30, labelsize=9)
     for label in ax_trend.get_xticklabels():
         label.set_ha('right')
