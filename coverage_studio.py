@@ -14,8 +14,6 @@ import sys
 import threading
 import time
 import unicodedata
-import colorsys
-import hashlib
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Dict, Iterable, List, Optional, Sequence, Tuple, Callable, Set
@@ -72,6 +70,20 @@ PREVIEW_COPY_SUFFIX_RE = re.compile(
 # Umbral mínimo para que los nombres resaltados sean legibles en fondos oscuros
 # o temas de terminal con bajo contraste.
 MIN_READABLE_LUMINANCE = 170.0
+TERMINAL_BRAND_COLOR_SEQUENCE: Tuple[Tuple[int, int, int], ...] = (
+    (31, 119, 180),   # Azul
+    (214, 39, 40),    # Rojo
+    (44, 160, 44),    # Verde
+    (255, 127, 14),   # Naranja
+    (148, 103, 189),  # Morado
+    (23, 190, 207),   # Cian
+    (140, 86, 75),    # Marron
+    (227, 119, 194),  # Rosa
+    (188, 189, 34),   # Oliva
+    (63, 81, 181),    # Indigo
+    (0, 173, 181),    # Turquesa
+    (255, 64, 129),   # Magenta
+)
 TEMPLATE_TAB_COLOR_SEQUENCE: List[str] = [
     "#1F77B4", "#FF7F0E", "#2CA02C", "#D62728", "#9467BD", "#8C564B", "#E377C2", "#7F7F7F", "#BCBD22", "#17BECF",
     "#AEC7E8", "#FFBB78", "#98DF8A", "#FF9896", "#C5B0D5", "#C49C94", "#F7B6D2", "#C7C7C7", "#DBDB8D", "#9EDAE5",
@@ -5346,25 +5358,23 @@ class CoverageStudioUltraApp:
         return [f for f in os.listdir(self.root_dir) if f.endswith('.xlsx') and not f.startswith('~$') and f != EXCEL_TEMP_FILENAME]
 
     def _brand_color_rgb(self, brand: str) -> Tuple[int, int, int]:
-        """Asigna un color consistente por fabricante usando hash + HSV."""
+        """Asigna un color consistente y distinguible por fabricante."""
         key = normalize_brand_key(brand)
         if not key:
             return (255, 235, 59)
         cached = self._brand_color_cache.get(key)
         if cached:
             return cached
-        # Hash determinístico: misma marca => mismo color, sin depender de categoría.
-        digest = hashlib.sha1(key.encode("utf-8")).digest()
-        hue = int.from_bytes(digest[:2], "big") / 65535.0
-        # Rango claro para evitar colores oscuros en terminal.
-        saturation = 0.38 + (digest[2] / 255.0) * 0.27
-        value = 0.88 + (digest[3] / 255.0) * 0.10
-        r_f, g_f, b_f = colorsys.hsv_to_rgb(hue, saturation, value)
-        rgb = (int(r_f * 255), int(g_f * 255), int(b_f * 255))
-        # Último ajuste de legibilidad para evitar marcas poco visibles.
-        rgb = lift_color_to_min_luminance(rgb)
-        self._brand_color_cache[key] = rgb
-        return rgb
+        used_colors = set(self._brand_color_cache.values())
+        for candidate in TERMINAL_BRAND_COLOR_SEQUENCE:
+            readable_candidate = lift_color_to_min_luminance(candidate)
+            if readable_candidate not in used_colors:
+                self._brand_color_cache[key] = readable_candidate
+                return readable_candidate
+        fallback = TERMINAL_BRAND_COLOR_SEQUENCE[len(self._brand_color_cache) % len(TERMINAL_BRAND_COLOR_SEQUENCE)]
+        fallback = lift_color_to_min_luminance(fallback)
+        self._brand_color_cache[key] = fallback
+        return fallback
 
     def _colorize_filename_brand(self, filename: str) -> str:
         """Colorea solo el fabricante dentro del nombre del .xlsx."""
