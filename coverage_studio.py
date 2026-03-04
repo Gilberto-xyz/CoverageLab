@@ -83,6 +83,18 @@ TERMINAL_BRAND_COLOR_SEQUENCE: Tuple[Tuple[int, int, int], ...] = (
     (63, 81, 181),    # Indigo
     (0, 173, 181),    # Turquesa
     (255, 64, 129),   # Magenta
+    (57, 59, 121),    # Azul oscuro
+    (82, 84, 163),    # Azul violeta
+    (107, 110, 207),  # Lavanda intensa
+    (99, 121, 57),    # Verde musgo
+    (140, 162, 82),   # Verde oliva claro
+    (140, 109, 49),   # Cafe
+    (189, 158, 57),   # Mostaza
+    (132, 60, 57),    # Rojo ladrillo
+    (173, 73, 74),    # Coral oscuro
+    (123, 65, 115),   # Purpura profundo
+    (165, 81, 148),   # Fucsia oscuro
+    (230, 85, 13),    # Naranja quemado
 )
 TEMPLATE_TAB_COLOR_SEQUENCE: List[str] = [
     "#1F77B4", "#FF7F0E", "#2CA02C", "#D62728", "#9467BD", "#8C564B", "#E377C2", "#7F7F7F", "#BCBD22", "#17BECF",
