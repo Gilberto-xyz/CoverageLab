@@ -1181,6 +1181,46 @@ def print_file_locked_error(path_str: str, *, elapsed_seconds: Optional[float] =
     console.print()
 
 
+def print_reference_date_detection_warning(
+    *,
+    file_label: Optional[str] = None,
+    sheet_names: Optional[Sequence[str]] = None,
+    elapsed_seconds: Optional[float] = None,
+) -> None:
+    """Muestra un panel amarillo cuando no se detecta una fecha valida para el template."""
+    hora_actual = datetime.now().strftime("%I:%M:%S %p")
+    elapsed_line = ""
+    if elapsed_seconds is not None:
+        elapsed_line = f"\n[white]Tiempo total: [bold]{_format_elapsed(elapsed_seconds)}[/bold][/white]"
+
+    file_line = ""
+    if file_label:
+        file_line = f"\n[white]Archivo: [bold]{file_label}[/bold][/white]"
+
+    sheets_line = ""
+    if sheet_names:
+        clean_names = [str(name).strip() for name in sheet_names if str(name).strip()]
+        if clean_names:
+            preview = ", ".join(clean_names[:6])
+            if len(clean_names) > 6:
+                preview += ", ..."
+            sheets_line = f"\n[white]Hojas a revisar: [bold]{preview}[/bold][/white]"
+
+    msg = (
+        "[bright_white]Proceso detenido por advertencia[/bright_white]\n\n"
+        "[white]No se detectaron correctamente las fechas del archivo Excel.[/white]\n"
+        "[white]No se pudo determinar el mes de referencia para nombrar el template.[/white]\n"
+        "[white]Revisa la columna de fechas en las hojas procesadas y vuelve a ejecutar.[/white]"
+        f"{file_line}"
+        f"{sheets_line}\n\n"
+        f"[white]Hora de finalizacion: [bold]{hora_actual}[/bold][/white]"
+        f"{elapsed_line}"
+    )
+    console.print()
+    console.print(Panel.fit(msg, border_style="yellow", title="Coverages Latam"))
+    console.print()
+
+
 def print_file_summary(ruta_excel: str, ruta_ppt: str, ruta_banco: str, *, elapsed_seconds: Optional[float] = None) -> None:
     """Muestra un resumen con las rutas generadas para el archivo."""
     console.print("\n[blue]Resumen de archivos generados:[/blue]")
@@ -4068,6 +4108,8 @@ def generate_excel_template(
     except Exception:
         print(Fore.CYAN + "\nGenerando archivo Excel temporal...")
     excel_temp_path = os.path.join(root_dir, EXCEL_TEMP_FILENAME)
+    ref_month_year: Optional[str] = None
+    sheets_without_reference_date: List[str] = []
     try:
         with pd.ExcelWriter(excel_temp_path) as writer:
             # Recorrer cada hoja (marca) del archivo
@@ -4094,8 +4136,16 @@ def generate_excel_template(
                         )
                         # Continuar de todos modos, pero con precaución
 
-                    # Actualizar fecha de referencia global (usará la de la última hoja procesada con éxito)
-                    ref_month_year = df_marca[COL_DATA].iloc[-1].strftime('%m-%y')
+                    # Actualizar fecha de referencia global usando la ultima fecha valida detectada.
+                    ref_date_value = pd.to_datetime(df_marca[COL_DATA].iloc[-1], errors="coerce")
+                    if pd.isna(ref_date_value):
+                        sheets_without_reference_date.append(marca_sheet_name)
+                        console.print(
+                            f"[yellow]Advertencia:[/] No se detecto una fecha valida en la ultima fila de "
+                            f"'{marca_sheet_name}'. Se omitira para calcular el mes de referencia del template."
+                        )
+                    else:
+                        ref_month_year = ref_date_value.strftime('%m-%y')
 
                     # --- 1.5) Creación de columnas con fórmulas Excel ---
                     df_excel = df_marca.copy() # Trabajar sobre una copia para Excel
@@ -4784,9 +4834,14 @@ def generate_excel_template(
 
     # --- 1.14) Renombrar y mover archivo Excel final ---
     if not ref_month_year:
-         print(f"{Fore.RED}{Style.BRIGHT}No se pudo determinar la fecha de referencia. No se puede renombrar el archivo Excel.")
          if os.path.exists(excel_temp_path):
-             os.remove(excel_temp_path)
+              os.remove(excel_temp_path)
+         source_excel = getattr(excel_file_obj, "io", None) or getattr(excel_file_obj, "_io", None)
+         source_label = os.path.basename(str(source_excel)) if source_excel else None
+         print_reference_date_detection_warning(
+             file_label=source_label,
+             sheet_names=sheets_without_reference_date or list(marcas),
+         )
          exit()
 
     nombre_base_archivo = f"{pais_nombre}-{categoria_nombre_corto}-{fabricante}-{ref_month_year}_{coverage_label}"
