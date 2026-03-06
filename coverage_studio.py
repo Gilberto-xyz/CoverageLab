@@ -422,6 +422,7 @@ MALT,Alimentos,Maltas
 SEAS,Alimentos,Adobos - Sazonadores
 MAYO,Alimentos,Mayonesa
 MEAT,Alimentos,Carnicos
+SNAG,Alimentos,Salchichas
 MLKM,Alimentos,Modificadores de Leche-Saborizadores p-leche
 MXCO,Alimentos,Mixta Cereales Infantiles+Avenas
 MXBS,Alimentos,Mixta Caldos + Saborizantes
