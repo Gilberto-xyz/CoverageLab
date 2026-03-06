@@ -1287,8 +1287,8 @@ def normalize_input_date_value(value):
 
     if re.match(r"\w{3}-\d{2}$", text):
         try:
-            datetime.strptime(text, "%b-%y")
-            return text
+            parsed = datetime.strptime(text, "%b-%y")
+            return f"{parsed.year:04d}-{parsed.month:02d}-01"
         except ValueError:
             return value
 
@@ -1881,7 +1881,13 @@ def generar_grafico_evolucion_mensual(
             ax2.set_ylim(y2_min - padding, y2_max + padding*2)
 
         # Formato Eje X (Fechas) con extensión de un mes antes y después
-        fechas_validas = df_plot[COL_DATA]
+        fechas_validas = pd.to_datetime(df_plot[COL_DATA], errors="coerce").dropna()
+        if fechas_validas.empty:
+            raise ValueError("No hay fechas validas para construir el grafico de evolucion mensual.")
+        if int(fechas_validas.min().year) <= 1:
+            raise ValueError(
+                f"Se detectaron fechas fuera de rango en el grafico de evolucion mensual: min={fechas_validas.min()!s}"
+            )
         fecha_min = fechas_validas.min() - pd.DateOffset(months=1)
         fecha_max = fechas_validas.max() + pd.DateOffset(months=1)
         ax1.set_xlim([fecha_min, fecha_max])
