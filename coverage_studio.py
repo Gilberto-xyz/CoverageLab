@@ -1274,6 +1274,36 @@ def print_file_summary(ruta_excel: str, ruta_ppt: str, ruta_banco: str, *, elaps
     console.print()
 
 
+DIRTY_MONTH_END_DATE_RE = re.compile(r"^\s*\d+\s+m/e\s+(\d{4})/(\d{2})/(\d{2})\s*$", re.IGNORECASE)
+
+
+def normalize_input_date_value(value):
+    """Normaliza formatos sucios de fecha antes de convertirlos con pandas."""
+    if not isinstance(value, str):
+        return value
+    text = value.strip()
+    if not text:
+        return value
+
+    if re.match(r"\w{3}-\d{2}$", text):
+        try:
+            datetime.strptime(text, "%b-%y")
+            return text
+        except ValueError:
+            return value
+
+    dirty_month_end_match = DIRTY_MONTH_END_DATE_RE.match(text)
+    if dirty_month_end_match:
+        try:
+            year = int(dirty_month_end_match.group(1))
+            month = int(dirty_month_end_match.group(2))
+            datetime(year, month, 1)
+            return f"{year:04d}-{month:02d}-01"
+        except ValueError:
+            return value
+
+    return value
+
 
 def calc_var1(df, coluna, p):
     """
@@ -1609,18 +1639,14 @@ def load_and_preprocess_sheet(excel_file_obj, sheet_name):
         # Maneja posibles errores de formato o valores nulos
         original_dates = df_sheet[COL_DATA].copy()  # Guardar original por si falla
         try:
-            # Intenta convertir primero todos los que sean strings
-            is_string = df_sheet[COL_DATA].apply(lambda x: isinstance(x, str))
-            if is_string.any():
-                # Intenta formato específico primero, maneja errores individuales
-                df_sheet.loc[is_string, COL_DATA] = df_sheet.loc[is_string, COL_DATA].apply(
-                    lambda x: dt.strptime(x, '%b-%y  ') if isinstance(x, str) and re.match(r'\w{3}-\d{2}\s{2}', x) else x
-                )
+            # Normaliza formatos sucios de entrada antes de delegar el parseo general a pandas.
+            normalized_dates = df_sheet[COL_DATA].apply(normalize_input_date_value)
             # Convierte el resto (o los ya convertidos) a datetime
-            df_sheet[COL_DATA] = pd.to_datetime(df_sheet[COL_DATA], errors='coerce')
+            df_sheet[COL_DATA] = pd.to_datetime(normalized_dates, errors='coerce')
         except Exception as e:
             print(f"{Fore.YELLOW}Advertencia: Problema al convertir fechas en hoja '{sheet_name}'. Error: {e}. Se usará la columna original si es posible.")
-            df_sheet[COL_DATA] = pd.to_datetime(original_dates, errors='coerce')  # Reintentar con la original
+            fallback_dates = original_dates.apply(normalize_input_date_value)
+            df_sheet[COL_DATA] = pd.to_datetime(fallback_dates, errors='coerce')  # Reintentar con la original
 
         # Eliminar filas donde la fecha no se pudo convertir (NaT)
         initial_rows = len(df_sheet)
@@ -1629,7 +1655,7 @@ def load_and_preprocess_sheet(excel_file_obj, sheet_name):
             print(f"{Fore.YELLOW}Advertencia: Se eliminaron {initial_rows - len(df_sheet)} filas de la hoja '{sheet_name}' por fechas inválidas.")
 
         if df_sheet.empty:
-            print(f"{Fore.red}Advertencia: La hoja '{sheet_name}' está vacía o no contiene fechas válidas después del preprocesamiento. Se omitirá.")
+            print(f"{Fore.RED}Advertencia: La hoja '{sheet_name}' está vacía o no contiene fechas válidas después del preprocesamiento. Se omitirá.")
             return None, None
 
         # Asegurar tipos numéricos (intentar convertir, rellenar NaN con 0 si falla)
