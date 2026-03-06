@@ -550,7 +550,7 @@ DEOD,Cuidado Personal,Desodorantes
 DIAP,Cuidado Personal,Panales-Panales Desechables
 FCCR,Cuidado Personal,Cremas Faciales
 FTIS,Cuidado Personal,Panuelos Faciales
-FEMI,Cuidado Personal,Proteccion Femenina-Toallas Femeninas
+FEMI,Cuidado Personal,Proteccion Femenina
 FRAG,Cuidado Personal,Fragancias
 HAIR,Cuidado Personal,Cuidado del Cabello-Hair Care
 HRCO,Cuidado Personal,Tintes para el Cabello-Tintes - Tintura - Tintes y Coloracion para el cabello
