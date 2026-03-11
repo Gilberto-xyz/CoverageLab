@@ -79,8 +79,9 @@ python scorecards_studio.py
 
 ### Hojas
 - Cada hoja se interpreta como una marca.
-- Si una hoja empieza con `P0_` a `P6_`, ese prefijo se usa como pipeline.
-- Si no tiene prefijo `P#_`, se procesa como pipeline `0`.
+- Si una hoja empieza con `P0_` a `P6_`, ese prefijo fuerza que se procese solo ese pipeline.
+- Si no tiene prefijo `P#_`, se procesan todos los pipelines `P0` a `P6`.
+- Ejemplo: `P1_P&G` genera solo Pipeline 1. `P&G` genera todos los pipelines.
 
 ## Modo automático (variables de entorno)
 Si defines `AUTO_FILE`, `coverage_studio.py` corre sin preguntas interactivas.
