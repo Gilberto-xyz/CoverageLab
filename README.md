@@ -93,7 +93,7 @@ Variables principales:
 - `AUTO_ENGLISH`: `1/0` (incluye etiquetas en inglés).
 - `AUTO_ROUND_COV`: `1/0` (redondeo de cobertura).
 - `AUTO_VAR_BOX_STYLE` o `AUTO_VAR_STYLE`: `classic` o `pretty`.
-- `AUTO_COV_SLIDE` o `AUTO_COV_SLIDE_STYLE`: `classic` o `complemented`.
+- `AUTO_COV_SLIDE` o `AUTO_COV_SLIDE_STYLE`: `classic`, `complemented` o `pg`.
 - `AUTO_EVO_SLIDE` o `AUTO_EVO_SLIDE_STYLE`: `classic` o `simple`.
 - `AUTO_EXTEA` o `AUTO_EXTRA_MONTHS`: meses extra para summary, por ejemplo `8,11`.
 - `AUTO_EXTEA_MODE` o `AUTO_EXTRA_MONTHS_MODE`: `recent` o `both`.

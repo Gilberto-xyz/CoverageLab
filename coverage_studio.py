@@ -217,15 +217,26 @@ def normalize_variations_box_style(raw_value: Optional[str]) -> str:
 
 
 def normalize_coverage_slide_variant(raw_value: Optional[str]) -> str:
-    """Normaliza el modo del slide de cobertura (classic | complemented)."""
+    """Normaliza el modo del slide de cobertura (classic | complemented | pg)."""
     val = (raw_value or "").strip().lower()
     if not val:
         return "classic"
+    if val in {"pg", "p&g", "p & g", "procter", "procter & gamble", "procter and gamble", "3"}:
+        return "pg"
     if val in {"complemented", "complementado", "complement", "penetracion", "penetración", "penetration", "2"}:
         return "complemented"
     if val in {"classic", "clasico", "clásico", "variacion", "variación", "var", "1"}:
         return "classic"
     return "classic"
+
+
+def coverage_slide_variant_label(variant: str) -> str:
+    normalized = normalize_coverage_slide_variant(variant)
+    if normalized == "complemented":
+        return "Complementado"
+    if normalized == "pg":
+        return "P&G"
+    return "Clasico"
 
 def normalize_evolution_slide_variant(raw_value: Optional[str]) -> str:
     """Normaliza el modo del slide de Evolucion mensual y variacion (classic | simple)."""
@@ -1016,6 +1027,8 @@ def clear_and_print_summary():
         slide_mode = str(_get("Slide Cobertura")).strip().lower()
         if "complement" in slide_mode:
             slide_disp = "Complementado (Penetracion MAT + Cobertura puntual + Estabilidad)"
+        elif "p&g" in slide_mode or slide_mode == "pg":
+            slide_disp = "P&G (grafico + tablas editables inferiores)"
         else:
             slide_disp = "Clasico (tabla VAR % MAT)"
         _line("Slide de cobertura", "Slide Cobertura", slide_disp)
@@ -1481,7 +1494,7 @@ def variations_box_style_option() -> str:
     return style
 
 def coverage_slide_variant_option() -> str:
-    """Elige el modo del slide de Cobertura (clásico o complementado)."""
+    """Elige el modo del slide de Cobertura (clásico, complementado o P&G)."""
     raw_env = next((os.environ.get(k) for k in COVERAGE_SLIDE_VARIANT_ENV_KEYS if os.environ.get(k) is not None), None)
     if raw_env is not None:
         variant = normalize_coverage_slide_variant(raw_env)
@@ -1489,17 +1502,21 @@ def coverage_slide_variant_option() -> str:
         print(Fore.CYAN + "\n¿Modo del slide de Cobertura?")
         print(Fore.WHITE + "1 - Clásico (tabla VAR % MAT)")
         print(Fore.WHITE + "2 - Complementado (Penetración MAT + Cobertura puntual + Estabilidad)")
+        print(Fore.WHITE + "3 - P&G (gráfico + tablas editables inferiores)")
         opciones = {
             "1": "classic",
             "2": "complemented",
+            "3": "pg",
             "clasico": "classic",
             "clásico": "classic",
             "complementado": "complemented",
             "complemented": "complemented",
+            "pg": "pg",
+            "p&g": "pg",
         }
-        eleccion = input(Fore.GREEN + "Elija 1 o 2: ").strip().lower()
+        eleccion = input(Fore.GREEN + "Elija 1, 2 o 3: ").strip().lower()
         variant = opciones.get(eleccion, "classic")
-    SELECTIONS["Slide Cobertura"] = "Complementado" if variant == "complemented" else "Clasico"
+    SELECTIONS["Slide Cobertura"] = coverage_slide_variant_label(variant)
     clear_and_print_summary()
     return variant
 
@@ -1911,7 +1928,20 @@ def generar_grafico_evolucion_mensual(
   
         return fig
 
-def generar_grafico_cobertura(slide, marca_clean, pipeline, df_cov_pipe, df_pen_pipe, lang_idx, coverage_label, labels_dict):
+def generar_grafico_cobertura(
+    slide,
+    marca_clean,
+    pipeline,
+    df_cov_pipe,
+    df_pen_pipe,
+    lang_idx,
+    coverage_label,
+    labels_dict,
+    *,
+    picture_left=None,
+    picture_top=None,
+    picture_height=None,
+):
     """Genera el gráfico de barras de Cobertura vs Penetración y lo añade al slide."""
     cov_series = df_cov_pipe if isinstance(df_cov_pipe, pd.Series) else pd.Series(df_cov_pipe)
     pen_series = df_pen_pipe if isinstance(df_pen_pipe, pd.Series) else pd.Series(df_pen_pipe)
@@ -2014,7 +2044,12 @@ def generar_grafico_cobertura(slide, marca_clean, pipeline, df_cov_pipe, df_pen_
     img_stream_bordered = io.BytesIO()
     bordered.save(img_stream_bordered, format='PNG')
     img_stream_bordered.seek(0)
-    slide.shapes.add_picture(img_stream_bordered, Inches(0.5), Inches(2.0), height=Inches(4.2))
+    slide.shapes.add_picture(
+        img_stream_bordered,
+        picture_left if picture_left is not None else Inches(0.5),
+        picture_top if picture_top is not None else Inches(2.0),
+        height=picture_height if picture_height is not None else Inches(4.2),
+    )
     plt.close(fig_cov)
 
 def generar_grafico_tendencia(
@@ -2221,6 +2256,13 @@ class PipelineAssets:
     buyers_mat_actual: Optional[float] = None
     penet_mat_actual: Optional[float] = None
     penet_mat_anterior: Optional[float] = None
+    annual_var_cliente_y1: Optional[float] = None
+    annual_var_cliente_y2: Optional[float] = None
+    annual_var_wp_y1: Optional[float] = None
+    annual_var_wp_y2: Optional[float] = None
+    measure_unit: Optional[str] = None
+    current_year_correlation: Optional[float] = None
+    trend_following: Optional[bool] = None
 
 
     summary_rows: List[Dict[str, str]] = field(default_factory=list)
@@ -2435,6 +2477,9 @@ class SlideBuilder:
         coverage_label: str,
         coverage_type: str,
         ref_month_year: str,
+        manufacturer_name: str,
+        country_name: str,
+        category_name_display: str,
         tipo_eje_tend: str,
         variations_box_style: str = "classic",
         coverage_slide_variant: str = "classic",
@@ -2445,6 +2490,9 @@ class SlideBuilder:
         self.coverage_label = coverage_label
         self.coverage_type = coverage_type
         self.ref_month_year = ref_month_year
+        self.manufacturer_name = manufacturer_name
+        self.country_name = country_name
+        self.category_name_display = category_name_display
         self.tipo_eje_tend = tipo_eje_tend
         self.variations_box_style = normalize_variations_box_style(variations_box_style)
         self.coverage_slide_variant = normalize_coverage_slide_variant(coverage_slide_variant)
@@ -2533,6 +2581,257 @@ class SlideBuilder:
 
     def _stability_label(self) -> str:
         return {1: "Estabilidade", 2: "Estabilidad", 3: "Stability"}[self.lang_index]
+
+    def _pg_text(self, key: str) -> str:
+        texts = {
+            1: {
+                "var_vol": "% VAR Vol",
+                "with_pipeline": "COM PIPELINE={pipeline}",
+                "worldpanel": "Worldpanel by Numerator",
+                "coverage": "Cobertura",
+                "relative_coverage": "Cobertura Relativa",
+                "annual_penetration": "Penetração\nAnual",
+                "unit_of_measure": "Unidade de medida",
+            },
+            2: {
+                "var_vol": "% VAR Vol",
+                "with_pipeline": "CON PIPELINE={pipeline}",
+                "worldpanel": "Worldpanel by Numerator",
+                "coverage": "Cobertura",
+                "relative_coverage": "Cobertura Relativa",
+                "annual_penetration": "Penetración\nAnual",
+                "unit_of_measure": "Unidad de medida",
+            },
+            3: {
+                "var_vol": "% VAR Vol",
+                "with_pipeline": "WITH PIPELINE={pipeline}",
+                "worldpanel": "Worldpanel by Numerator",
+                "coverage": "Coverage",
+                "relative_coverage": "Relative\nCoverage",
+                "annual_penetration": "Annual\nPenetration",
+                "unit_of_measure": "Unit of measure",
+            },
+        }
+        return texts.get(self.lang_index, texts[2]).get(key, "")
+
+    def _footer_month_abbr(self, month: int) -> str:
+        es = ["", "Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"]
+        pt = ["", "Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "Out", "Nov", "Dez"]
+        en = ["", "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+        table = en if self.lang_index == 3 else (pt if self.lang_index == 1 else es)
+        if 1 <= int(month) <= 12:
+            return table[int(month)]
+        return "-"
+
+    def _resolve_pg_coverage_values(self, coverage_series: "pd.Series") -> Tuple[float, float, float, float]:
+        try:
+            ref_dt = dt.strptime(self.ref_month_year, "%m-%y")
+        except Exception:
+            idx = pd.to_datetime(getattr(coverage_series, "index", []), errors="coerce")
+            idx = idx[~idx.isna()]
+            if len(idx) == 0:
+                return (np.nan, np.nan, np.nan, np.nan)
+            ref_dt = idx.max().to_pydatetime()
+
+        prev_dt = ref_dt - pd.DateOffset(months=12)
+        cov_prev = _coverage_value_for_year_month(coverage_series, int(prev_dt.year), int(prev_dt.month))
+        cov_curr = _coverage_value_for_year_month(coverage_series, int(ref_dt.year), int(ref_dt.month))
+        pop_val_num = get_population_coverage_percent(self.country_name) / 100.0
+        ctype = (self.coverage_type or "").strip().lower()
+        if ctype == "auto":
+            ctype = "absoluta"
+
+        if ctype == "relativa":
+            rel_prev = cov_prev
+            rel_curr = cov_curr
+            abs_prev = (float(cov_prev) * pop_val_num) if pop_val_num > 0 and pd.notna(cov_prev) else np.nan
+            abs_curr = (float(cov_curr) * pop_val_num) if pop_val_num > 0 and pd.notna(cov_curr) else np.nan
+        else:
+            abs_prev = cov_prev
+            abs_curr = cov_curr
+            rel_prev = (float(cov_prev) / pop_val_num) if pop_val_num > 0 and pd.notna(cov_prev) else np.nan
+            rel_curr = (float(cov_curr) / pop_val_num) if pop_val_num > 0 and pd.notna(cov_curr) else np.nan
+        return abs_prev, abs_curr, rel_prev, rel_curr
+
+    def _add_pg_variation_table_shape(self, slide, assets: PipelineAssets, *, left, top, width, height) -> None:
+        table_shape = slide.shapes.add_table(3, 3, left, top, width, height)
+        table_shape.height = height
+        table = table_shape.table
+        table.columns[0].width = int(width * 0.32)
+        table.columns[1].width = int(width * 0.34)
+        table.columns[2].width = width - table.columns[0].width - table.columns[1].width
+        table.rows[0].height = int(height * 0.45)
+        table.rows[1].height = int((height - table.rows[0].height) / 2)
+        table.rows[2].height = height - table.rows[0].height - table.rows[1].height
+
+        header_bg = self._hex_to_rgb("#8AA6C1")
+        white = RGBColor(255, 255, 255)
+        white_bg = RGBColor(255, 255, 255)
+
+        try:
+            ref_year = int(dt.strptime(self.ref_month_year, "%m-%y").year)
+        except Exception:
+            ref_year = dt.now().year
+        row_labels = [
+            f"{ref_year} VS {ref_year - 1}",
+            f"{ref_year - 1} VS {ref_year - 2}",
+        ]
+
+        self._set_table_cell_text(table.cell(0, 0), self._pg_text("var_vol"), fill_color=header_bg, font_color=white, font_size=10, align=2)
+        self._set_table_cell_text(
+            table.cell(0, 1),
+            f"{self.manufacturer_name.upper()} {self._pg_text('with_pipeline').format(pipeline=assets.pipeline)}",
+            fill_color=header_bg,
+            font_color=white,
+            font_size=10,
+            align=2,
+        )
+        self._set_table_cell_text(table.cell(0, 2), self._pg_text("worldpanel"), fill_color=header_bg, font_color=white, font_size=10, align=2)
+
+        value_specs = [
+            (row_labels[0], self._fmt_pct(assets.annual_var_cliente_y1), self._fmt_pct(assets.annual_var_wp_y1)),
+            (row_labels[1], self._fmt_pct(assets.annual_var_cliente_y2), self._fmt_pct(assets.annual_var_wp_y2)),
+        ]
+        for idx, (label, client_val, wp_val) in enumerate(value_specs, start=1):
+            client_color = self._summary_variation_font_color(client_val)
+            wp_color = self._summary_variation_font_color(wp_val)
+            self._set_table_cell_text(table.cell(idx, 0), label, fill_color=header_bg, font_color=white, font_size=10, align=2)
+            self._set_table_cell_text(table.cell(idx, 1), client_val, fill_color=white_bg, font_color=client_color, font_size=11, bold=False, align=2)
+            self._set_table_cell_text(table.cell(idx, 2), wp_val, fill_color=white_bg, font_color=wp_color, font_size=11, bold=False, align=2)
+
+    def _add_pg_coverage_table_shape(self, slide, assets: PipelineAssets, *, left, top, width, height) -> None:
+        table_shape = slide.shapes.add_table(3, 4, left, top, width, height)
+        table_shape.height = height
+        table = table_shape.table
+        table.columns[0].width = int(width * 0.22)
+        table.columns[1].width = int(width * 0.26)
+        table.columns[2].width = int(width * 0.26)
+        table.columns[3].width = width - table.columns[0].width - table.columns[1].width - table.columns[2].width
+        table.rows[0].height = int(height * 0.45)
+        table.rows[1].height = int((height - table.rows[0].height) / 2)
+        table.rows[2].height = height - table.rows[0].height - table.rows[1].height
+
+        header_bg = self._hex_to_rgb("#8AA6C1")
+        white = RGBColor(255, 255, 255)
+        black = RGBColor(0, 0, 0)
+        white_bg = RGBColor(255, 255, 255)
+
+        try:
+            ref_dt = dt.strptime(self.ref_month_year, "%m-%y")
+            curr_year = int(ref_dt.year)
+        except Exception:
+            curr_year = dt.now().year
+        prev_year = curr_year - 1
+        abs_prev, abs_curr, rel_prev, rel_curr = self._resolve_pg_coverage_values(assets.coverage_series)
+
+        def _fmt_cov_cell(value: object) -> str:
+            return "-" if value is None or pd.isna(value) else f"{float(value):.1f}"
+
+        self._set_table_cell_text(table.cell(0, 0), "", fill_color=header_bg, font_color=white, font_size=10, align=2)
+        self._set_table_cell_text(table.cell(0, 1), self._pg_text("coverage"), fill_color=header_bg, font_color=white, font_size=10, align=2)
+        self._set_table_cell_text(table.cell(0, 2), self._pg_text("relative_coverage"), fill_color=header_bg, font_color=white, font_size=10, align=2)
+        self._set_table_cell_text(table.cell(0, 3), self._pg_text("annual_penetration"), fill_color=header_bg, font_color=white, font_size=10, align=2)
+
+        rows = [
+            (str(curr_year), _fmt_cov_cell(abs_curr), _fmt_cov_cell(rel_curr), ""),
+            (str(prev_year), _fmt_cov_cell(abs_prev), _fmt_cov_cell(rel_prev), ""),
+        ]
+        for idx, row_values in enumerate(rows, start=1):
+            self._set_table_cell_text(table.cell(idx, 0), row_values[0], fill_color=header_bg, font_color=white, font_size=10, align=2)
+            self._set_table_cell_text(table.cell(idx, 1), row_values[1], fill_color=white_bg, font_color=black, font_size=11, bold=False, align=2)
+            self._set_table_cell_text(table.cell(idx, 2), row_values[2], fill_color=white_bg, font_color=black, font_size=11, bold=False, align=2)
+            self._set_table_cell_text(table.cell(idx, 3), row_values[3], fill_color=white_bg, font_color=black, font_size=11, bold=False, align=2)
+
+    def _add_pg_footer_text(self, slide, assets: PipelineAssets) -> None:
+        try:
+            ref_dt = dt.strptime(self.ref_month_year, "%m-%y")
+            period_txt = f"{self._footer_month_abbr(ref_dt.month)}'{ref_dt.year % 100:02d}"
+        except Exception:
+            period_txt = self.ref_month_year
+        unit_txt = str(assets.measure_unit or "-").strip() or "-"
+        if unit_txt.upper() == "VOLSU":
+            unit_txt = "Stats Units"
+        footer_txt = f"{self._pg_text('unit_of_measure')}: {unit_txt} | {period_txt} | {self.country_name}"
+        tb = slide.shapes.add_textbox(Inches(2.65), Inches(6.95), Inches(8.0), Inches(0.32))
+        tf = tb.text_frame
+        tf.clear()
+        p = tf.paragraphs[0]
+        p.text = footer_txt
+        p.font.size = Pt(16)
+        p.font.bold = False
+        p.font.color.rgb = RGBColor(0, 0, 0)
+        p.alignment = 1
+
+    def _add_pg_subtitle(self, slide, assets: PipelineAssets) -> None:
+        tag = "Definition"
+        try:
+            corr_value = None if assets.current_year_correlation is None or pd.isna(assets.current_year_correlation) else float(assets.current_year_correlation)
+            trend_following = bool(assets.trend_following)
+            if trend_following and corr_value is not None and (corr_value * 100.0) > 50.0:
+                tag = "Correlation"
+        except Exception:
+            tag = "Definition"
+        subtitle = f"Definition of pipeline {int(assets.pipeline)} ({tag})"
+        tb = slide.shapes.add_textbox(Inches(0.62), Inches(0.72), Inches(7.2), Inches(0.42))
+        tf = tb.text_frame
+        tf.clear()
+        p = tf.paragraphs[0]
+        p.text = subtitle
+        p.font.size = Pt(18)
+        p.font.bold = False
+        p.font.color.rgb = self._hex_to_rgb("#04586C")
+        p.alignment = 1
+
+    def _add_pg_category_badge(self, slide) -> None:
+        badge = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(12.25), Inches(0.0), Inches(1.05), Inches(0.78))
+        badge.fill.solid()
+        badge.fill.fore_color.rgb = self._hex_to_rgb("#BEF9FF")
+        badge.line.fill.background()
+
+        tf = badge.text_frame
+        tf.clear()
+        tf.word_wrap = True
+        tf.margin_left = Pt(3)
+        tf.margin_right = Pt(3)
+        tf.margin_top = Pt(6)
+        tf.margin_bottom = Pt(3)
+        p = tf.paragraphs[0]
+        p.text = str(self.category_name_display or "").strip() or "-"
+        p.font.size = Pt(11)
+        p.font.bold = False
+        p.font.color.rgb = self._hex_to_rgb("#04586C")
+        p.alignment = 1
+
+    def _add_cov_slide_pg_layout(self, slide, assets: PipelineAssets) -> None:
+        self._add_pg_subtitle(slide, assets)
+        self._add_pg_category_badge(slide)
+
+        tables_top = Inches(5.62)
+        tables_height = Inches(0.96)
+        left_w = Inches(4.68)
+        right_w = Inches(4.68)
+        gap = Inches(0.22)
+        total_w = left_w + right_w + gap
+        left_x = int((self.ppt.slide_width - total_w) / 2)
+        right_x = left_x + left_w + gap
+
+        self._add_pg_variation_table_shape(
+            slide,
+            assets,
+            left=left_x,
+            top=tables_top,
+            width=left_w,
+            height=tables_height,
+        )
+        self._add_pg_coverage_table_shape(
+            slide,
+            assets,
+            left=right_x,
+            top=tables_top,
+            width=right_w,
+            height=tables_height,
+        )
+        self._add_pg_footer_text(slide, assets)
 
     @staticmethod
     def _hex_to_rgb(hex_color: str) -> "RGBColor":
@@ -3295,6 +3594,11 @@ class SlideBuilder:
         p_cov.text = f"{marca_nombre_limpio} - Pipeline {assets.pipeline}"
         p_cov.font.bold = True
         p_cov.font.size = Pt(24)
+        chart_top = Inches(2.0)
+        chart_height = Inches(4.2)
+        if self.coverage_slide_variant == "pg":
+            chart_top = Inches(1.35)
+            chart_height = Inches(3.95)
         generar_grafico_cobertura(
             slide_cov,
             marca_nombre_limpio,
@@ -3304,12 +3608,24 @@ class SlideBuilder:
             lang_index,
             coverage_label,
             self.labels,
+            picture_top=chart_top,
+            picture_height=chart_height,
         )
         if self.coverage_slide_variant == "complemented":
             try:
                 self._add_cov_slide_header_boxes(slide_cov, assets)
             except Exception as exc:
                 print(f"{Fore.YELLOW}Advertencia: No se pudo generar el header complementado (penetración/cobertura) para {marca_nombre_limpio} P{assets.pipeline}. Error: {exc}")
+                try:
+                    table_stream = dataframe_to_bordered_stream(assets.variation_table, hide_index=True, dpi=200)
+                    slide_cov.shapes.add_picture(table_stream, Inches(0.5), Inches(1.1), height=Inches(0.6))
+                except Exception as exc2:
+                    print(f"{Fore.YELLOW}Advertencia: Tampoco se pudo generar la tabla VAR % MAT (fallback) para {marca_nombre_limpio} P{assets.pipeline}. Error: {exc2}")
+        elif self.coverage_slide_variant == "pg":
+            try:
+                self._add_cov_slide_pg_layout(slide_cov, assets)
+            except Exception as exc:
+                print(f"{Fore.YELLOW}Advertencia: No se pudo generar el layout P&G para {marca_nombre_limpio} P{assets.pipeline}. Error: {exc}")
                 try:
                     table_stream = dataframe_to_bordered_stream(assets.variation_table, hide_index=True, dpi=200)
                     slide_cov.shapes.add_picture(table_stream, Inches(0.5), Inches(1.1), height=Inches(0.6))
@@ -4992,6 +5308,53 @@ def compute_averages(df_marca: "pd.DataFrame") -> Dict[str, float]:
     return averages
 
 
+def compute_pipeline_current_year_correlation(df_marca: "pd.DataFrame", pipeline: int) -> Optional[float]:
+    """Calcula la correlación Pearson del Año Actual para un pipeline dado.
+
+    Replica el criterio del bloque Excel: últimos 12 meses, sell-out vs sell-in
+    desplazado por pipeline, sin NaN, sin ceros y con longitud completa.
+    Retorna el coeficiente en escala 0-1/-1-1, o NaN si no aplica.
+    """
+    if df_marca is None or df_marca.empty:
+        return np.nan
+
+    try:
+        p = int(pipeline)
+    except Exception:
+        return np.nan
+
+    series_sell_out = pd.to_numeric(df_marca[COL_SELL_OUT], errors="coerce")
+    series_sell_in = pd.to_numeric(df_marca[COL_SELL_IN], errors="coerce")
+    n_data = len(df_marca)
+
+    if n_data < 12 + max(p, 0):
+        return np.nan
+
+    sell_out_window = series_sell_out.iloc[n_data - 12:n_data]
+    if p > 0:
+        sell_in_window = series_sell_in.iloc[n_data - 12 - p:n_data - p]
+    else:
+        sell_in_window = series_sell_in.iloc[n_data - 12:n_data]
+
+    if len(sell_out_window) != 12 or len(sell_in_window) != 12:
+        return np.nan
+    if sell_out_window.isna().any() or sell_in_window.isna().any():
+        return np.nan
+    if (sell_out_window == 0).any() or (sell_in_window == 0).any():
+        return np.nan
+    try:
+        if float(sell_out_window.std()) == 0.0 or float(sell_in_window.std()) == 0.0:
+            return np.nan
+    except Exception:
+        return np.nan
+
+    try:
+        corr, _ = pearsonr(sell_out_window.to_numpy(dtype=float), sell_in_window.to_numpy(dtype=float))
+        return float(corr) if np.isfinite(corr) else np.nan
+    except Exception:
+        return np.nan
+
+
 def compute_trend_plot_df(df_marca: "pd.DataFrame") -> "pd.DataFrame":
     df_trend_plot = df_marca[[COL_DATA, COL_SELL_IN, COL_SELL_OUT]].copy()
     df_trend_plot[COL_DATA] = df_trend_plot[COL_DATA].apply(lambda x: x.strftime('%m-%y'))
@@ -5246,6 +5609,9 @@ def generate_presentation_and_bank(
         coverage_label,
         coverage_type=coverage_type,
         ref_month_year=ref_month_year,
+        manufacturer_name=fabricante,
+        country_name=pais_nombre,
+        category_name_display=(categoria_nombre_corto or categoria_nombre),
         tipo_eje_tend=trend_axis,
         variations_box_style=variations_box_style,
         coverage_slide_variant=coverage_slide_variant,
@@ -5315,6 +5681,22 @@ def generate_presentation_and_bank(
                 coverage_series = df_coverage[f'P{pipeline}']
                 var_cliente_mat = df_variations.loc[df_variations['Tipo'] == 'Anual', f'Cliente P{pipeline}'].iloc[0]
                 var_kantar_mat = df_variations.loc[df_variations['Tipo'] == 'Anual', 'WP by Numerator'].iloc[0]
+                trend_following = False
+                if pd.notna(var_cliente_mat) and pd.notna(var_kantar_mat):
+                    if (var_cliente_mat * var_kantar_mat) > 0 or (var_cliente_mat == 0 and var_kantar_mat == 0):
+                        trend_following = True
+                current_year_correlation = compute_pipeline_current_year_correlation(df_marca_ppt, pipeline)
+                annual_y2_mask = (df_variations['Tipo'] == 'Anual') & df_variations['Periodo'].astype(str).str.contains('Y-2', na=False)
+                annual_var_cliente_y2 = (
+                    df_variations.loc[annual_y2_mask, f'Cliente P{pipeline}'].iloc[0]
+                    if annual_y2_mask.any() and f'Cliente P{pipeline}' in df_variations.columns
+                    else np.nan
+                )
+                annual_var_wp_y2 = (
+                    df_variations.loc[annual_y2_mask, 'WP by Numerator'].iloc[0]
+                    if annual_y2_mask.any() and 'WP by Numerator' in df_variations.columns
+                    else np.nan
+                )
                 variation_table = build_variation_table(
                     fabricante,
                     labels,
@@ -5344,6 +5726,13 @@ def generate_presentation_and_bank(
                     buyers_mat_actual=averages.get('Buyers_MAT_Actual'),
                     penet_mat_actual=averages.get('Penet_MAT_Actual'),
                     penet_mat_anterior=averages.get('Penet_MAT_Anterior'),
+                    annual_var_cliente_y1=var_cliente_mat,
+                    annual_var_cliente_y2=annual_var_cliente_y2,
+                    annual_var_wp_y1=var_kantar_mat,
+                    annual_var_wp_y2=annual_var_wp_y2,
+                    measure_unit=measure_unit,
+                    current_year_correlation=current_year_correlation,
+                    trend_following=trend_following,
                 )
                 builder.add_pipeline_slides(
                     assets,
@@ -5551,7 +5940,7 @@ class CoverageStudioUltraApp:
             SELECTIONS['Inglés'] = 'No'
             SELECTIONS['Redondeo Cobertura'] = 'No'
             SELECTIONS["Estilo variaciones"] = "Bonito" if variations_box_style == "pretty" else "Clasico"
-            SELECTIONS["Slide Cobertura"] = "Complementado" if coverage_slide_variant == "complemented" else "Clasico"
+            SELECTIONS["Slide Cobertura"] = coverage_slide_variant_label(coverage_slide_variant)
             SELECTIONS["Slide Evolucion"] = "Simple" if evolution_slide_variant == "simple" else "Clasico/Avanzado"
             summary_extra_months = get_summary_extra_months_from_env()
             SELECTIONS['Meses extra summary'] = format_summary_extra_months(summary_extra_months)
@@ -5628,7 +6017,7 @@ class CoverageStudioUltraApp:
             SELECTIONS['Inglés'] = 'Sí' if options.include_english else 'No'
             SELECTIONS['Redondeo Cobertura'] = 'Sí' if options.round_coverage else 'No'
             SELECTIONS['Estilo variaciones'] = "Bonito" if normalize_variations_box_style(options.variations_box_style) == "pretty" else "Clasico"
-            SELECTIONS['Slide Cobertura'] = "Complementado" if normalize_coverage_slide_variant(options.coverage_slide_variant) == "complemented" else "Clasico"
+            SELECTIONS['Slide Cobertura'] = coverage_slide_variant_label(options.coverage_slide_variant)
             SELECTIONS['Slide Evolucion'] = "Simple" if normalize_evolution_slide_variant(options.evolution_slide_variant) == "simple" else "Clasico/Avanzado"
             if options.summary_extra_months:
                 SELECTIONS['Meses extra summary'] = format_summary_extra_months(options.summary_extra_months)
