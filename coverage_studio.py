@@ -4586,6 +4586,23 @@ def generate_excel_template(
                             return "-"
                         return f"{prefix} {fecha_curr.strftime('%b-%y')} x {prefix} {fecha_prev.strftime('%b-%y')}"
 
+                    def format_period_label_between_offsets(prefix: str, curr_end_offset: int, prev_end_offset: int) -> str:
+                        """
+                        Construye etiquetas usando dos cortes explícitos desde la fecha más reciente.
+                        Ejemplo:
+                        - curr_end_offset=12, prev_end_offset=24
+                        - devuelve 'MAT Dec-24 x MAT Dec-23'
+                        """
+                        idx_curr = (n_data - 1) - curr_end_offset
+                        idx_prev = (n_data - 1) - prev_end_offset
+                        if idx_curr < 0 or idx_prev < 0 or idx_curr >= n_data or idx_prev >= n_data:
+                            return "-"
+                        fecha_curr = pd.to_datetime(df_excel.iloc[idx_curr][COL_DATA], errors="coerce")
+                        fecha_prev = pd.to_datetime(df_excel.iloc[idx_prev][COL_DATA], errors="coerce")
+                        if pd.isna(fecha_curr) or pd.isna(fecha_prev):
+                            return "-"
+                        return f"{prefix} {fecha_curr.strftime('%b-%y')} x {prefix} {fecha_prev.strftime('%b-%y')}"
+
                     def rango_excel(end_row: int, meses: int) -> tuple[int, int]:
                         """Devuelve (inicio, fin) inclusivo para una ventana de 'meses' que termina en 'end_row'."""
                         return end_row - (meses - 1), end_row
@@ -4698,6 +4715,24 @@ def generate_excel_template(
 
                     # ---------- Unir Y-1 y Y-2 --------------------------------------
                     df_variations_excel = pd.concat([var, aux], ignore_index=True)
+
+                    # ---------- Fila auxiliar de validación para P&G ---------------
+                    # Expone explícitamente el cálculo anual del año previo vs su año anterior:
+                    # con corte Dec-25 => MAT Dec-24 x MAT Dec-23.
+                    prev_year_validation = {
+                        'Tipo': 'Anual',
+                        'Periodo': format_period_label_between_offsets('MAT', 12, 24) if n_data >= 36 else '-',
+                        'WP by Numerator': "-",
+                    }
+                    if n_data >= 36:
+                        prev_year_validation['WP by Numerator'] = formula_yoy_excel("C", last_row_excel - 12, 12, 12)
+                    for p in range(7):
+                        end_row_prev_year_p = last_row_excel - 12 - p
+                        if (n_data - p) >= 36:
+                            prev_year_validation[f'Cliente P{p}'] = formula_yoy_excel("L", end_row_prev_year_p, 12, 12)
+                        else:
+                            prev_year_validation[f'Cliente P{p}'] = "-"
+                    df_variations_excel.loc[len(df_variations_excel)] = prev_year_validation
 
 
 
@@ -5355,6 +5390,40 @@ def compute_pipeline_current_year_correlation(df_marca: "pd.DataFrame", pipeline
         return np.nan
 
 
+def compute_previous_year_annual_variation(df_marca: "pd.DataFrame", coluna: str, pipeline: int = 0) -> Optional[float]:
+    """Calcula la variación anual del año previo vs su año anterior.
+
+    Ejemplo con referencia dic-25:
+    - compara MAT dic-24 vs MAT dic-23
+    - para sell-in respeta el desplazamiento del pipeline
+    """
+    if df_marca is None or df_marca.empty:
+        return np.nan
+
+    try:
+        p = int(pipeline)
+    except Exception:
+        return np.nan
+
+    n_rows = len(df_marca)
+    if n_rows < 36 + max(p, 0):
+        return np.nan
+
+    try:
+        series = pd.to_numeric(df_marca[coluna], errors="coerce")
+        if p != 0:
+            current_sum = series.iloc[n_rows - 24 - p:n_rows - 12 - p].sum()
+            previous_sum = series.iloc[n_rows - 36 - p:n_rows - 24 - p].sum()
+        else:
+            current_sum = series.iloc[n_rows - 24:n_rows - 12].sum()
+            previous_sum = series.iloc[n_rows - 36:n_rows - 24].sum()
+        if pd.isna(previous_sum) or float(previous_sum) == 0.0:
+            return np.nan
+        return (float(current_sum) / float(previous_sum)) - 1.0
+    except Exception:
+        return np.nan
+
+
 def compute_trend_plot_df(df_marca: "pd.DataFrame") -> "pd.DataFrame":
     df_trend_plot = df_marca[[COL_DATA, COL_SELL_IN, COL_SELL_OUT]].copy()
     df_trend_plot[COL_DATA] = df_trend_plot[COL_DATA].apply(lambda x: x.strftime('%m-%y'))
@@ -5686,17 +5755,8 @@ def generate_presentation_and_bank(
                     if (var_cliente_mat * var_kantar_mat) > 0 or (var_cliente_mat == 0 and var_kantar_mat == 0):
                         trend_following = True
                 current_year_correlation = compute_pipeline_current_year_correlation(df_marca_ppt, pipeline)
-                annual_y2_mask = (df_variations['Tipo'] == 'Anual') & df_variations['Periodo'].astype(str).str.contains('Y-2', na=False)
-                annual_var_cliente_y2 = (
-                    df_variations.loc[annual_y2_mask, f'Cliente P{pipeline}'].iloc[0]
-                    if annual_y2_mask.any() and f'Cliente P{pipeline}' in df_variations.columns
-                    else np.nan
-                )
-                annual_var_wp_y2 = (
-                    df_variations.loc[annual_y2_mask, 'WP by Numerator'].iloc[0]
-                    if annual_y2_mask.any() and 'WP by Numerator' in df_variations.columns
-                    else np.nan
-                )
+                annual_var_cliente_y2 = compute_previous_year_annual_variation(df_marca_ppt, COL_SELL_IN, pipeline)
+                annual_var_wp_y2 = compute_previous_year_annual_variation(df_marca_ppt, COL_SELL_OUT, 0)
                 variation_table = build_variation_table(
                     fabricante,
                     labels,
