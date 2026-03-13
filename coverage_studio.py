@@ -5851,6 +5851,8 @@ def save_coverage_bank(
     pais_nombre: str,
     ref_month_year: str,
     coverage_label: str,
+    coverage_type: str,
+    coverage_slide_variant: str,
 ) -> str:
     df_bank = df_bank.copy()
     try:
@@ -5867,6 +5869,7 @@ def save_coverage_bank(
     df_bank.to_excel(ruta_banco_final, index=False)
     try:
         from openpyxl import load_workbook as _wb_load
+        from openpyxl.styles import PatternFill as _PatternFill, Font as _Font, Alignment as _Alignment, Border as _Border, Side as _Side
         wb_bank = _wb_load(ruta_banco_final)
         for ws in wb_bank.worksheets:
             header_map = {}
@@ -5880,6 +5883,169 @@ def save_coverage_bank(
                 for r in range(2, ws.max_row + 1):
                     c = ws.cell(row=r, column=col_idx)
                     c.number_format = 'mmm-yy'
+
+        if normalize_coverage_slide_variant(coverage_slide_variant) == "pg" and not df_bank.empty:
+            if "summary" in wb_bank.sheetnames:
+                del wb_bank["summary"]
+            ws_sum = wb_bank.create_sheet("summary", 0)
+
+            try:
+                ref_dt = dt.strptime(ref_month_year, "%m-%y")
+                month_label = ref_dt.strftime("%b")
+                prev_year_label = f"{int(ref_dt.year) - 1}"
+                curr_year_label = f"{int(ref_dt.year)}"
+                prev_mat_label = f"MAT {month_label}{str(int(ref_dt.year) - 1)[-2:]}"
+                curr_mat_label = f"MAT {month_label}{str(int(ref_dt.year))[-2:]}"
+            except Exception:
+                prev_year_label = "Y-1"
+                curr_year_label = "Y"
+                prev_mat_label = "MAT Y-1"
+                curr_mat_label = "MAT Y"
+
+            header_fill = _PatternFill(fill_type="solid", fgColor="8FA9C3")
+            header_font = _Font(color="FFFFFF", bold=True)
+            body_font = _Font(color="000000", bold=False)
+            body_align = _Alignment(horizontal="center", vertical="center")
+            header_align = _Alignment(horizontal="center", vertical="center", wrap_text=True)
+            border = _Border(
+                left=_Side(style="thin", color="000000"),
+                right=_Side(style="thin", color="000000"),
+                top=_Side(style="thin", color="000000"),
+                bottom=_Side(style="thin", color="000000"),
+            )
+
+            headers_top = {
+                "A1": "Brand",
+                "B1": "Annual Penetration %",
+                "D1": "PIPELINE",
+                "E1": f"Var % ({curr_year_label} vs {prev_year_label})",
+                "G1": "Coverage",
+                "I1": "Relative Coverage",
+                "K1": "Var. pp",
+            }
+            headers_bottom = {
+                "B2": prev_mat_label,
+                "C2": curr_mat_label,
+                "E2": f"{fabricante.upper()} WITH\nPIPELINE",
+                "F2": "Worldpanel by\nNumerator",
+                "G2": prev_year_label,
+                "H2": curr_year_label,
+                "I2": prev_year_label,
+                "J2": curr_year_label,
+            }
+
+            ws_sum.merge_cells("A1:A2")
+            ws_sum.merge_cells("B1:C1")
+            ws_sum.merge_cells("D1:D2")
+            ws_sum.merge_cells("E1:F1")
+            ws_sum.merge_cells("G1:H1")
+            ws_sum.merge_cells("I1:J1")
+            ws_sum.merge_cells("K1:K2")
+
+            for cell_ref, value in headers_top.items():
+                cell = ws_sum[cell_ref]
+                cell.value = value
+                cell.fill = header_fill
+                cell.font = header_font
+                cell.alignment = header_align
+                cell.border = border
+            for cell_ref, value in headers_bottom.items():
+                cell = ws_sum[cell_ref]
+                cell.value = value
+                cell.fill = header_fill
+                cell.font = header_font
+                cell.alignment = header_align
+                cell.border = border
+
+            for row_idx in (1, 2):
+                for col_idx in range(1, 12):
+                    ws_sum.cell(row=row_idx, column=col_idx).border = border
+
+            def _derive_pg_cov_values(bank_row: object) -> Tuple[Optional[float], Optional[float], Optional[float], Optional[float]]:
+                try:
+                    abs_curr = float(bank_row.get('Cobertura Año Mov Actual'))
+                except Exception:
+                    abs_curr = np.nan
+                try:
+                    abs_prev = float(bank_row.get('Cobertura Año Mov Anterior'))
+                except Exception:
+                    abs_prev = np.nan
+                try:
+                    pop_val = get_population_coverage_percent(str(bank_row.get('Pais', pais_nombre))) / 100.0
+                except Exception:
+                    pop_val = 0.0
+
+                ctype = (coverage_type or "").strip().lower()
+                if ctype == "auto":
+                    ctype = "absoluta"
+                if ctype == "relativa":
+                    rel_curr = abs_curr
+                    rel_prev = abs_prev
+                    abs_curr = (abs_curr * pop_val) if pop_val > 0 and pd.notna(abs_curr) else np.nan
+                    abs_prev = (abs_prev * pop_val) if pop_val > 0 and pd.notna(abs_prev) else np.nan
+                else:
+                    rel_curr = (abs_curr / pop_val) if pop_val > 0 and pd.notna(abs_curr) else np.nan
+                    rel_prev = (abs_prev / pop_val) if pop_val > 0 and pd.notna(abs_prev) else np.nan
+                return abs_prev, abs_curr, rel_prev, rel_curr
+
+            summary_start_row = 3
+            for idx, (_, bank_row) in enumerate(df_bank.iterrows(), start=summary_start_row):
+                abs_prev, abs_curr, rel_prev, rel_curr = _derive_pg_cov_values(bank_row)
+                row_values = [
+                    bank_row.get('Fabricante/Marca', ''),
+                    None,
+                    None,
+                    bank_row.get('Pipeline', ''),
+                    (float(bank_row.get('%VAR Cliente', 0)) / 100.0) if pd.notna(bank_row.get('%VAR Cliente', np.nan)) else None,
+                    (float(bank_row.get('% VAR WP by Numerator', 0)) / 100.0) if pd.notna(bank_row.get('% VAR WP by Numerator', np.nan)) else None,
+                    abs_prev,
+                    abs_curr,
+                    rel_prev,
+                    rel_curr,
+                    (abs_curr - abs_prev) if pd.notna(abs_curr) and pd.notna(abs_prev) else None,
+                ]
+                for col_idx, value in enumerate(row_values, start=1):
+                    cell = ws_sum.cell(row=idx, column=col_idx)
+                    cell.value = value
+                    cell.font = body_font
+                    cell.alignment = body_align
+                    cell.border = border
+                    if col_idx in (5, 6) and value is not None:
+                        cell.number_format = '0.0%'
+                    elif col_idx in (7, 8, 9, 10, 11) and value is not None:
+                        cell.number_format = '0.0'
+
+            col_widths = {
+                "A": 18,
+                "B": 14,
+                "C": 14,
+                "D": 10,
+                "E": 14,
+                "F": 16,
+                "G": 11,
+                "H": 11,
+                "I": 14,
+                "J": 11,
+                "K": 10,
+            }
+            for col_letter, width in col_widths.items():
+                ws_sum.column_dimensions[col_letter].width = width
+            ws_sum.row_dimensions[1].height = 26
+            ws_sum.row_dimensions[2].height = 28
+
+            # Evitar que Excel abra el libro con hojas agrupadas/seleccionadas.
+            for ws in wb_bank.worksheets:
+                ws.sheet_view.tabSelected = False
+            ws_sum.sheet_view.tabSelected = True
+            try:
+                summary_idx = wb_bank.sheetnames.index("summary")
+                wb_bank.active = summary_idx
+                if getattr(wb_bank, "views", None):
+                    wb_bank.views[0].activeTab = summary_idx
+                    wb_bank.views[0].firstSheet = summary_idx
+            except Exception:
+                pass
+
         wb_bank.save(ruta_banco_final)
     except Exception as exc:
         print(f"{Fore.YELLOW}Advertencia: No se pudo aplicar formato mmm-yy en Banco: {exc}")
@@ -6140,6 +6306,8 @@ class CoverageStudioUltraApp:
                 pais_nombre=pais_nombre,
                 ref_month_year=ref_month_year,
                 coverage_label=coverage_label,
+                coverage_type=options.coverage_type,
+                coverage_slide_variant=options.coverage_slide_variant,
             )
             print_file_summary(ruta_template_final, ruta_ppt_final, ruta_banco_final, elapsed_seconds=elapsed)
             report_zero_months_exceptions()
