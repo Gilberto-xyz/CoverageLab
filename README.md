@@ -91,6 +91,7 @@ Variables principales:
 - `AUTO_COV_TYPE`: `Absoluta`, `relativa` o `AUTO`.
 - `AUTO_RAZON`: razón del análisis.
 - `AUTO_EJE`: `simple` o `doble`.
+- `AUTO_TREND_MODE` o `AUTO_TREND_GRANULARITY`: `monthly` o `quarterly`.
 - `AUTO_ENGLISH`: `1/0` (incluye etiquetas en inglés).
 - `AUTO_ROUND_COV`: `1/0` (redondeo de cobertura).
 - `AUTO_VAR_BOX_STYLE` o `AUTO_VAR_STYLE`: `classic` o `pretty`.

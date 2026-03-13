@@ -47,6 +47,7 @@ SUMMARY_EXTRA_MONTHS_MODE_ENV_KEYS: Tuple[str, ...] = ("AUTO_EXTEA_MODE", "AUTO_
 VARIATIONS_BOX_STYLE_ENV_KEYS: Tuple[str, ...] = ("AUTO_VAR_BOX_STYLE", "AUTO_VAR_STYLE")
 COVERAGE_SLIDE_VARIANT_ENV_KEYS: Tuple[str, ...] = ("AUTO_COV_SLIDE", "AUTO_COV_SLIDE_STYLE")
 EVOLUTION_SLIDE_VARIANT_ENV_KEYS: Tuple[str, ...] = ("AUTO_EVO_SLIDE", "AUTO_EVO_SLIDE_STYLE")
+TREND_GRANULARITY_ENV_KEYS: Tuple[str, ...] = ("AUTO_TREND_MODE", "AUTO_TREND_GRANULARITY")
 MONTH_TOKEN_TO_NUMBER: Dict[str, int] = {
     "ene": 1, "enero": 1, "jan": 1, "janeiro": 1, "january": 1,
     "feb": 2, "febrero": 2, "fev": 2, "fevereiro": 2, "february": 2,
@@ -248,6 +249,23 @@ def normalize_evolution_slide_variant(raw_value: Optional[str]) -> str:
     if val in {"classic", "clasico", "clásico", "avanzado", "advanced", "2"}:
         return "classic"
     return "classic"
+
+
+def normalize_trend_granularity(raw_value: Optional[str]) -> str:
+    """Normaliza la periodicidad del gráfico de tendencia (monthly | quarterly)."""
+    val = (raw_value or "").strip().lower()
+    if not val:
+        return "monthly"
+    if val in {"quarterly", "quarter", "trimestral", "trimestre", "quarterly_3m", "q", "2"}:
+        return "quarterly"
+    if val in {"monthly", "month", "mensual", "mes", "m", "1"}:
+        return "monthly"
+    return "monthly"
+
+
+def trend_granularity_label(granularity: str) -> str:
+    normalized = normalize_trend_granularity(granularity)
+    return "Trimestral" if normalized == "quarterly" else "Mensual"
 
 def _register_brand_exception(marca_label: Optional[str], reason: str) -> None:
     normalized = (marca_label or "N/D").strip() or "N/D"
@@ -1046,6 +1064,8 @@ def clear_and_print_summary():
         eje = str(_get("Eje tendencia")).strip().lower()
         eje_disp = "Simple (un eje)" if eje == "simple" else ("Doble (2 ejes)" if eje == "doble" else eje)
         _line("Grafico de tendencia", "Eje tendencia", eje_disp)
+    if _get("Modo tendencia") is not None:
+        _line("Periodicidad tendencia", "Modo tendencia", _as_text(_get("Modo tendencia")))
 
     # --- Idioma ---
     # Mostrar de forma consistente y evitando depender de que el país esté disponible (a veces se define después).
@@ -1476,6 +1496,29 @@ def tipo_eje_tendencia():
     SELECTIONS['Eje tendencia'] = tipo_eje
     clear_and_print_summary()
     return tipo_eje
+
+
+def trend_granularity_option() -> str:
+    """Elige la periodicidad del gráfico de tendencia."""
+    raw_env = next((os.environ.get(k) for k in TREND_GRANULARITY_ENV_KEYS if os.environ.get(k) is not None), None)
+    if raw_env is not None:
+        granularity = normalize_trend_granularity(raw_env)
+    else:
+        print(Fore.CYAN + "\n¿Periodicidad del gráfico de tendencia?")
+        print(Fore.WHITE + "1 - Mensual")
+        print(Fore.WHITE + "2 - Trimestral (agrupado de 3 meses)")
+        opciones = {
+            "1": "monthly",
+            "2": "quarterly",
+            "mensual": "monthly",
+            "trimestral": "quarterly",
+            "trimestre": "quarterly",
+        }
+        eleccion = input(Fore.GREEN + "Elija 1 o 2: ").strip().lower()
+        granularity = opciones.get(eleccion, "monthly")
+    SELECTIONS["Modo tendencia"] = trend_granularity_label(granularity)
+    clear_and_print_summary()
+    return granularity
 
 def variations_box_style_option() -> str:
     """Elige el estilo del cuadro de variaciones (clásico o bonito)."""
@@ -2060,6 +2103,7 @@ def generar_grafico_tendencia(
     lang_idx,
     labels_dict,
     doble_eje: bool = False,
+    granularity: str = "monthly",
     box_left=None,
     box_top=None,
     box_width=None,
@@ -2076,15 +2120,67 @@ def generar_grafico_tendencia(
          return
 
     fig_trend, ax_trend = plt.subplots(figsize=figsize, dpi=100)
+    granularity_norm = normalize_trend_granularity(granularity)
 
-    sell_out_data = df_plot[COL_SELL_OUT].iloc[pipeline:].values
-    sell_in_data = df_plot[COL_SELL_IN].iloc[:len(df_plot)-pipeline].values
-    x_labels = df_plot[COL_DATA].iloc[pipeline:].values
+    def _trend_month_abbr_local(month: int) -> str:
+        es = ["", "Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"]
+        pt = ["", "Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "Out", "Nov", "Dez"]
+        en = ["", "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+        table = en if lang_idx == 3 else (pt if lang_idx == 1 else es)
+        if 1 <= int(month) <= 12:
+            return table[int(month)]
+        return "-"
 
-    if len(sell_out_data) != len(sell_in_data):
+    def _trend_three_month_label(start_dt: "pd.Timestamp", end_dt: "pd.Timestamp") -> str:
+        if int(end_dt.month) in {3, 6, 9, 12}:
+            quarter = ((int(end_dt.month) - 1) // 3) + 1
+            return f"Q{quarter}-{int(end_dt.year) % 100:02d}"
+        start_abbr = _trend_month_abbr_local(int(start_dt.month))
+        end_abbr = _trend_month_abbr_local(int(end_dt.month))
+        start_year = int(start_dt.year) % 100
+        end_year = int(end_dt.year) % 100
+        if int(start_dt.year) == int(end_dt.year):
+            return f"{start_abbr}–{end_abbr} {end_year:02d}"
+        return f"{start_abbr} {start_year:02d}–{end_abbr} {end_year:02d}"
+
+    sell_out_series = pd.to_numeric(df_plot[COL_SELL_OUT].iloc[pipeline:], errors="coerce").reset_index(drop=True)
+    sell_in_series = pd.to_numeric(df_plot[COL_SELL_IN].iloc[:len(df_plot)-pipeline], errors="coerce").reset_index(drop=True)
+    period_tokens = df_plot[COL_DATA].iloc[pipeline:].reset_index(drop=True)
+
+    if len(sell_out_series) != len(sell_in_series):
          print(f"{Fore.RED}Error: Discrepancia de longitud en datos de tendencia para {marca_clean} P:{pipeline}.")
          plt.close(fig_trend)
          return
+
+    if granularity_norm == "quarterly":
+        period_dates = pd.to_datetime(period_tokens, format="%m-%y", errors="coerce")
+        aggregated_rows: List[Tuple[str, float, float]] = []
+        end_idx = len(period_dates) - 1
+        while end_idx >= 2:
+            start_idx = end_idx - 2
+            window_dates = period_dates.iloc[start_idx:end_idx + 1]
+            window_sell_in = sell_in_series.iloc[start_idx:end_idx + 1]
+            window_sell_out = sell_out_series.iloc[start_idx:end_idx + 1]
+            if window_dates.isna().any() or window_sell_in.isna().any() or window_sell_out.isna().any():
+                end_idx -= 3
+                continue
+            label = _trend_three_month_label(window_dates.iloc[0], window_dates.iloc[-1])
+            aggregated_rows.append((label, float(window_sell_in.sum()), float(window_sell_out.sum())))
+            end_idx -= 3
+        aggregated_rows.reverse()
+        if not aggregated_rows:
+            print(f"{Fore.YELLOW}Advertencia: Datos insuficientes para gráfico de Tendencia trimestral (Marca: {marca_clean}, P:{pipeline}).")
+            plt.close(fig_trend)
+            return
+        x_labels = [row[0] for row in aggregated_rows]
+        sell_in_data = np.array([row[1] for row in aggregated_rows], dtype=float)
+        sell_out_data = np.array([row[2] for row in aggregated_rows], dtype=float)
+        divider_step = 4
+    else:
+        x_labels = period_tokens.values
+        sell_in_data = sell_in_series.to_numpy(dtype=float)
+        sell_out_data = sell_out_series.to_numpy(dtype=float)
+        divider_step = 12
 
     if doble_eje:
         ax2 = ax_trend.twinx()
@@ -2108,8 +2204,8 @@ def generar_grafico_tendencia(
         ax_trend.legend(lns, labs, loc='lower center', bbox_to_anchor=(0.5, legend_y), frameon=False, prop={'size': 11}, ncol=2)
 
     # Divisores de ciclo anual: cada 12 meses hacia atrás desde el último dato.
-    if len(x_labels) > 12:
-        for idx in range(len(x_labels) - 13, -1, -12):
+    if len(x_labels) > divider_step:
+        for idx in range(len(x_labels) - (divider_step + 1), -1, -divider_step):
             ax_trend.axvline(
                 x=x_labels[idx],
                 color="#B0B0B0",
@@ -2119,13 +2215,25 @@ def generar_grafico_tendencia(
                 zorder=0,
             )
 
-    ax_trend.tick_params(axis='x', rotation=30, labelsize=9)
+    x_tick_rotation = 30 if granularity_norm == "quarterly" else 30
+    x_tick_size = 7 if granularity_norm == "quarterly" else 9
+    ax_trend.tick_params(axis='x', rotation=x_tick_rotation, labelsize=x_tick_size)
     for label in ax_trend.get_xticklabels():
-        label.set_ha('right')
+        if granularity_norm == "quarterly":
+            label.set_ha('right')
+        else:
+            label.set_ha('right')
     ax_trend.grid(axis='y', linestyle='--', alpha=0.6)
     ax_trend.spines['top'].set_visible(False)
     ax_trend.spines['right'].set_visible(False)
-    ax_trend.set_title(f"{labels_dict.get((lang_idx, 'Titulo Vol'), 'Tendencia en Volumen')} | {marca_clean} P:{pipeline}", size=17)
+    granularity_suffix = {
+        "quarterly": {1: " | Trimestral", 2: " | Trimestral", 3: " | Quarterly"},
+        "monthly": {1: "", 2: "", 3: ""},
+    }[granularity_norm][lang_idx]
+    ax_trend.set_title(
+        f"{labels_dict.get((lang_idx, 'Titulo Vol'), 'Tendencia en Volumen')}{granularity_suffix} | {marca_clean} P:{pipeline}",
+        size=17,
+    )
 
     plt.tight_layout()
     img_stream = io.BytesIO()
@@ -2187,6 +2295,7 @@ class ExecutionOptions:
     coverage_type: str
     coverage_reason: str
     trend_axis: str
+    trend_granularity: str
     include_english: bool
     round_coverage: bool
     variations_box_style: str = "classic"
@@ -2219,17 +2328,22 @@ class ExecutionOptions:
             coverage_type = "Absoluta"
             coverage_reason = "Actualización periódica por contrato"
             trend_axis = "simple"
+            trend_granularity = "monthly"
             include_english = False
             round_cov = False
         else:
             coverage_reason = os.environ.get("AUTO_RAZON", "Otras")
             trend_axis = os.environ.get("AUTO_EJE", "simple")
+            trend_granularity = normalize_trend_granularity(
+                next((os.environ.get(k) for k in TREND_GRANULARITY_ENV_KEYS if os.environ.get(k) is not None), None)
+            )
             include_english = str(os.environ.get("AUTO_ENGLISH", "0")).strip().lower() in {"1", "true", "yes", "y", "si", "sí"}
             round_cov = str(os.environ.get("AUTO_ROUND_COV", "0")).strip().lower() in {"1", "true", "yes", "y", "si", "sí"}
         return cls(
             coverage_type=coverage_type,
             coverage_reason=coverage_reason,
             trend_axis=trend_axis,
+            trend_granularity=trend_granularity,
             variations_box_style=variations_box_style,
             include_english=include_english,
             round_coverage=round_cov,
@@ -2481,6 +2595,7 @@ class SlideBuilder:
         country_name: str,
         category_name_display: str,
         tipo_eje_tend: str,
+        trend_granularity: str = "monthly",
         variations_box_style: str = "classic",
         coverage_slide_variant: str = "classic",
     ) -> None:
@@ -2494,6 +2609,7 @@ class SlideBuilder:
         self.country_name = country_name
         self.category_name_display = category_name_display
         self.tipo_eje_tend = tipo_eje_tend
+        self.trend_granularity = normalize_trend_granularity(trend_granularity)
         self.variations_box_style = normalize_variations_box_style(variations_box_style)
         self.coverage_slide_variant = normalize_coverage_slide_variant(coverage_slide_variant)
 
@@ -3680,6 +3796,7 @@ class SlideBuilder:
                 lang_index,
                 self.labels,
                 doble_eje=(self.tipo_eje_tend == "doble"),
+                granularity=self.trend_granularity,
                 box_left=chart_left,
                 box_top=chart_top,
                 box_width=left_w,
@@ -3697,6 +3814,7 @@ class SlideBuilder:
                 lang_index,
                 self.labels,
                 doble_eje=(self.tipo_eje_tend == "doble"),
+                granularity=self.trend_granularity,
             )
         if has_variations:
             if self.variations_box_style == "pretty":
@@ -5661,6 +5779,7 @@ def generate_presentation_and_bank(
     nombre_base_archivo: str,
     include_english: bool,
     trend_axis: str,
+    trend_granularity: str,
     variations_box_style: str,
     coverage_slide_variant: str,
     evolution_slide_variant: str,
@@ -5682,6 +5801,7 @@ def generate_presentation_and_bank(
         country_name=pais_nombre,
         category_name_display=(categoria_nombre_corto or categoria_nombre),
         tipo_eje_tend=trend_axis,
+        trend_granularity=trend_granularity,
         variations_box_style=variations_box_style,
         coverage_slide_variant=coverage_slide_variant,
     )
@@ -6149,6 +6269,9 @@ class CoverageStudioUltraApp:
             coverage_type_value = "Absoluta"
             coverage_reason = "Actualización periódica por contrato"
             trend_axis = "simple"
+            trend_granularity = normalize_trend_granularity(
+                next((os.environ.get(k) for k in TREND_GRANULARITY_ENV_KEYS if os.environ.get(k) is not None), None)
+            )
             variations_box_style = normalize_variations_box_style(
                 next((os.environ.get(k) for k in VARIATIONS_BOX_STYLE_ENV_KEYS if os.environ.get(k) is not None), None)
             )
@@ -6162,6 +6285,7 @@ class CoverageStudioUltraApp:
             round_cov = False
             SELECTIONS['Razón'] = coverage_reason
             SELECTIONS['Eje tendencia'] = trend_axis
+            SELECTIONS['Modo tendencia'] = trend_granularity_label(trend_granularity)
             SELECTIONS['Idioma PPT'] = 'ESPAÑOL'
             SELECTIONS['Inglés'] = 'No'
             SELECTIONS['Redondeo Cobertura'] = 'No'
@@ -6181,6 +6305,7 @@ class CoverageStudioUltraApp:
             coverage_type_value = coverage_type
             coverage_reason = razao_cov()
             trend_axis = tipo_eje_tendencia()
+            trend_granularity = trend_granularity_option()
             variations_box_style = variations_box_style_option()
             coverage_slide_variant = coverage_slide_variant_option()
             evolution_slide_variant = evolution_slide_variant_option()
@@ -6192,6 +6317,7 @@ class CoverageStudioUltraApp:
             coverage_type=coverage_type_value,
             coverage_reason=coverage_reason,
             trend_axis=trend_axis,
+            trend_granularity=trend_granularity,
             variations_box_style=variations_box_style,
             include_english=include_english,
             round_coverage=round_cov,
@@ -6240,6 +6366,7 @@ class CoverageStudioUltraApp:
             SELECTIONS['Cobertura'] = options.coverage_type
             SELECTIONS['Razón'] = options.coverage_reason
             SELECTIONS['Eje tendencia'] = options.trend_axis
+            SELECTIONS['Modo tendencia'] = trend_granularity_label(options.trend_granularity)
             SELECTIONS['Inglés'] = 'Sí' if options.include_english else 'No'
             SELECTIONS['Redondeo Cobertura'] = 'Sí' if options.round_coverage else 'No'
             SELECTIONS['Estilo variaciones'] = "Bonito" if normalize_variations_box_style(options.variations_box_style) == "pretty" else "Clasico"
@@ -6289,6 +6416,7 @@ class CoverageStudioUltraApp:
                 nombre_base_archivo=nombre_base_archivo,
                 include_english=options.include_english,
                 trend_axis=options.trend_axis,
+                trend_granularity=options.trend_granularity,
                 variations_box_style=options.variations_box_style,
                 coverage_slide_variant=options.coverage_slide_variant,
                 evolution_slide_variant=options.evolution_slide_variant,
