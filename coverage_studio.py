@@ -3067,6 +3067,17 @@ class SlideBuilder:
             return RGBColor(156, 0, 6)
         return RGBColor(120, 120, 120)
 
+    @classmethod
+    def _variation_table_fill_and_font_colors(cls, value: object) -> Tuple["RGBColor", "RGBColor"]:
+        parsed = cls._parse_summary_percent_value(value)
+        if parsed is None:
+            return RGBColor(255, 255, 255), RGBColor(0, 0, 0)
+        if parsed > 0:
+            return RGBColor(198, 239, 206), RGBColor(0, 97, 0)
+        if parsed < 0:
+            return RGBColor(255, 199, 206), RGBColor(156, 0, 6)
+        return RGBColor(255, 255, 255), RGBColor(0, 0, 0)
+
     @staticmethod
     def _normalize_brand_key(value: object) -> str:
         txt = SlideBuilder._normalize_summary_table_value(value)
@@ -3183,6 +3194,139 @@ class SlideBuilder:
                     table.cell(r, c),
                     val,
                     fill_color=fill,
+                    font_color=font_color,
+                    font_size=body_font_size,
+                    bold=False,
+                    align=align,
+                    word_wrap=False,
+                )
+
+    def _add_editable_variations_table(
+        self,
+        slide,
+        df_variations: "pd.DataFrame",
+        *,
+        left,
+        top,
+        width,
+        max_height,
+    ) -> None:
+        if df_variations is None or df_variations.empty:
+            return
+
+        table_df = df_variations[[col for col in df_variations.columns if not str(col).startswith('_')]].copy()
+        if table_df.empty:
+            return
+
+        rows = int(len(table_df.index)) + 1
+        cols = int(len(table_df.columns))
+        if rows <= 1 or cols <= 0:
+            return
+
+        text_columns = [col for col in ("Tipo", "Periodo") if col in table_df.columns]
+        value_columns = [col for col in table_df.columns if col not in set(text_columns)]
+
+        max_height = int(max_height)
+        if max_height <= 0:
+            max_height = int(Inches(1.15))
+
+        header_h = int(Inches(0.22))
+        body_rows = max(rows - 1, 0)
+        preferred_body_h = int(Inches(0.18))
+        min_body_h = int(Inches(0.15))
+
+        if body_rows > 0:
+            needed_h = header_h + (body_rows * preferred_body_h)
+            if needed_h <= max_height:
+                body_h = preferred_body_h
+            else:
+                body_h = max(min_body_h, int((max_height - header_h) / body_rows))
+                needed_h = header_h + (body_rows * body_h)
+        else:
+            body_h = 0
+            needed_h = header_h
+
+        table_shape = slide.shapes.add_table(rows, cols, left, top, width, needed_h)
+        table = table_shape.table
+        try:
+            table.first_row = False
+            table.first_col = False
+            table.last_row = False
+            table.last_col = False
+            table.horz_banding = False
+            table.vert_banding = False
+        except Exception:
+            pass
+
+        col_weights: List[int] = []
+        for col_name in table_df.columns:
+            sample_values = table_df[col_name].head(12).tolist()
+            max_cell_len = max((len(self._normalize_summary_table_value(v)) for v in sample_values), default=0)
+            col_name_norm = str(col_name).strip().lower()
+            header_len = len(str(col_name))
+            if col_name_norm == "tipo":
+                weight = 8
+            elif col_name_norm == "periodo":
+                weight = 19
+            elif col_name_norm.startswith("wp by numerator"):
+                weight = 11
+            elif col_name_norm.startswith("cliente p0"):
+                weight = 10
+            elif col_name_norm.startswith("cliente pipeline"):
+                weight = 15
+            else:
+                # Para columnas numéricas priorizamos el ancho del encabezado,
+                # no el contenido, que siempre es corto (porcentajes).
+                weight = max(8, min(13, int(round(max(header_len, max_cell_len) * 0.6))))
+            col_weights.append(weight)
+        weight_sum = sum(col_weights) if col_weights else cols
+
+        width_assigned = 0
+        for idx, weight in enumerate(col_weights):
+            if idx == cols - 1:
+                col_w = int(width - width_assigned)
+            else:
+                col_w = int(width * (float(weight) / float(weight_sum)))
+                width_assigned += col_w
+            table.columns[idx].width = max(col_w, int(width * 0.07))
+
+        table.rows[0].height = header_h
+        for r in range(1, rows):
+            table.rows[r].height = body_h
+
+        white_bg = RGBColor(255, 255, 255)
+        black = RGBColor(0, 0, 0)
+
+        header_font_size = 8
+        body_font_size = 8 if rows > 5 else 9
+
+        for c, col_name in enumerate(table_df.columns):
+            self._set_table_cell_text(
+                table.cell(0, c),
+                str(col_name),
+                fill_color=white_bg,
+                font_color=black,
+                font_size=header_font_size,
+                bold=True,
+                align=2,
+                word_wrap=True,
+            )
+
+        for r, row_values in enumerate(table_df.itertuples(index=False), start=1):
+            for c, col_name in enumerate(table_df.columns):
+                raw_val = row_values[c]
+                if col_name in value_columns:
+                    cell_text = "-" if (pd.isna(raw_val) or (isinstance(raw_val, str) and str(raw_val).strip() == "-")) else f"{float(raw_val) * 100:.1f}%"
+                    fill_color, font_color = self._variation_table_fill_and_font_colors(raw_val)
+                    align = 2
+                else:
+                    cell_text = self._normalize_summary_table_value(raw_val)
+                    fill_color, font_color = white_bg, black
+                    align = 1
+                self._set_table_cell_text(
+                    table.cell(r, c),
+                    cell_text,
+                    fill_color=fill_color,
                     font_color=font_color,
                     font_size=body_font_size,
                     bold=False,
@@ -3880,67 +4024,20 @@ class SlideBuilder:
                     container_height=var_h,
                 )
             else:
-                table_df = assets.variations_detail[[col for col in assets.variations_detail.columns if not str(col).startswith('_')]].copy()
-                text_columns = [col for col in ('Tipo', 'Periodo') if col in table_df.columns]
-                value_columns = [col for col in table_df.columns if col not in set(text_columns)]
-
-                def _variation_styler(styler):
-                    formatter = {}
-                    for col in value_columns:
-                        formatter[col] = lambda v, _col=col: "-" if (pd.isna(v) or (isinstance(v, str) and str(v).strip() == "-")) else f"{v*100:.1f}%"
-                    if formatter:
-                        styler = styler.format(formatter)
-
-                        def _colorize(val):
-                            if isinstance(val, str):
-                                try:
-                                    numeric_val = val.replace('%', '').replace(',', '.')
-                                    val = float(numeric_val) / 100 if '%' in val else float(numeric_val)
-                                except ValueError:
-                                    return ""
-                            if pd.isna(val):
-                                return ""
-                            if val > 0:
-                                return "background-color: #C6EFCE; color: #006100"
-                            if val < 0:
-                                return "background-color: #FFC7CE; color: #9C0006"
-                            return ""
-
-                        # pandas >= 3 removed Styler.applymap in favor of Styler.map.
-                        if hasattr(styler, "map"):
-                            styler = styler.map(_colorize, subset=value_columns)
-                        else:
-                            styler = styler.applymap(_colorize, subset=value_columns)
-                    if text_columns:
-                        styler = styler.set_properties(subset=text_columns, **{"text-align": "left"})
-                    return styler
-
-                table_stream = dataframe_to_bordered_stream(
-                    table_df,
-                    hide_index=True,
-                    dpi=200,
-                    styler_fn=_variation_styler,
-                )
-                table_stream.seek(0)
-                scale_factor = .6
-                try:
-                    with Image.open(table_stream) as img_preview:
-                        base_width_in = img_preview.width / 200
-                        base_height_in = img_preview.height / 200
-                except Exception:
-                    base_width_in = 3.4
-                    base_height_in = base_width_in * 0.75
-                finally:
-                    table_stream.seek(0)
-
-                table_width = Inches(base_width_in * scale_factor)
-                table_height = Inches(base_height_in * scale_factor)
+                table_width = min(int(Inches(6.2)), int(self.ppt.slide_width - Inches(0.6)))
                 right_margin = Inches(0.3)
                 left_pos = self.ppt.slide_width - table_width - right_margin
                 if left_pos < Inches(0.1):
                     left_pos = Inches(0.1)
-                top_pos = Inches(0.4)
-                slide_trend.shapes.add_picture(table_stream, left_pos, top_pos, width=table_width, height=table_height)
+                top_pos = Inches(0.22)
+                self._add_editable_variations_table(
+                    slide_trend,
+                    assets.variations_detail,
+                    left=left_pos,
+                    top=top_pos,
+                    width=table_width,
+                    max_height=Inches(1.15),
+                )
         self._add_low_penetration_footer(slide_trend, getattr(assets, "buyers_mat_actual", None))
         slides_created += 1
         if progress and task_id is not None:
