@@ -1381,6 +1381,49 @@ def calc_var1(df, coluna, p):
     return variations
 
 
+def calc_var_same_period_last_year(df, coluna, p):
+    """
+    Calcula variaciones vs mismo período del año anterior.
+
+    Args:
+        df (pd.DataFrame): DataFrame con los datos.
+        coluna (str): Nombre de la columna a calcular (e.g., COL_SELL_OUT).
+        p (int): Pipeline (shift para Sell_in).
+
+    Returns:
+        list: Lista con variaciones [Anual, Semestral, Trimestral].
+              Retorna NaN para cálculos imposibles (datos insuficientes).
+    """
+    n_rows = len(df)
+    variations = []
+
+    # Anual (12 meses actuales vs 12 meses del año pasado)
+    if n_rows >= 24 + p:
+        current_sum = df[coluna][n_rows-12-p : n_rows-p].sum() if p != 0 else df[coluna][-12:].sum()
+        previous_sum = df[coluna][n_rows-24-p : n_rows-12-p].sum() if p != 0 else df[coluna][-24:-12].sum()
+        variations.append((current_sum / previous_sum) - 1 if previous_sum else np.nan)
+    else:
+        variations.append(np.nan)
+
+    # Semestral (6 meses actuales vs 6 meses del año pasado)
+    if n_rows >= 18 + p:
+        current_sum = df[coluna][n_rows-6-p : n_rows-p].sum() if p != 0 else df[coluna][-6:].sum()
+        previous_sum = df[coluna][n_rows-18-p : n_rows-12-p].sum() if p != 0 else df[coluna][-18:-12].sum()
+        variations.append((current_sum / previous_sum) - 1 if previous_sum else np.nan)
+    else:
+        variations.append(np.nan)
+
+    # Trimestral (3 meses actuales vs 3 meses del año pasado)
+    if n_rows >= 15 + p:
+        current_sum = df[coluna][n_rows-3-p : n_rows-p].sum() if p != 0 else df[coluna][-3:].sum()
+        previous_sum = df[coluna][n_rows-15-p : n_rows-12-p].sum() if p != 0 else df[coluna][-15:-12].sum()
+        variations.append((current_sum / previous_sum) - 1 if previous_sum else np.nan)
+    else:
+        variations.append(np.nan)
+
+    return variations
+
+
 def calc_var2(df, coluna, p):
     """
     Calcula variaciones vs período retrasado (Y-2) en Python.
@@ -3429,7 +3472,8 @@ class SlideBuilder:
 
         # Row heights dentro del contenedor.
         row_gap = Inches(0.12)
-        row_h = int((container_height - (2 * row_gap)) / 3)
+        row_count = max(1, len(variations_detail))
+        row_h = int((container_height - ((row_count - 1) * row_gap)) / row_count)
         if row_h <= 0:
             row_h = Inches(0.50)
 
@@ -3606,26 +3650,15 @@ class SlideBuilder:
             w_pip = col_sellp_w
             _add_group_header(x_pip, w_pip, f"Pipeline {int(pipeline)}")
 
-        tipo_order = ["Anual", "Semestral", "Trimestral"]
-        for idx, tipo in enumerate(tipo_order):
+        rows_to_render = variations_detail.reset_index(drop=True)
+        for idx, (_, row) in enumerate(rows_to_render.iterrows()):
             y = top + (idx * (row_h + row_gap))
             _add_row_box(y)
 
-            row = variations_detail[variations_detail["Tipo"].astype(str).str.lower().str.startswith(tipo[:3].lower())]
-            wp_val = row[wp_col].iloc[0] if (wp_col and not row.empty and wp_col in row.columns) else None
-            p0_val = row[p0_col].iloc[0] if (p0_col and not row.empty and p0_col in row.columns) else None
-            px_val = row[px_col].iloc[0] if (px_col and not row.empty and px_col in row.columns) else None
-
-            offsets = {"anual": 12, "semestral": 6, "trimestral": 3}
-            tkey = (tipo or "").strip().lower()
-            if tkey.startswith("an"):
-                offset = offsets["anual"]
-            elif tkey.startswith("sem"):
-                offset = offsets["semestral"]
-            elif tkey.startswith("tri"):
-                offset = offsets["trimestral"]
-            else:
-                offset = 12
+            tipo = row.get("Tipo", "")
+            wp_val = row.get(wp_col) if wp_col else None
+            p0_val = row.get(p0_col) if p0_col else None
+            px_val = row.get(px_col) if px_col else None
 
             # Periodo sem pipeline (p=0) y pipeline p (p=pipeline), usando el mes base del gráfico.
             sem_end_y, sem_end_m = (base_year, base_month)
@@ -3633,8 +3666,12 @@ class SlideBuilder:
                 pip_end_y, pip_end_m = self._date_minus_months(int(base_year), int(base_month), int(pipeline))
             else:
                 pip_end_y, pip_end_m = (None, None)
-            sem_period = _period_label(sem_end_y, sem_end_m, offset)
-            pip_period = _period_label(pip_end_y, pip_end_m, offset)
+            sem_period = str(row.get("Periodo", "-"))
+            compare_lag = row.get("_CompareLagMonths")
+            if pd.notna(compare_lag) and pip_end_y is not None and pip_end_m is not None:
+                pip_period = _period_label(pip_end_y, pip_end_m, int(compare_lag))
+            else:
+                pip_period = sem_period
 
             x = left
             _add_tipo_text(x, y, self._tipo_label(tipo))
@@ -3843,7 +3880,9 @@ class SlideBuilder:
                     container_height=var_h,
                 )
             else:
-                value_columns = [col for col in assets.variations_detail.columns if col not in {'Tipo', 'Periodo'}]
+                table_df = assets.variations_detail[[col for col in assets.variations_detail.columns if not str(col).startswith('_')]].copy()
+                text_columns = [col for col in ('Tipo', 'Periodo') if col in table_df.columns]
+                value_columns = [col for col in table_df.columns if col not in set(text_columns)]
 
                 def _variation_styler(styler):
                     formatter = {}
@@ -3872,13 +3911,12 @@ class SlideBuilder:
                             styler = styler.map(_colorize, subset=value_columns)
                         else:
                             styler = styler.applymap(_colorize, subset=value_columns)
-                    text_columns = [col for col in ('Tipo', 'Periodo') if col in assets.variations_detail.columns]
                     if text_columns:
                         styler = styler.set_properties(subset=text_columns, **{"text-align": "left"})
                     return styler
 
                 table_stream = dataframe_to_bordered_stream(
-                    assets.variations_detail,
+                    table_df,
                     hide_index=True,
                     dpi=200,
                     styler_fn=_variation_styler,
@@ -5583,8 +5621,9 @@ def build_variations_detail_table(
     detail_df = filtered[base_columns].copy()
 
     pipeline_col = f'Cliente P{pipeline}'
-    if pipeline_col in df_variations.columns:
-        detail_df[f'Cliente Pipeline (P{pipeline})'] = df_variations.loc[detail_df.index, pipeline_col].values
+    pipeline_detail_col = f'Cliente Pipeline (P{pipeline})' if int(pipeline) > 0 else None
+    if pipeline_detail_col and pipeline_col in df_variations.columns:
+        detail_df[pipeline_detail_col] = df_variations.loc[detail_df.index, pipeline_col].values
 
     def _format_month(dt: "pd.Timestamp") -> str:
         if pd.isna(dt):
@@ -5592,27 +5631,63 @@ def build_variations_detail_table(
         dt = pd.to_datetime(dt)
         return f"{month_abbr[dt.month]}-{dt.year % 100:02d}"
 
+    def _build_period_text(label: str, end_dt: "pd.Timestamp", compare_lag: int) -> str:
+        previous_dt = end_dt - pd.DateOffset(months=compare_lag)
+        return f"{label} {_format_month(end_dt)} x {label} {_format_month(previous_dt)}"
+
     if df_marca is not None and not df_marca.empty:
         try:
             current_dt = pd.to_datetime(df_marca[COL_DATA].iloc[-1])
             period_specs = {
-                'Anual': ('MAT', 12),
-                'Semestral': ('SEM', 6),
-                'Trimestral': ('TRI', 3),
+                'Anual': {'label': 'MAT', 'current_lag': 12, 'yoy_lag': None, 'show_yoy': False},
+                'Semestral': {'label': 'SEM', 'current_lag': 6, 'yoy_lag': 12, 'show_yoy': True},
+                'Trimestral': {'label': 'TRI', 'current_lag': 3, 'yoy_lag': 12, 'show_yoy': True},
             }
-            formatted_periods: List[str] = []
+            wp_yoy_vars = calc_var_same_period_last_year(df_marca, COL_SELL_OUT, 0)
+            p0_yoy_vars = calc_var_same_period_last_year(df_marca, COL_SELL_IN, 0)
+            px_yoy_vars = calc_var_same_period_last_year(df_marca, COL_SELL_IN, pipeline) if int(pipeline) > 0 else None
+            period_idx = {'Anual': 0, 'Semestral': 1, 'Trimestral': 2}
+            vertical_rows: List[Dict[str, object]] = []
             for _, row in detail_df.iterrows():
                 tipo = row.get('Tipo')
-                label, offset = period_specs.get(tipo, ("", None))
-                if offset is None or pd.isna(current_dt):
-                    formatted_periods.append(row.get('Periodo', ''))
+                spec = period_specs.get(tipo)
+                if spec is None or pd.isna(current_dt):
+                    row_dict = row.to_dict()
+                    row_dict['_CompareLagMonths'] = np.nan
+                    vertical_rows.append(row_dict)
                     continue
-                previous_dt = current_dt - pd.DateOffset(months=offset)
-                formatted_periods.append(f"{label} {_format_month(current_dt)} x {label} {_format_month(previous_dt)}")
-            detail_df['Periodo'] = formatted_periods
+
+                label = spec['label']
+                current_row = row.to_dict()
+                current_row['Periodo'] = _build_period_text(label, current_dt, int(spec['current_lag']))
+                current_row['_CompareLagMonths'] = int(spec['current_lag'])
+                vertical_rows.append(current_row)
+
+                idx = period_idx.get(tipo)
+                if spec['show_yoy'] and spec['yoy_lag'] is not None and idx is not None:
+                    yoy_row = row.to_dict()
+                    yoy_row['Periodo'] = _build_period_text(label, current_dt, int(spec['yoy_lag']))
+                    yoy_row['_CompareLagMonths'] = int(spec['yoy_lag'])
+                    yoy_row['WP by Numerator'] = wp_yoy_vars[idx] if idx < len(wp_yoy_vars) else np.nan
+                    yoy_row['Cliente P0'] = p0_yoy_vars[idx] if idx < len(p0_yoy_vars) else np.nan
+                    if pipeline_detail_col:
+                        if px_yoy_vars is not None and idx < len(px_yoy_vars):
+                            yoy_row[pipeline_detail_col] = px_yoy_vars[idx]
+                        else:
+                            yoy_row[pipeline_detail_col] = np.nan
+                    vertical_rows.append(yoy_row)
+            detail_df = pd.DataFrame(vertical_rows)
         except Exception:
             pass
 
+    if '_CompareLagMonths' not in detail_df.columns:
+        detail_df['_CompareLagMonths'] = np.nan
+
+    ordered_columns = ['Tipo', 'Periodo', 'WP by Numerator', 'Cliente P0']
+    if pipeline_detail_col:
+        ordered_columns.append(pipeline_detail_col)
+    ordered_columns.append('_CompareLagMonths')
+    detail_df = detail_df[[col for col in ordered_columns if col in detail_df.columns]]
     detail_df.reset_index(drop=True, inplace=True)
     return detail_df
 
