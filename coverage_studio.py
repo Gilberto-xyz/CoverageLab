@@ -4912,6 +4912,41 @@ def generate_excel_template(
                                 cli_var.append("-")
                         var[f'Cliente P{p}'] = cli_var
 
+                    # ---------- Mismo período del año pasado (solo SEM / TRI) -----
+                    # Complementa la tabla del template Excel con las mismas filas
+                    # extra que se agregaron al cuadro de la PPT.
+                    same_period_last_year_periods = [
+                        ("Semestral", "SEM", 6, 12),
+                        ("Trimestral", "TRI", 3, 12),
+                    ]
+                    var_same_period_last_year = pd.DataFrame(
+                        [
+                            [tipo, format_period_label(etiqueta, lag)]
+                            for tipo, etiqueta, _, lag in same_period_last_year_periods
+                        ],
+                        columns=['Tipo', 'Periodo']
+                    )
+
+                    wp_same_period_last_year = []
+                    for _, _, meses, lag in same_period_last_year_periods:
+                        required = meses + lag
+                        if n_data >= required:
+                            wp_same_period_last_year.append(formula_yoy_excel("C", last_row_excel, meses, lag))
+                        else:
+                            wp_same_period_last_year.append("-")
+                    var_same_period_last_year['WP by Numerator'] = wp_same_period_last_year
+
+                    for p in range(7):
+                        end_row_p = last_row_excel - p
+                        cli_same_period_last_year = []
+                        for _, _, meses, lag in same_period_last_year_periods:
+                            required = meses + lag
+                            if (n_data - p) >= required:
+                                cli_same_period_last_year.append(formula_yoy_excel("L", end_row_p, meses, lag))
+                            else:
+                                cli_same_period_last_year.append("-")
+                        var_same_period_last_year[f'Cliente P{p}'] = cli_same_period_last_year
+
                     # ---------- Y-2 -------------------------------------------------
                     # Ventanas: MAT=12, SEM=6, TRI=3  (todas comparadas contra el mismo tamaño W, 24 meses antes)
                     periods = [
@@ -4967,7 +5002,17 @@ def generate_excel_template(
 
 
                     # ---------- Unir Y-1 y Y-2 --------------------------------------
-                    df_variations_excel = pd.concat([var, aux], ignore_index=True)
+                    current_variations_block = pd.concat(
+                        [
+                            var.iloc[[0]].copy(),
+                            var.iloc[[1]].copy(),
+                            var_same_period_last_year.iloc[[0]].copy(),
+                            var.iloc[[2]].copy(),
+                            var_same_period_last_year.iloc[[1]].copy(),
+                        ],
+                        ignore_index=True,
+                    )
+                    df_variations_excel = pd.concat([current_variations_block, aux], ignore_index=True)
 
                     # ---------- Fila auxiliar de validación para P&G ---------------
                     # Expone explícitamente el cálculo anual del año previo vs su año anterior:
