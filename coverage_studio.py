@@ -11,13 +11,17 @@ import os
 import re
 import shutil
 import sys
+import tempfile
 import threading
 import time
 import unicodedata
+import uuid
+import zipfile
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Dict, Iterable, List, Optional, Sequence, Tuple, Callable, Set
 from calendar import month_abbr
+import xml.etree.ElementTree as ET
 
 import colorama
 from colorama import Fore, Style
@@ -106,6 +110,36 @@ TEMPLATE_TAB_COLOR_SEQUENCE: List[str] = [
     "#A1D99B", "#C7E9C0", "#756BB1", "#9E9AC8", "#BCBDDC", "#DADAEB", "#636363", "#969696", "#BDBDBD", "#D9D9D9",
     "#393E46", "#00ADB5", "#FF5722", "#795548", "#607D8B", "#8BC34A", "#CDDC39", "#FFC107", "#FF4081", "#3F51B5",
 ]
+PPTX_PRESENTATION_NS = "http://schemas.openxmlformats.org/presentationml/2006/main"
+PPTX_REL_NS = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
+PPTX_DRAWING_NS = "http://schemas.openxmlformats.org/drawingml/2006/main"
+PPTX_SECTION_NS = "http://schemas.microsoft.com/office/powerpoint/2010/main"
+PPTX_SECTION_EXT_URI = "{521415D9-36F7-43E2-AB2F-B90AF26B5E84}"
+SECTION_LABEL_ALIASES: Dict[str, str] = {
+    "laun": "Laundry",
+    "mayo": "Mayonesa",
+    "cond": "Acondicionador",
+    "shampoo": "Shampoo",
+    "deos": "Deos",
+    "clean": "Clean",
+    "hair": "Hair",
+    "bar": "Bar",
+    "liquido": "Liquido",
+    "fe": "FE",
+    "sc": "SC",
+}
+PRIMARY_SECTION_ALIASES: Dict[str, str] = {
+    "clean": "Clean",
+    "fe": "FE",
+    "laun": "Laundry",
+    "laundry": "Laundry",
+    "mayo": "Mayonesa",
+    "mayonesa": "Mayonesa",
+    "deos": "Deos",
+    "deod": "Deos",
+    "hair": "Hair",
+    "sc": "SC",
+}
 
 
 def normalize_brand_key(brand: str) -> str:
@@ -114,6 +148,172 @@ def normalize_brand_key(brand: str) -> str:
     normalized = "".join(ch for ch in normalized if not unicodedata.combining(ch))
     normalized = re.sub(r"\s+", " ", normalized).strip().lower()
     return normalized
+
+
+def normalize_section_title(value: str) -> str:
+    """Normaliza una etiqueta para usarla como nombre de seccion."""
+    normalized = unicodedata.normalize("NFKD", str(value or ""))
+    normalized = "".join(ch for ch in normalized if not unicodedata.combining(ch))
+    normalized = normalized.replace("_", " ").replace(".", " ")
+    normalized = re.sub(r"\s+", " ", normalized).strip()
+    if not normalized:
+        return ""
+    lower_key = normalized.lower()
+    return SECTION_LABEL_ALIASES.get(lower_key, normalized)
+
+
+def is_total_group_sheet(sheet_name: str) -> bool:
+    """Detecta hojas que representan un total/subgrupo y sirven como ancla de seccion."""
+    cleaned = _clean_brand_name_from_sheet(sheet_name)
+    normalized = normalize_brand_key(cleaned)
+    return normalized.startswith("t ") or normalized.startswith("t.") or normalized.startswith("total ")
+
+
+def extract_total_group_tokens(sheet_name: str) -> List[str]:
+    """Extrae tokens significativos de una hoja total para clasificar su nivel de agrupacion."""
+    cleaned = _clean_brand_name_from_sheet(sheet_name)
+    normalized = unicodedata.normalize("NFKD", cleaned)
+    normalized = "".join(ch for ch in normalized if not unicodedata.combining(ch))
+    return [
+        token.lower()
+        for token in re.split(r"[^A-Za-z0-9']+", normalized)
+        if token
+    ]
+
+
+def derive_primary_section_title_from_total_sheet(sheet_name: str) -> str:
+    """Devuelve la seccion principal si la hoja total representa un grupo raiz."""
+    generic_tokens = {"t", "total", "ul"}
+    for token in extract_total_group_tokens(sheet_name):
+        if token in generic_tokens:
+            continue
+        mapped = PRIMARY_SECTION_ALIASES.get(token)
+        if mapped:
+            return mapped
+    return ""
+
+
+def derive_section_title_from_total_sheet(sheet_name: str) -> str:
+    """Deriva el nombre de la seccion principal a partir de una hoja total."""
+    cleaned = _clean_brand_name_from_sheet(sheet_name)
+    tokens = extract_total_group_tokens(sheet_name)
+    generic_tokens = {"t", "total"}
+    for token in reversed(tokens):
+        if token in generic_tokens:
+            continue
+        if len(token) <= 2 and token.isalpha():
+            continue
+        return normalize_section_title(token)
+    return normalize_section_title(cleaned)
+
+
+def build_section_title_for_sheet(sheet_name: str, current_group: Optional[str]) -> Tuple[str, Optional[str]]:
+    """Resuelve la seccion aplicable a una hoja y actualiza el grupo actual si corresponde."""
+    if is_total_group_sheet(sheet_name):
+        primary_group_title = derive_primary_section_title_from_total_sheet(sheet_name)
+        if primary_group_title:
+            return primary_group_title, primary_group_title
+        group_title = derive_section_title_from_total_sheet(sheet_name)
+        if current_group:
+            return current_group, current_group
+        return group_title, group_title
+    brand_title = normalize_section_title(_clean_brand_name_from_sheet(sheet_name))
+    return current_group or brand_title, current_group
+
+
+def register_section_slide_range(
+    section_slide_map: Dict[str, List[int]],
+    section_title: str,
+    start_idx: int,
+    count: int,
+) -> None:
+    """Agrega un rango de slides a una seccion conservando el orden."""
+    if count <= 0:
+        return
+    title = normalize_section_title(section_title)
+    if not title:
+        return
+    bucket = section_slide_map.setdefault(title, [])
+    known = set(bucket)
+    for slide_idx in range(start_idx, start_idx + count):
+        if slide_idx not in known:
+            bucket.append(slide_idx)
+            known.add(slide_idx)
+
+
+def apply_powerpoint_sections(pptx_path: str, section_slide_map: Dict[str, List[int]]) -> None:
+    """Inyecta secciones de PowerPoint dentro del .pptx final."""
+    if not pptx_path or not section_slide_map:
+        return
+    ET.register_namespace("a", PPTX_DRAWING_NS)
+    ET.register_namespace("r", PPTX_REL_NS)
+    ET.register_namespace("p", PPTX_PRESENTATION_NS)
+    ET.register_namespace("p14", PPTX_SECTION_NS)
+    with zipfile.ZipFile(pptx_path, "r") as src_zip:
+        root = ET.fromstring(src_zip.read("ppt/presentation.xml"))
+    sld_id_list = root.find(f"{{{PPTX_PRESENTATION_NS}}}sldIdLst")
+    if sld_id_list is None:
+        return
+    slide_ids = [
+        int(node.attrib["id"])
+        for node in sld_id_list.findall(f"{{{PPTX_PRESENTATION_NS}}}sldId")
+        if node.attrib.get("id")
+    ]
+    valid_sections: List[Tuple[str, List[int]]] = []
+    for title, slide_indexes in section_slide_map.items():
+        slide_id_values: List[int] = []
+        seen_slide_ids: Set[int] = set()
+        for slide_idx in slide_indexes:
+            if 0 <= slide_idx < len(slide_ids):
+                slide_id = slide_ids[slide_idx]
+                if slide_id not in seen_slide_ids:
+                    slide_id_values.append(slide_id)
+                    seen_slide_ids.add(slide_id)
+        if slide_id_values:
+            valid_sections.append((title, slide_id_values))
+    if not valid_sections:
+        return
+    ext_lst = root.find(f"{{{PPTX_PRESENTATION_NS}}}extLst")
+    if ext_lst is None:
+        ext_lst = ET.SubElement(root, f"{{{PPTX_PRESENTATION_NS}}}extLst")
+    for ext in list(ext_lst.findall(f"{{{PPTX_PRESENTATION_NS}}}ext")):
+        if ext.attrib.get("uri") == PPTX_SECTION_EXT_URI:
+            ext_lst.remove(ext)
+    sections_ext = ET.SubElement(
+        ext_lst,
+        f"{{{PPTX_PRESENTATION_NS}}}ext",
+        {"uri": PPTX_SECTION_EXT_URI},
+    )
+    section_lst = ET.SubElement(sections_ext, f"{{{PPTX_SECTION_NS}}}sectionLst")
+    for title, slide_id_values in valid_sections:
+        section = ET.SubElement(
+            section_lst,
+            f"{{{PPTX_SECTION_NS}}}section",
+            {"name": title, "id": "{" + str(uuid.uuid4()).upper() + "}"},
+        )
+        section_slide_list = ET.SubElement(section, f"{{{PPTX_SECTION_NS}}}sldIdLst")
+        for slide_id in slide_id_values:
+            ET.SubElement(
+                section_slide_list,
+                f"{{{PPTX_SECTION_NS}}}sldId",
+                {"id": str(slide_id)},
+            )
+    updated_xml = ET.tostring(root, encoding="utf-8", xml_declaration=True)
+    tmp_path: Optional[str] = None
+    try:
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".pptx", dir=os.path.dirname(pptx_path)) as tmp_file:
+            tmp_path = tmp_file.name
+        with zipfile.ZipFile(pptx_path, "r") as read_zip, zipfile.ZipFile(tmp_path, "w") as write_zip:
+            for entry in read_zip.infolist():
+                payload = updated_xml if entry.filename == "ppt/presentation.xml" else read_zip.read(entry.filename)
+                write_zip.writestr(entry, payload)
+        os.replace(tmp_path, pptx_path)
+    finally:
+        if tmp_path and os.path.exists(tmp_path):
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
 
 
 def parse_filename_brand(filename: str) -> Tuple[str, str, str, str]:
@@ -6027,6 +6227,8 @@ def generate_presentation_and_bank(
     summary_rows: List[Dict[str, str]] = []
     bank_rows: List[Dict[str, object]] = []
     low_penetration_brands: List[str] = []
+    brand_section_map: Dict[str, List[int]] = {}
+    current_section_title: Optional[str] = None
 
     total_slides_to_generate = 0
     for marca_sheet_name in marcas:
@@ -6131,13 +6333,25 @@ def generate_presentation_and_bank(
                     current_year_correlation=current_year_correlation,
                     trend_following=trend_following,
                 )
-                builder.add_pipeline_slides(
+                section_title, next_section_title = build_section_title_for_sheet(
+                    marca_sheet_name,
+                    current_section_title,
+                )
+                slide_start_idx = len(ppt.slides)
+                slides_created = builder.add_pipeline_slides(
                     assets,
                     marca_nombre_limpio=marca_nombre_limpio,
                     lang_index=lang_index,
                     coverage_label=builder.coverage_label,
                     progress=progress,
                     task_id=task_id,
+                )
+                current_section_title = next_section_title
+                register_section_slide_range(
+                    brand_section_map,
+                    section_title,
+                    slide_start_idx,
+                    slides_created,
                 )
                 summary_row, bank_row, _, _, _, _ = build_summary_and_bank_rows(
                     pipeline=pipeline,
@@ -6172,8 +6386,24 @@ def generate_presentation_and_bank(
     builder.insert_thanks_text(chosen_lang)
     builder.reorder_summary_and_credit()
 
+    section_slide_map: Dict[str, List[int]] = {}
+    intro_title = "Intro" if chosen_lang == "EN" else ("Inicio" if chosen_lang == "ES" else "Inicio")
+    summary_title = "Summary" if chosen_lang == "EN" else ("Resumen" if chosen_lang == "ES" else "Resumo")
+    closing_title = "Closing" if chosen_lang == "EN" else ("Cierre" if chosen_lang == "ES" else "Fechamento")
+    intro_count = min(6, len(ppt.slides))
+    if intro_count > 0:
+        register_section_slide_range(section_slide_map, intro_title, 0, intro_count)
+    if len(ppt.slides) > 6:
+        register_section_slide_range(section_slide_map, summary_title, 6, 1)
+    for title, indexes in brand_section_map.items():
+        for slide_idx in indexes:
+            register_section_slide_range(section_slide_map, title, slide_idx, 1)
+    if len(ppt.slides) > 7:
+        register_section_slide_range(section_slide_map, closing_title, len(ppt.slides) - 1, 1)
+
     ruta_ppt_final = os.path.join(carpeta_salida, f"{nombre_base_archivo}.pptx")
     ppt.save(ruta_ppt_final)
+    apply_powerpoint_sections(ruta_ppt_final, section_slide_map)
 
     return ruta_ppt_final, df_summary, df_bank
 
