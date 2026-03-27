@@ -1401,17 +1401,100 @@ def print_file_locked_error(path_str: str, *, elapsed_seconds: Optional[float] =
         elapsed_line = f"\n[white]Tiempo total: [bold]{_format_elapsed(elapsed_seconds)}[/bold][/white]"
 
     msg = (
-        "[bright_white]Proceso terminado con error[/bright_white]\n\n"
-        f"[white]Archivo en uso: [bold]{base}[/bold][/white]\n"
-        "[white]No se pudo reescribir porque esta abierto o bloqueado.[/white]\n"
-        "[white]Cierra el archivo y vuelve a ejecutar.[/white]\n\n"
-        f"[white]Hora de finalizacion: [bold]{hora_actual}[/bold][/white]"
+        "[bold bright_white]Proceso terminado con error[/bold bright_white]\n\n"
+        f"[bold red]Archivo en uso:[/bold red] [white]{base}[/white]\n"
+        "[red]No se pudo reescribir porque esta abierto o bloqueado.[/red]\n"
+        "[yellow]Cierra el archivo y vuelve a ejecutar.[/yellow]\n\n"
+        f"[yellow]Hora de finalizacion:[/yellow] [white]{hora_actual}[/white]"
         f"{elapsed_line}\n\n"
-        f"[grey]{path_disp}[/grey]"
+        f"[grey70]{path_disp}[/grey70]"
     )
     console.print()
-    console.print(Panel.fit(msg, border_style="red", title="Coverages Latam"))
+    console.print(Panel.fit(msg, border_style="red", title="[bold red]Coverages Latam[/bold red]"))
     console.print()
+
+
+class FileSaveCancelled(Exception):
+    """Indica que el usuario cancelo un reintento de guardado."""
+
+
+def _resolve_elapsed_seconds(
+    elapsed_seconds: Optional[float] = None,
+    elapsed_seconds_fn: Optional[Callable[[], Optional[float]]] = None,
+) -> Optional[float]:
+    """Resuelve el tiempo transcurrido usando un valor fijo o una funcion callback."""
+    if elapsed_seconds_fn is not None:
+        try:
+            dynamic_value = elapsed_seconds_fn()
+        except Exception:
+            dynamic_value = None
+        if dynamic_value is not None:
+            return dynamic_value
+    return elapsed_seconds
+
+
+def prompt_file_locked_retry(
+    path_str: str,
+    *,
+    action_label: str,
+    elapsed_seconds: Optional[float] = None,
+    elapsed_seconds_fn: Optional[Callable[[], Optional[float]]] = None,
+) -> bool:
+    """Pausa el flujo para permitir cerrar el archivo y reintentar sin recomenzar."""
+    path_disp = str(path_str or "").strip() or "-"
+    try:
+        base = os.path.basename(path_disp) if path_disp not in {"-", ""} else "-"
+    except Exception:
+        base = path_disp
+    hora_actual = datetime.now().strftime("%I:%M:%S %p")
+    elapsed_value = _resolve_elapsed_seconds(elapsed_seconds, elapsed_seconds_fn)
+    elapsed_line = ""
+    if elapsed_value is not None:
+        elapsed_line = f"\n[white]Tiempo acumulado: [bold]{_format_elapsed(elapsed_value)}[/bold][/white]"
+    msg = (
+        "[bold bright_white]Proceso en pausa por archivo en uso[/bold bright_white]\n\n"
+        f"[bold red]Archivo afectado:[/bold red] [white]{base}[/white]\n"
+        f"[bold yellow]Accion pendiente:[/bold yellow] [white]{action_label}[/white]\n"
+        "[red]No se puede continuar mientras el archivo siga abierto o bloqueado.[/red]\n"
+        "[yellow]Cierra el archivo para habilitar el reintento.[/yellow]\n\n"
+        f"[yellow]Hora actual:[/yellow] [white]{hora_actual}[/white]"
+        f"{elapsed_line}\n\n"
+        f"[grey70]{path_disp}[/grey70]"
+    )
+    console.print()
+    console.print(Panel.fit(msg, border_style="yellow", title="[bold yellow]Coverages Latam[/bold yellow]"))
+    console.print()
+    try:
+        choice = input(f"{Fore.CYAN}Reintentar [Enter] / Cancelar [Q]: {Style.RESET_ALL}").strip().lower()
+    except EOFError:
+        return False
+    return choice not in {"q", "quit", "salir", "cancelar", "n", "no"}
+
+
+def run_file_write_with_retry(
+    target_path: str,
+    *,
+    action_label: str,
+    operation: Callable[[], None],
+    elapsed_seconds: Optional[float] = None,
+    elapsed_seconds_fn: Optional[Callable[[], Optional[float]]] = None,
+) -> None:
+    """Ejecuta una operacion de escritura y reintenta si el archivo esta bloqueado."""
+    while True:
+        try:
+            operation()
+            return
+        except PermissionError as exc:
+            locked_path = getattr(exc, "filename", None) or target_path
+            should_retry = prompt_file_locked_retry(
+                locked_path,
+                action_label=action_label,
+                elapsed_seconds=elapsed_seconds,
+                elapsed_seconds_fn=elapsed_seconds_fn,
+            )
+            if should_retry:
+                continue
+            raise FileSaveCancelled(str(locked_path)) from exc
 
 
 def print_reference_date_detection_warning(
@@ -4902,6 +4985,7 @@ def generate_excel_template(
     trend_axis: str,
     evolution_slide_variant: str,
     include_english: bool,
+    elapsed_seconds_fn: Optional[Callable[[], Optional[float]]] = None,
 ) -> Tuple[str, str, str, str]:
     """Genera el archivo Excel temporal y devuelve datos clave."""
     try:
@@ -5742,14 +5826,21 @@ def generate_excel_template(
     nombre_template_final = f"Template_{nombre_base_archivo}.xlsx"
     ruta_template_final = os.path.join(carpeta_salida, nombre_template_final)
 
-    try:
+    def write_final_template() -> None:
         if os.path.exists(ruta_template_final):
             print(Fore.YELLOW + f"Archivo Excel ya existe. Se sobrescribirá.")
             os.remove(ruta_template_final)
         os.rename(excel_temp_path, ruta_template_final)
+
+    try:
+        run_file_write_with_retry(
+            ruta_template_final,
+            action_label="guardar el template Excel final",
+            operation=write_final_template,
+            elapsed_seconds_fn=elapsed_seconds_fn,
+        )
         print(Fore.GREEN + "Archivo Excel final guardado")
-    except PermissionError:
-        # Archivo destino abierto/bloqueado.
+    except FileSaveCancelled:
         if os.path.exists(excel_temp_path):
             try:
                 os.remove(excel_temp_path)
@@ -6203,6 +6294,7 @@ def generate_presentation_and_bank(
     round_coverage: bool,
     summary_extra_months: Sequence[int],
     summary_extra_months_mode: str,
+    elapsed_seconds_fn: Optional[Callable[[], Optional[float]]] = None,
 ) -> Tuple[str, "pd.DataFrame", "pd.DataFrame"]:
     chosen_lang, lang_index = determine_language(include_english, pais_nombre)
     ppt, tmp_ppt_path = copy_and_prune_template(root_dir, chosen_lang)
@@ -6402,8 +6494,19 @@ def generate_presentation_and_bank(
         register_section_slide_range(section_slide_map, closing_title, len(ppt.slides) - 1, 1)
 
     ruta_ppt_final = os.path.join(carpeta_salida, f"{nombre_base_archivo}.pptx")
-    ppt.save(ruta_ppt_final)
-    apply_powerpoint_sections(ruta_ppt_final, section_slide_map)
+
+    def write_final_presentation() -> None:
+        if os.path.exists(ruta_ppt_final):
+            os.remove(ruta_ppt_final)
+        ppt.save(ruta_ppt_final)
+        apply_powerpoint_sections(ruta_ppt_final, section_slide_map)
+
+    run_file_write_with_retry(
+        ruta_ppt_final,
+        action_label="guardar la presentación final",
+        operation=write_final_presentation,
+        elapsed_seconds_fn=elapsed_seconds_fn,
+    )
 
     return ruta_ppt_final, df_summary, df_bank
 
@@ -6420,6 +6523,7 @@ def save_coverage_bank(
     coverage_label: str,
     coverage_type: str,
     coverage_slide_variant: str,
+    elapsed_seconds_fn: Optional[Callable[[], Optional[float]]] = None,
 ) -> str:
     df_bank = df_bank.copy()
     try:
@@ -6433,8 +6537,9 @@ def save_coverage_bank(
     categoria_para_banco = categoria_nombre_corto or categoria_nombre
     nombre_banco_final = f"Banco_{fabricante}_{categoria_para_banco}_{pais_nombre}_{ref_month_year}_{coverage_label}.xlsx"
     ruta_banco_final = os.path.join(carpeta_salida, nombre_banco_final)
-    df_bank.to_excel(ruta_banco_final, index=False)
-    try:
+
+    def write_bank_file() -> None:
+        df_bank.to_excel(ruta_banco_final, index=False)
         from openpyxl import load_workbook as _wb_load
         from openpyxl.styles import PatternFill as _PatternFill, Font as _Font, Alignment as _Alignment, Border as _Border, Side as _Side
         wb_bank = _wb_load(ruta_banco_final)
@@ -6614,6 +6719,16 @@ def save_coverage_bank(
                 pass
 
         wb_bank.save(ruta_banco_final)
+
+    try:
+        run_file_write_with_retry(
+            ruta_banco_final,
+            action_label="guardar el banco de coberturas",
+            operation=write_bank_file,
+            elapsed_seconds_fn=elapsed_seconds_fn,
+        )
+    except FileSaveCancelled:
+        raise
     except Exception as exc:
         print(f"{Fore.YELLOW}Advertencia: No se pudo aplicar formato mmm-yy en Banco: {exc}")
     print(Fore.MAGENTA + "-> Banco de coberturas guardado")
@@ -6787,6 +6902,13 @@ class CoverageStudioUltraApp:
                 elapsed = time.monotonic() - float(self._script_start_monotonic)
             except Exception:
                 elapsed = None
+        def get_elapsed() -> Optional[float]:
+            if self._script_start_monotonic is None:
+                return elapsed
+            try:
+                return time.monotonic() - float(self._script_start_monotonic)
+            except Exception:
+                return elapsed
         try:
             try:
                 excel_file_obj = pd.ExcelFile(excel_file_path)
@@ -6845,6 +6967,7 @@ class CoverageStudioUltraApp:
                 options.trend_axis,
                 options.evolution_slide_variant,
                 options.include_english,
+                elapsed_seconds_fn=get_elapsed,
             )
             ruta_ppt_final, df_summary, df_bank = generate_presentation_and_bank(
                 root_dir=self.root_dir,
@@ -6870,6 +6993,7 @@ class CoverageStudioUltraApp:
                 round_coverage=options.round_coverage,
                 summary_extra_months=options.summary_extra_months,
                 summary_extra_months_mode=options.summary_extra_months_mode,
+                elapsed_seconds_fn=get_elapsed,
             )
             ruta_banco_final = save_coverage_bank(
                 df_bank=df_bank,
@@ -6883,9 +7007,13 @@ class CoverageStudioUltraApp:
                 coverage_label=coverage_label,
                 coverage_type=options.coverage_type,
                 coverage_slide_variant=options.coverage_slide_variant,
+                elapsed_seconds_fn=get_elapsed,
             )
             print_file_summary(ruta_template_final, ruta_ppt_final, ruta_banco_final, elapsed_seconds=elapsed)
             report_zero_months_exceptions()
+        except FileSaveCancelled:
+            print(Fore.YELLOW + "Guardado cancelado por el usuario.")
+            return
         except PermissionError as exc:
             locked_path = getattr(exc, "filename", None) or str(exc)
             print_file_locked_error(locked_path, elapsed_seconds=elapsed)
