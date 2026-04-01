@@ -221,6 +221,27 @@ def build_section_title_for_sheet(sheet_name: str, current_group: Optional[str])
     return current_group or brand_title, current_group
 
 
+def build_metadata_group_for_sheet(sheet_name: str, current_group: Optional[str], fabricante: str = "") -> Tuple[str, Optional[str]]:
+    """Resuelve el grupo semantico para metadata del banco con reglas por fabricante."""
+    manufacturer_key = _resolve_mult_manufacturer_key(fabricante) if fabricante else None
+    if manufacturer_key:
+        rule_config = MULT_METADATA_RULES.get(manufacturer_key, {})
+        category_rules = rule_config.get("category_rules", ())
+        if rule_config.get("category_source") == "section":
+            # Solo promovemos hojas "ancla" que realmente correspondan a una
+            # categoria; totales de submarca como "T.Lux" deben heredar grupo.
+            if is_total_group_sheet(sheet_name):
+                candidate_titles = [
+                    derive_primary_section_title_from_total_sheet(sheet_name),
+                    derive_section_title_from_total_sheet(sheet_name),
+                ]
+                for candidate_title in candidate_titles:
+                    if candidate_title and _match_metadata_rule(candidate_title, category_rules):
+                        return candidate_title, candidate_title
+    brand_title = normalize_section_title(_clean_brand_name_from_sheet(sheet_name))
+    return current_group or brand_title, current_group
+
+
 def register_section_slide_range(
     section_slide_map: Dict[str, List[int]],
     section_title: str,
@@ -1018,6 +1039,179 @@ def quick_file_metadata(filename: str) -> str:
     country = COUNTRY_MAP.get(parts[0], "Desconocido")
     category = CATEGORY_MAP.get(parts[1], "Categoria desconocida")
     return f"{country} - {category}"
+
+
+def parse_input_filename_parts(excel_file_name: str) -> Tuple[str, str, str]:
+    """Extrae codigo de pais, codigo de categoria y fabricante del nombre del archivo."""
+    parts = os.path.splitext(excel_file_name)[0].split('_')
+    if len(parts) < 3:
+        raise ValueError("El nombre de archivo no contiene suficientes partes (pais_categoria_fabricante)")
+    return parts[0], parts[1], parts[2]
+
+
+def build_category_short_name(categoria_nombre: object) -> str:
+    """Genera una version corta de la categoria tomando el texto previo al primer guion."""
+    try:
+        dash_split = re.split(r"\s*[-‑–—−‒]\s*", str(categoria_nombre), maxsplit=1)
+        categoria_corta = dash_split[0].strip() if dash_split else str(categoria_nombre).strip()
+        if not categoria_corta:
+            categoria_corta = str(categoria_nombre).strip()
+        return categoria_corta
+    except Exception:
+        return str(categoria_nombre).strip()
+
+
+@dataclass(frozen=True)
+class SheetBankMetadata:
+    pais_nombre: str
+    cesta_nombre: str
+    categoria_nombre: str
+    categoria_nombre_corto: str
+
+
+def _normalize_metadata_match_text(value: object) -> str:
+    normalized = _normalize_lookup_text(value)
+    return re.sub(r"[^a-z0-9]+", " ", normalized).strip()
+
+
+MULT_MANUFACTURER_ALIASES: Dict[str, Tuple[str, ...]] = {
+    "unilever": ("unilever",),
+    "colgate": ("colgate",),
+}
+
+# Libreria declarativa para casos MULT. Para ampliar soporte, agrega aqui el
+# fabricante y define si categoria/pais se resuelven por seccion o por marca.
+MULT_METADATA_RULES: Dict[str, Dict[str, object]] = {
+    "unilever": {
+        "category_source": "section",
+        "category_rules": (
+            (r"\bclean\b", "CLEA"),
+            (r"\bfe\b", "SOFT"),
+            (r"\blaundry\b", "LAUN"),
+            (r"\bmayonesa\b", "MAYO"),
+            (r"\bsc\b", "TOIL"),
+            (r"\bbar\b", "TOIL"),
+            (r"\bliquido\b", "TOIL"),
+            (r"\bdeos\b", "DEOD"),
+            (r"\bhair\b", "HAIR"),
+            (r"\bshampoo\b", "SHAM"),
+            (r"\b(cond|acondicionador)\b", "COND"),
+        ),
+    },
+    "colgate": {
+        "category_source": "brand",
+        "category_rules": (
+            (r"\bjabon de tocador\b", "TOIL"),
+            (r"\bcrema dental\b", "TOOT"),
+            (r"\bsuavizante\b", "SOFT"),
+            (r"\blimpiadores\b", "CLEA"),
+            (r"\blavavajillas\b", "DISH"),
+        ),
+        "country_source": "brand",
+        "country_rules": (
+            (r"\bguatemala\b", "Guatemala"),
+            (r"\bel salvador\b", "El Salvador"),
+            (r"\bhonduras\b", "Honduras"),
+            (r"\bnicaragua\b", "Nicaragua"),
+            (r"\bcosta rica\b", "Costa Rica"),
+            (r"\bpanama\b", "Panama"),
+        ),
+    },
+}
+
+
+def _resolve_mult_manufacturer_key(fabricante: str) -> Optional[str]:
+    fabricante_norm = _normalize_metadata_match_text(fabricante)
+    for manufacturer_key, aliases in MULT_MANUFACTURER_ALIASES.items():
+        for alias in aliases:
+            if alias in fabricante_norm:
+                return manufacturer_key
+    return None
+
+
+def _lookup_category_metadata(category_code: str, categories_df: "pd.DataFrame") -> Tuple[str, str, str]:
+    if category_code not in categories_df.index:
+        raise ValueError(f"El codigo de categoria '{category_code}' no esta en el catalogo")
+    cesta_nombre = str(categories_df.loc[category_code, 'cest']).strip()
+    categoria_nombre = str(categories_df.loc[category_code, 'cat']).strip()
+    categoria_corta = build_category_short_name(categoria_nombre)
+    return cesta_nombre, categoria_nombre, categoria_corta
+
+
+def _match_metadata_rule(source_value: object, rules: Sequence[Tuple[str, str]]) -> Optional[str]:
+    normalized_source = _normalize_metadata_match_text(source_value)
+    if not normalized_source:
+        return None
+    for pattern, resolved_value in rules:
+        if re.search(pattern, normalized_source):
+            return resolved_value
+    return None
+
+
+def resolve_sheet_bank_metadata(
+    category_code: str,
+    fabricante: str,
+    marca_nombre_limpio: str,
+    section_title: Optional[str],
+    categories_df: "pd.DataFrame",
+    default_pais_nombre: str,
+    default_cesta_nombre: str,
+    default_categoria_nombre: str,
+    default_categoria_nombre_corto: str,
+) -> SheetBankMetadata:
+    """Resuelve metadata del banco a nivel hoja para escenarios MULT."""
+    metadata = SheetBankMetadata(
+        pais_nombre=default_pais_nombre,
+        cesta_nombre=default_cesta_nombre,
+        categoria_nombre=default_categoria_nombre,
+        categoria_nombre_corto=default_categoria_nombre_corto,
+    )
+    if str(category_code or "").strip().upper() != "MULT":
+        return metadata
+
+    manufacturer_key = _resolve_mult_manufacturer_key(fabricante)
+    if not manufacturer_key:
+        return metadata
+
+    rule_config = MULT_METADATA_RULES.get(manufacturer_key, {})
+    category_sources: List[object] = []
+    # Probamos primero la fuente preferida por fabricante y luego un fallback
+    # para tolerar nombres de hoja menos consistentes.
+    if rule_config.get("category_source") == "section":
+        category_sources.extend([section_title, marca_nombre_limpio])
+    else:
+        category_sources.extend([marca_nombre_limpio, section_title])
+
+    for source_value in category_sources:
+        category_override_code = _match_metadata_rule(source_value, rule_config.get("category_rules", ()))
+        if category_override_code:
+            cesta_nombre, categoria_nombre, categoria_nombre_corto = _lookup_category_metadata(category_override_code, categories_df)
+            metadata = SheetBankMetadata(
+                pais_nombre=metadata.pais_nombre,
+                cesta_nombre=cesta_nombre,
+                categoria_nombre=categoria_nombre,
+                categoria_nombre_corto=categoria_nombre_corto,
+            )
+            break
+
+    country_sources: List[object] = []
+    # Si no hay regla explicita de pais, se conserva el pais derivado del archivo.
+    if rule_config.get("country_source") == "section":
+        country_sources.extend([section_title, marca_nombre_limpio])
+    else:
+        country_sources.extend([marca_nombre_limpio, section_title])
+    for source_value in country_sources:
+        country_override = _match_metadata_rule(source_value, rule_config.get("country_rules", ()))
+        if country_override:
+            metadata = SheetBankMetadata(
+                pais_nombre=country_override,
+                cesta_nombre=metadata.cesta_nombre,
+                categoria_nombre=metadata.categoria_nombre,
+                categoria_nombre_corto=metadata.categoria_nombre_corto,
+            )
+            break
+
+    return metadata
 
 # --- Datos Estaticos cargados en _load_heavy_modules
 
@@ -4433,10 +4627,7 @@ class SlideBuilder:
 
 def parse_file_metadata(excel_file_name: str, categories_df: "pd.DataFrame") -> Tuple[str, str, str, str, str]:
     """Obtiene país, cesta y categoría a partir del nombre del archivo."""
-    parts = os.path.splitext(excel_file_name)[0].split('_')
-    if len(parts) < 3:
-        raise ValueError("El nombre de archivo no contiene suficientes partes (país_categoria_fabricante)")
-    country_code_str, category_code, fabricante = parts[:3]
+    country_code_str, category_code, fabricante = parse_input_filename_parts(excel_file_name)
     try:
         country_code = int(country_code_str)
     except ValueError as exc:
@@ -4445,17 +4636,7 @@ def parse_file_metadata(excel_file_name: str, categories_df: "pd.DataFrame") -> 
         pais_nombre = str(pais.loc[pais.cod == country_code, 'pais'].iloc[0]).strip()
     except Exception as exc:
         raise ValueError(f"No se encontró el país para el código {country_code_str}") from exc
-    if category_code not in categories_df.index:
-        raise ValueError(f"El código de categoría '{category_code}' no está en el catálogo")
-    cesta_nombre = categories_df.loc[category_code, 'cest']
-    categoria_nombre = categories_df.loc[category_code, 'cat']
-    try:
-        dash_split = re.split(r"\s*[-‑–—−‒]\s*", str(categoria_nombre), maxsplit=1)
-        categoria_corta = dash_split[0].strip() if dash_split else str(categoria_nombre).strip()
-        if not categoria_corta:
-            categoria_corta = str(categoria_nombre).strip()
-    except Exception:
-        categoria_corta = str(categoria_nombre).strip()
+    cesta_nombre, categoria_nombre, categoria_corta = _lookup_category_metadata(category_code, categories_df)
     return pais_nombre, cesta_nombre, categoria_nombre, categoria_corta, fabricante
 
 
@@ -6275,6 +6456,8 @@ def generate_presentation_and_bank(
     excel_file_obj: "pd.ExcelFile",
     marcas: Sequence[str],
     pais_nombre: str,
+    category_code: str,
+    categories_df: "pd.DataFrame",
     categoria_nombre: str,
     categoria_nombre_corto: str,
     fabricante: str,
@@ -6321,6 +6504,7 @@ def generate_presentation_and_bank(
     low_penetration_brands: List[str] = []
     brand_section_map: Dict[str, List[int]] = {}
     current_section_title: Optional[str] = None
+    current_metadata_group: Optional[str] = None
 
     total_slides_to_generate = 0
     for marca_sheet_name in marcas:
@@ -6352,6 +6536,27 @@ def generate_presentation_and_bank(
             marca_nombre_limpio = re.sub(r"(?i)^p[0-6]_", "", marca_sheet_name)
             match = re.match(r"(?i)^p([0-6])_", marca_sheet_name)
             pipelines_to_run = [int(match.group(1))] if match else list(range(7))
+            metadata_group_title, next_metadata_group = build_metadata_group_for_sheet(
+                marca_sheet_name,
+                current_metadata_group,
+                fabricante,
+            )
+            section_title, next_section_title = build_section_title_for_sheet(
+                marca_sheet_name,
+                current_section_title,
+            )
+            sheet_bank_metadata = resolve_sheet_bank_metadata(
+                category_code=category_code,
+                fabricante=fabricante,
+                marca_nombre_limpio=marca_nombre_limpio,
+                section_title=metadata_group_title,
+                categories_df=categories_df,
+                default_pais_nombre=pais_nombre,
+                default_cesta_nombre=cesta_nombre,
+                default_categoria_nombre=categoria_nombre,
+                default_categoria_nombre_corto=categoria_nombre_corto,
+            )
+            current_metadata_group = next_metadata_group
             issues_detected = detect_brand_data_issues(df_marca_ppt, window=0)
             if issues_detected:
                 for issue in issues_detected:
@@ -6425,10 +6630,6 @@ def generate_presentation_and_bank(
                     current_year_correlation=current_year_correlation,
                     trend_following=trend_following,
                 )
-                section_title, next_section_title = build_section_title_for_sheet(
-                    marca_sheet_name,
-                    current_section_title,
-                )
                 slide_start_idx = len(ppt.slides)
                 slides_created = builder.add_pipeline_slides(
                     assets,
@@ -6454,9 +6655,9 @@ def generate_presentation_and_bank(
                     labels=labels,
                     lang_index=lang_index,
                     fabricante=fabricante,
-                    pais_nombre=pais_nombre,
-                    categoria_nombre=categoria_nombre,
-                    cesta_nombre=cesta_nombre,
+                    pais_nombre=sheet_bank_metadata.pais_nombre,
+                    categoria_nombre=sheet_bank_metadata.categoria_nombre,
+                    cesta_nombre=sheet_bank_metadata.cesta_nombre,
                     coverage_reason=coverage_reason,
                     measure_unit=measure_unit,
                     coverage_type=coverage_type,
@@ -6925,6 +7126,7 @@ class CoverageStudioUltraApp:
                 return
 
             try:
+                _, category_code, _ = parse_input_filename_parts(excel_file_name)
                 pais_nombre, cesta_nombre, categoria_nombre, categoria_nombre_corto, fabricante = parse_file_metadata(excel_file_name, self.categories)
             except ValueError as exc:
                 print(f"{Fore.RED}{Style.BRIGHT}{exc}")
@@ -6974,6 +7176,8 @@ class CoverageStudioUltraApp:
                 excel_file_obj=excel_file_obj,
                 marcas=marcas,
                 pais_nombre=pais_nombre,
+                category_code=category_code,
+                categories_df=self.categories,
                 categoria_nombre=categoria_nombre,
                 categoria_nombre_corto=categoria_nombre_corto,
                 fabricante=fabricante,
