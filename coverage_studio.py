@@ -1074,6 +1074,265 @@ def _normalize_metadata_match_text(value: object) -> str:
     return re.sub(r"[^a-z0-9]+", " ", normalized).strip()
 
 
+SUBCATEGORY_CATALOG_TEXT = """
+Absorvente de Olores
+Aceite
+Acondicionador
+Aderezo de Mayonesa
+Adulto
+Afeitadora
+Afeitadora Desechable
+Ampollas Bebibles
+Antiadherente
+Anticaspa
+Arroz con Leche
+Avellana
+Baño
+Barquillo - Cono - Canasta
+Barra
+Base
+Bata - Camison
+Batido
+Bebe
+Bebidas con Fruta o Jugo
+Bebidas Saborizadas Artificiales
+Bebidas Saborizadas Envasadas
+Bebidas Saborizadas Naturales
+Bloqueador
+Blusa
+Botas
+Brasieres - Corpiños
+Brillo Labial
+Bronceador
+Cacahuate
+Calzon - Pants
+Calzon Menstrual
+Calzonillos - Pantaleta
+Camisa de Vestir
+Camisa Sport
+Camiseta
+Camiseta Interior
+Capsulas
+Capsulas Blandas
+Caramelos
+Carne de Res y Puerco
+Cartucho - Repuesto
+Cepillo Electrico
+Cepillo Manual
+Ceras
+Cereales
+Chaleco
+Chamarra
+Chicles
+Chocolate con Malvavisco
+Chocolate Galleta
+Cloro
+Cobertura Confitado - Grajeado
+Combo
+Complemento Nutricional Polvo
+Comprimidos - Pastillas
+Con Alcohol
+Con Gas
+Con Jugo
+Con Relleno
+Concentrado
+Condensada
+Congelada
+Conjunto Deportivo
+Copa Menstrual
+Corbata
+Corrector Facial
+Crema
+Crema de Peinar
+Crema Gel
+Cubos
+Cuerpo
+De Sanitario
+Delineador de Cejas
+Delineador de Ojos
+Delineador Labial
+Desengrasantes
+Deshidratada
+Desinfectante
+Desmanchadores
+Desodorante - Aromatizante
+Destilado de Agave
+Donas
+Dulce
+Dulce Cremoso
+Dulces
+Elote
+En Vaso
+Ensamble
+Envasados
+Esmalte
+Espuma
+Faja
+Falda Larga - Corta
+Flan
+Fondo
+Formulada Polvo
+Fresca - Refrigerada
+Frutas
+Gato
+Gato Humedo
+Gato Seco
+Gel
+Gelatina
+Gomitas
+Gomitas - Masticables
+Gotas
+Grano - Tostado Molido
+Helado
+Hoja de Afeitar
+Infantil
+Insecticida
+Instantaneo - Soluble
+Intensificador de Perfume
+Jalea
+Jarabe
+Jarabe de Maiz
+Jeans - Pantalon Mezclilla
+Jegging
+Juego de Brasier y Pantaleta
+Jugo de Frutas Envasado
+Jugo de Frutas Naturales
+Jugos Puros
+Labial
+Lacteo Fermentado
+Laminas
+Leche Pasteurizada
+Leche Ultra Pasteurizada UHT
+Legging
+Licuado
+Ligeramente Gasificada
+Light
+Limpiamuebles
+Limpiavidrios
+Liquido
+Liquido - Gel
+Liquido - Jarabe
+Listo para Beber
+Maiz Pozolero
+Mameluco
+Manos
+Mantequilla
+Margarina
+Mascarilla
+Masticables - Gomitas
+Mayonesa
+Mermelada
+Mezcal
+Miel
+Mixto
+Mousse
+Multiuso - Perfumado - Piso
+Natilla
+Natural
+Nectar
+Otros Postres Caseros
+Otros Postres Industrializados
+Paleta Helada
+Paletas
+Pan Artesanal Ambos
+Pan Artesanal Dulce
+Pan Artesanal Salado
+Pan de Muerto
+Pantalon Casual - Informal
+Pantalon de Vestir
+Pantiblusa
+Pants - Legging Deportivo
+Pañal
+Papas
+Papillas y Postres
+Pastel Helado
+Perro
+Perro Humedo
+Perro Seco
+Pescado - Marisco
+Pescadores Capri
+Petit Suisse
+Pies
+Pijama
+Playera tipo Golf - Polo
+Playera Tradicional con Manga
+Playera Tradicional sin Manga
+Pollo
+Polvo
+Polvo - Granulado
+Polvo Facial
+Postre con Crema
+Postre de Yogurt
+Preparados
+Producto Lacteo Pasteurizado
+Producto Lacteo Ultra Pasteurizado UHT
+Protectores de Cama
+Protectores Diarios
+Pulpas y Polvos
+Regular
+Repelente de Insectos
+Rimel
+Rosca de Reyes
+Rubor
+Saborizada
+Saco Sport - Blazer
+Saladas
+Salado
+Sandalias
+Sandwich
+Seca
+Shampoo
+Short y Bermuda de Mezclilla
+Short y Bermuda de Vestir
+Silicas
+Sin Alcohol
+Sin Gas
+Solido
+Sombra de Ojos
+Sorpresa
+Soya
+Spray
+Spray - Aerosol
+Suavizante
+Sudadera Deportiva
+Sueter
+Tableta Solida
+Tabletas Efervescentes
+Tampones
+Tenis Casual
+Tenis Deportivo
+Tequila
+Toallas - Protectores
+Toallas Femeninas
+Topico - Ungüento
+Tops Casual - Elegante - Deportivo
+Tortillas
+Tostadas
+Traje de Caballero
+Traje Sastre con Falda
+Traje Sastre con Pantalon
+Tratamiento
+Tratamiento de Uñas
+Trusas - Boxes
+Tunica
+Unidades
+Vegetales
+Verduras
+Vestido Casual
+Vestido Noche - Coctel
+Yoghurt Vegetal
+Zapato Casual
+Zapato Formal
+"""
+
+SUBCATEGORY_CATALOG: Tuple[str, ...] = tuple(
+    line.strip() for line in SUBCATEGORY_CATALOG_TEXT.splitlines() if line.strip()
+)
+SUBCATEGORY_CANONICAL_BY_NORM: Dict[str, str] = {
+    _normalize_lookup_text(subcategory): subcategory for subcategory in SUBCATEGORY_CATALOG
+}
+
+
 MULT_MANUFACTURER_ALIASES: Dict[str, Tuple[str, ...]] = {
     "unilever": ("unilever",),
     "colgate": ("colgate",),
@@ -1212,6 +1471,18 @@ def resolve_sheet_bank_metadata(
             break
 
     return metadata
+
+
+def extract_sheet_subcategory(sheet_name: str) -> str:
+    """Obtiene la subcategoria desde el ultimo texto entre parentesis del nombre de hoja."""
+    cleaned = _clean_brand_name_from_sheet(sheet_name)
+    matches = re.findall(r"\(([^()]+)\)", cleaned)
+    if not matches:
+        return ""
+    raw_subcategory = str(matches[-1]).strip()
+    if not raw_subcategory:
+        return ""
+    return SUBCATEGORY_CANONICAL_BY_NORM.get(_normalize_lookup_text(raw_subcategory), raw_subcategory)
 
 # --- Datos Estaticos cargados en _load_heavy_modules
 
@@ -4721,6 +4992,40 @@ def _find_first_nonempty_row(ws: "object", col: int, start_row: int, end_row: in
     return None
 
 
+def autofit_worksheet_columns(
+    ws: "object",
+    *,
+    min_width: float = 10.0,
+    max_width: float = 36.0,
+    padding: float = 2.0,
+) -> None:
+    """Ajusta el ancho de columnas segun encabezado y contenido visible."""
+    for col_cells in ws.iter_cols(min_row=1, max_row=ws.max_row, min_col=1, max_col=ws.max_column):
+        max_len = 0
+        col_letter = None
+        for cell in col_cells:
+            if col_letter is None:
+                col_letter = cell.column_letter
+            value = cell.value
+            if value is None:
+                continue
+            if isinstance(value, datetime):
+                display_text = value.strftime("%b-%y")
+            else:
+                display_text = str(value).strip()
+            if display_text.startswith("="):
+                # En templates con formulas, el texto de la formula no representa
+                # el ancho visible del valor calculado.
+                display_text = "0000.0%"
+            if not display_text:
+                continue
+            max_len = max(max_len, len(display_text))
+        if not col_letter:
+            continue
+        target_width = min(max_width, max(min_width, float(max_len) + padding))
+        ws.column_dimensions[col_letter].width = target_width
+
+
 def _excel_lang_code(include_english: bool, pais_nombre: str) -> str:
     if include_english:
         return "EN"
@@ -5961,6 +6266,16 @@ def generate_excel_template(
             # Colorear pestañas por marca para identificar rápidamente cada grupo de hojas.
             apply_template_tab_colors(excel_temp_path, marcas)
             print(Fore.GREEN + "Color de pestañas aplicado por marca en el template.")
+
+            def apply_template_autofit(xlsx_path: str) -> None:
+                from openpyxl import load_workbook as _load_wb4
+                wb4 = _load_wb4(xlsx_path)
+                for ws in wb4.worksheets:
+                    autofit_worksheet_columns(ws, min_width=10.0, max_width=30.0, padding=2.0)
+                wb4.save(xlsx_path)
+
+            apply_template_autofit(excel_temp_path)
+            print(Fore.GREEN + "Ancho de columnas ajustado automaticamente en el template.")
         except Exception as e:
             print(Fore.YELLOW + f"No se pudo aplicar el formato de correlaciones: {e}")
 
@@ -6357,6 +6672,7 @@ def _coverage_value_to_text(value: float, round_coverage: bool) -> str:
 def build_summary_and_bank_rows(
     pipeline: int,
     marca_nombre_limpio: str,
+    subcategoria_nombre: str,
     coverage_series: "pd.Series",
     df_variations: "pd.DataFrame",
     averages: Dict[str, float],
@@ -6424,6 +6740,7 @@ def build_summary_and_bank_rows(
         'Categoria': categoria_nombre,
         'Fabricante/Marca': marca_nombre_limpio,
         'Cesta': cesta_nombre,
+        'Subcategoria': subcategoria_nombre,
         'Panel': 'PNC',
         'Unidad': measure_unit,
         'Razon': coverage_reason,
@@ -6445,7 +6762,7 @@ def build_summary_and_bank_rows(
 
 
 COVERAGE_BANK_COLUMNS = [
-    'Periodo', 'Fabricante', 'Categoria', 'Fabricante/Marca', 'Cesta', 'Panel', 'Unidad',
+    'Periodo', 'Fabricante', 'Categoria', 'Fabricante/Marca', 'Cesta', 'Subcategoria', 'Panel', 'Unidad',
     'Razon', 'Pais', 'Ampliacion', 'Penet Media Ano Mov Atual', 'Penet Media Ano Mov Anterior',
     'Raw Buyers Media Ano Mov Atual', 'Frecuencia Media Mensual', 'Pipeline', 'Cobertura Año Mov Actual',
     'Cobertura Año Mov Anterior', '%VAR Cliente', '% VAR WP by Numerator', 'Misma Tendencia', 'Estabilidad'
@@ -6534,6 +6851,7 @@ def generate_presentation_and_bank(
             if df_marca_ppt is None:
                 continue
             marca_nombre_limpio = re.sub(r"(?i)^p[0-6]_", "", marca_sheet_name)
+            subcategoria_nombre = extract_sheet_subcategory(marca_sheet_name)
             match = re.match(r"(?i)^p([0-6])_", marca_sheet_name)
             pipelines_to_run = [int(match.group(1))] if match else list(range(7))
             metadata_group_title, next_metadata_group = build_metadata_group_for_sheet(
@@ -6649,6 +6967,7 @@ def generate_presentation_and_bank(
                 summary_row, bank_row, _, _, _, _ = build_summary_and_bank_rows(
                     pipeline=pipeline,
                     marca_nombre_limpio=marca_nombre_limpio,
+                    subcategoria_nombre=subcategoria_nombre,
                     coverage_series=coverage_series,
                     df_variations=df_variations,
                     averages=averages,
@@ -6756,6 +7075,8 @@ def save_coverage_bank(
                 for r in range(2, ws.max_row + 1):
                     c = ws.cell(row=r, column=col_idx)
                     c.number_format = 'mmm-yy'
+            if ws.title.lower() != "summary":
+                autofit_worksheet_columns(ws, min_width=11.0, max_width=34.0, padding=2.0)
 
         if normalize_coverage_slide_variant(coverage_slide_variant) == "pg" and not df_bank.empty:
             if "summary" in wb_bank.sheetnames:
