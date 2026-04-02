@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import io
 import os
+import posixpath
 import re
 import shutil
 import sys
@@ -112,6 +113,7 @@ TEMPLATE_TAB_COLOR_SEQUENCE: List[str] = [
 ]
 PPTX_PRESENTATION_NS = "http://schemas.openxmlformats.org/presentationml/2006/main"
 PPTX_REL_NS = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
+PPTX_PACKAGE_REL_NS = "http://schemas.openxmlformats.org/package/2006/relationships"
 PPTX_DRAWING_NS = "http://schemas.openxmlformats.org/drawingml/2006/main"
 PPTX_SECTION_NS = "http://schemas.microsoft.com/office/powerpoint/2010/main"
 PPTX_SECTION_EXT_URI = "{521415D9-36F7-43E2-AB2F-B90AF26B5E84}"
@@ -327,6 +329,88 @@ def apply_powerpoint_sections(pptx_path: str, section_slide_map: Dict[str, List[
         with zipfile.ZipFile(pptx_path, "r") as read_zip, zipfile.ZipFile(tmp_path, "w") as write_zip:
             for entry in read_zip.infolist():
                 payload = updated_xml if entry.filename == "ppt/presentation.xml" else read_zip.read(entry.filename)
+                write_zip.writestr(entry, payload)
+        os.replace(tmp_path, pptx_path)
+    finally:
+        if tmp_path and os.path.exists(tmp_path):
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
+
+
+def apply_table_grid_widths_in_pptx(
+    pptx_path: str,
+    *,
+    slide_index: int,
+    header_row: Sequence[str],
+    column_widths: Sequence[int],
+) -> None:
+    """Reescribe el tblGrid de una tabla para fijar anchos persistentes en el .pptx.
+
+    python-pptx deja la tabla correcta en memoria, pero en algunos casos el save()
+    reserializa el tblGrid con anchos distintos. Este post-proceso fuerza el ancho
+    final que realmente termina viendo PowerPoint.
+    """
+    if not pptx_path or slide_index < 0 or not header_row or not column_widths:
+        return
+    ET.register_namespace("a", PPTX_DRAWING_NS)
+    ET.register_namespace("r", PPTX_REL_NS)
+    ET.register_namespace("p", PPTX_PRESENTATION_NS)
+    header_texts = [str(value).strip() for value in header_row]
+    updated_slide_xml: Optional[bytes] = None
+    slide_part_path: Optional[str] = None
+    with zipfile.ZipFile(pptx_path, "r") as src_zip:
+        presentation_root = ET.fromstring(src_zip.read("ppt/presentation.xml"))
+        slide_id_list = presentation_root.find(f"{{{PPTX_PRESENTATION_NS}}}sldIdLst")
+        if slide_id_list is None:
+            return
+        slide_nodes = slide_id_list.findall(f"{{{PPTX_PRESENTATION_NS}}}sldId")
+        if not (0 <= slide_index < len(slide_nodes)):
+            return
+        slide_rel_id = slide_nodes[slide_index].attrib.get(f"{{{PPTX_REL_NS}}}id")
+        if not slide_rel_id:
+            return
+        rels_root = ET.fromstring(src_zip.read("ppt/_rels/presentation.xml.rels"))
+        slide_target: Optional[str] = None
+        for rel_node in rels_root.findall(f"{{{PPTX_PACKAGE_REL_NS}}}Relationship"):
+            if rel_node.attrib.get("Id") == slide_rel_id:
+                slide_target = rel_node.attrib.get("Target")
+                break
+        if not slide_target:
+            return
+        slide_part_path = posixpath.normpath(posixpath.join("ppt", slide_target.lstrip("/")))
+        slide_root = ET.fromstring(src_zip.read(slide_part_path))
+        for tbl_node in slide_root.findall(f".//{{{PPTX_DRAWING_NS}}}tbl"):
+            first_row = tbl_node.find(f"{{{PPTX_DRAWING_NS}}}tr")
+            tbl_grid = tbl_node.find(f"{{{PPTX_DRAWING_NS}}}tblGrid")
+            if first_row is None or tbl_grid is None:
+                continue
+            current_headers: List[str] = []
+            for cell_node in first_row.findall(f"{{{PPTX_DRAWING_NS}}}tc"):
+                text_fragments = [
+                    text_node.text or ""
+                    for text_node in cell_node.findall(f".//{{{PPTX_DRAWING_NS}}}t")
+                ]
+                current_headers.append("".join(text_fragments).strip())
+            if current_headers != header_texts:
+                continue
+            grid_cols = tbl_grid.findall(f"{{{PPTX_DRAWING_NS}}}gridCol")
+            if len(grid_cols) != len(column_widths):
+                continue
+            for grid_col, width in zip(grid_cols, column_widths):
+                grid_col.set("w", str(int(width)))
+            updated_slide_xml = ET.tostring(slide_root, encoding="utf-8", xml_declaration=True)
+            break
+    if not slide_part_path or updated_slide_xml is None:
+        return
+    tmp_path: Optional[str] = None
+    try:
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".pptx", dir=os.path.dirname(pptx_path)) as tmp_file:
+            tmp_path = tmp_file.name
+        with zipfile.ZipFile(pptx_path, "r") as read_zip, zipfile.ZipFile(tmp_path, "w") as write_zip:
+            for entry in read_zip.infolist():
+                payload = updated_slide_xml if entry.filename == slide_part_path else read_zip.read(entry.filename)
                 write_zip.writestr(entry, payload)
         os.replace(tmp_path, pptx_path)
     finally:
@@ -3836,6 +3920,74 @@ class SlideBuilder:
         txt = re.sub(r"\s+", " ", txt).strip().lower()
         return txt
 
+    @staticmethod
+    def _format_summary_header_label(col_name: object) -> str:
+        """Formatea encabezados largos del summary sin alterar el nombre base de la columna."""
+        raw_label = str(col_name).strip()
+        match = re.match(r"^(Cobertura|Coverage)\s+([A-Za-z]{3}-\d{2})$", raw_label, flags=re.IGNORECASE)
+        if match:
+            return f"{match.group(1)}\n{match.group(2)}"
+        return raw_label
+
+    def _compute_summary_table_column_widths(self, df_summary: "pd.DataFrame", width: int) -> List[int]:
+        """Calcula anchos estables para el summary segun encabezado y columnas visibles."""
+        cols = int(len(df_summary.columns))
+        if cols <= 0:
+            return []
+        col_name_norms = [str(col_name).strip().lower() for col_name in df_summary.columns]
+        coverage_indexes = [
+            idx for idx, col_name_norm in enumerate(col_name_norms)
+            if col_name_norm.startswith("cobertura ") or col_name_norm.startswith("coverage ")
+        ]
+        explicit_shares: Dict[int, float] = {}
+        for idx, col_name_norm in enumerate(col_name_norms):
+            if "fabricante/marca" in col_name_norm or "manufacturer/brand" in col_name_norm:
+                explicit_shares[idx] = 0.195
+            elif col_name_norm.startswith("pipeline"):
+                explicit_shares[idx] = 0.075
+            elif "penetr" in col_name_norm:
+                explicit_shares[idx] = 0.165
+            elif "worldpanel by numerator" in col_name_norm:
+                explicit_shares[idx] = 0.18
+            elif "estabilidad" in col_name_norm or "stability" in col_name_norm:
+                explicit_shares[idx] = 0.09
+            elif "%var" in col_name_norm or "% var" in col_name_norm:
+                explicit_shares[idx] = 0.10
+
+        remaining_share = max(0.0, 1.0 - sum(explicit_shares.values()))
+        if coverage_indexes:
+            coverage_share = remaining_share / len(coverage_indexes)
+            for idx in coverage_indexes:
+                explicit_shares[idx] = coverage_share
+        elif cols > len(explicit_shares):
+            fallback_share = remaining_share / max(1, cols - len(explicit_shares))
+            for idx in range(cols):
+                explicit_shares.setdefault(idx, fallback_share)
+
+        min_col_width = int(width * 0.06)
+        col_widths: List[int] = []
+        width_assigned = 0
+        for idx in range(cols):
+            if idx == cols - 1:
+                col_w = int(width - width_assigned)
+            else:
+                share = explicit_shares.get(idx)
+                if share is None:
+                    sample_values = df_summary.iloc[:, idx].head(15).tolist()
+                    max_cell_len = max((len(self._normalize_summary_table_value(v)) for v in sample_values), default=0)
+                    header_len = len(str(df_summary.columns[idx]))
+                    weight = max(8, min(24, max(max_cell_len, header_len)))
+                    dynamic_width = int(width * (float(weight) / float(max(8 * cols, weight))))
+                    col_w = max(dynamic_width, min_col_width)
+                else:
+                    col_w = int(width * share)
+                width_assigned += col_w
+            col_widths.append(max(col_w, min_col_width))
+        width_delta = int(width) - sum(col_widths)
+        if col_widths:
+            col_widths[-1] += width_delta
+        return col_widths
+
     def _add_editable_summary_table(
         self,
         slide,
@@ -3878,23 +4030,9 @@ class SlideBuilder:
         table_shape = slide.shapes.add_table(rows, cols, left, top, width, needed_h)
         table = table_shape.table
 
-        col_weights: List[int] = []
-        for col_name in df_summary.columns:
-            sample_values = df_summary[col_name].head(15).tolist()
-            max_cell_len = max((len(self._normalize_summary_table_value(v)) for v in sample_values), default=0)
-            header_len = len(str(col_name))
-            weight = max(8, min(40, max(max_cell_len, header_len)))
-            col_weights.append(weight)
-        weight_sum = sum(col_weights) if col_weights else cols
-
-        width_assigned = 0
-        for idx, weight in enumerate(col_weights):
-            if idx == cols - 1:
-                col_w = int(width - width_assigned)
-            else:
-                col_w = int(width * (float(weight) / float(weight_sum)))
-                width_assigned += col_w
-            table.columns[idx].width = max(col_w, int(width * 0.04))
+        col_widths = self._compute_summary_table_column_widths(df_summary, width)
+        for idx, col_w in enumerate(col_widths):
+            table.columns[idx].width = col_w
 
         table.rows[0].height = header_h
         for r in range(1, rows):
@@ -3921,7 +4059,7 @@ class SlideBuilder:
         for c, col_name in enumerate(df_summary.columns):
             self._set_table_cell_text(
                 table.cell(0, c),
-                str(col_name),
+                self._format_summary_header_label(col_name),
                 fill_color=header_bg,
                 font_color=black,
                 font_size=10,
@@ -7014,11 +7152,29 @@ def generate_presentation_and_bank(
         register_section_slide_range(section_slide_map, closing_title, len(ppt.slides) - 1, 1)
 
     ruta_ppt_final = os.path.join(carpeta_salida, f"{nombre_base_archivo}.pptx")
+    summary_slide_index = 6 if len(ppt.slides) > 7 else max(0, len(ppt.slides) - 1)
+    summary_table_headers = (
+        [builder._format_summary_header_label(col_name) for col_name in df_summary.columns]
+        if not df_summary.empty
+        else []
+    )
+    summary_table_widths = (
+        builder._compute_summary_table_column_widths(df_summary, ppt.slide_width - (2 * Inches(0.5)))
+        if not df_summary.empty
+        else []
+    )
 
     def write_final_presentation() -> None:
         if os.path.exists(ruta_ppt_final):
             os.remove(ruta_ppt_final)
         ppt.save(ruta_ppt_final)
+        if summary_table_headers and summary_table_widths:
+            apply_table_grid_widths_in_pptx(
+                ruta_ppt_final,
+                slide_index=summary_slide_index,
+                header_row=summary_table_headers,
+                column_widths=summary_table_widths,
+            )
         apply_powerpoint_sections(ruta_ppt_final, section_slide_map)
 
     run_file_write_with_retry(
