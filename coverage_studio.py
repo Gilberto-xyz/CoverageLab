@@ -961,6 +961,11 @@ for _line in CATEGORIES_CSV_DATA.splitlines()[1:]:
     _parts = _line.split(',')
     if len(_parts) >= 3:
         CATEGORY_MAP[_parts[0]] = _parts[2]
+CATEGORY_CODE_SET: Set[str] = frozenset(
+    str(code).strip().upper()
+    for code in CATEGORY_MAP
+    if str(code).strip()
+)
 
 PPT_LAYOUT_INDEX = 1
 DEFAULT_POP_COVERAGE = "100%"
@@ -1151,11 +1156,474 @@ class SheetBankMetadata:
     cesta_nombre: str
     categoria_nombre: str
     categoria_nombre_corto: str
+    categoria_codigo: str = ""
 
 
 def _normalize_metadata_match_text(value: object) -> str:
     normalized = _normalize_lookup_text(value)
     return re.sub(r"[^a-z0-9]+", " ", normalized).strip()
+
+
+@dataclass(frozen=True)
+class MultSheetMetadataHints:
+    clue_texts: Tuple[str, ...] = ()
+    semantic_segments: Tuple[str, ...] = ()
+    exact_category_codes: Tuple[str, ...] = ()
+    opaque_tokens: Tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class MultCategoryResolution:
+    category_code: Optional[str]
+    source: str
+    confidence: int
+
+
+@dataclass
+class SheetLoadCacheEntry:
+    df_sheet: Optional["pd.DataFrame"]
+    measure: Optional[str]
+    metadata_source: Optional["pd.DataFrame"] = None
+    metadata_hints: Optional[MultSheetMetadataHints] = None
+
+
+@dataclass(frozen=True)
+class PreparedMultSemanticSegment:
+    raw_text: str
+    normalized_text: str
+    tokens: Tuple[str, ...]
+    is_specific_phrase: bool
+
+
+MULT_METADATA_TOKEN_STOPWORDS: Set[str] = {
+    "a",
+    "an",
+    "and",
+    "brand",
+    "brands",
+    "by",
+    "categoria",
+    "categorias",
+    "category",
+    "fabricante",
+    "fabricantes",
+    "for",
+    "mercado",
+    "mercado1",
+    "t",
+    "table",
+    "total",
+    "weighted",
+    "with",
+}
+MULT_METADATA_OPAQUE_TOKENS_IGNORE: Set[str] = {"cg", "kw", "mc", "pnc", "ul"}
+MULT_METADATA_OPAQUE_TOKEN_CATEGORY_MAP: Dict[str, str] = {
+    # Siglas realmente opacas donde el archivo no despliega la categoria.
+    "dw": "DISH",
+}
+_MULT_CATEGORY_PROFILE_CACHE: Dict[int, Dict[str, Dict[str, object]]] = {}
+_MULT_CATEGORY_TOKEN_FREQ_CACHE: Dict[int, Dict[str, int]] = {}
+_MULT_CATEGORY_TOKEN_INDEX_CACHE: Dict[int, Dict[str, Tuple[str, ...]]] = {}
+_MULT_SEMANTIC_RESOLUTION_CACHE: Dict[Tuple[int, Tuple[str, ...]], Optional[MultCategoryResolution]] = {}
+
+
+def _normalize_metadata_token(token: str) -> str:
+    token = _normalize_metadata_match_text(token)
+    if len(token) > 4 and token.endswith("es"):
+        token = token[:-2]
+    elif len(token) > 4 and token.endswith("s"):
+        token = token[:-1]
+    return token
+
+
+def _tokenize_metadata_segment(value: object) -> Set[str]:
+    normalized = _normalize_metadata_match_text(value)
+    if not normalized:
+        return set()
+    tokens: Set[str] = set()
+    for token in re.findall(r"[a-z0-9]+", normalized):
+        if token.isdigit():
+            continue
+        reduced = _normalize_metadata_token(token)
+        if reduced and reduced not in MULT_METADATA_TOKEN_STOPWORDS:
+            tokens.add(reduced)
+    return tokens
+
+
+def _split_metadata_segments(value: object) -> List[str]:
+    raw_text = str(value or "").strip()
+    if not raw_text:
+        return []
+
+    segments: List[str] = []
+    seen: Set[str] = set()
+    raw_candidates = [raw_text]
+    table_split = re.split(r"(?i)\s*-\s*table\s*-\s*", raw_text, maxsplit=1)
+    if table_split:
+        raw_candidates.append(table_split[0].strip())
+
+    for candidate in raw_candidates:
+        for segment in re.split(r"[=\\/|]+", candidate):
+            clean_segment = re.sub(r"\s+", " ", str(segment or "").strip(" _-"))
+            if not clean_segment:
+                continue
+            normalized_segment = _normalize_metadata_match_text(clean_segment)
+            if not normalized_segment or normalized_segment in seen:
+                continue
+            segments.append(clean_segment)
+            seen.add(normalized_segment)
+    return segments
+
+
+def _extract_exact_category_codes_from_text(value: object, valid_codes: Set[str]) -> List[str]:
+    raw_text = str(value or "").strip()
+    if not raw_text:
+        return []
+
+    candidates: List[str] = []
+    seen: Set[str] = set()
+    for match in re.finditer(r"(?i)\b([a-z]{4,5})(?=\d)", raw_text):
+        candidate = match.group(1).upper()
+        if candidate in valid_codes and candidate not in seen:
+            candidates.append(candidate)
+            seen.add(candidate)
+
+    alpha_chunks = re.sub(r"\d+", " ", raw_text)
+    for token in re.split(r"[^A-Za-z]+", alpha_chunks):
+        candidate = str(token or "").strip().upper()
+        if candidate in valid_codes and candidate not in seen:
+            candidates.append(candidate)
+            seen.add(candidate)
+    return candidates
+
+
+def _extract_opaque_tokens_from_text(value: object, valid_codes: Set[str]) -> List[str]:
+    raw_text = str(value or "").strip()
+    if not raw_text:
+        return []
+
+    tokens: List[str] = []
+    seen: Set[str] = set()
+    alpha_chunks = re.sub(r"\d+", " ", raw_text)
+    for token in re.split(r"[^A-Za-z]+", alpha_chunks):
+        normalized_token = _normalize_metadata_match_text(token)
+        if (
+            2 <= len(normalized_token) <= 3
+            and normalized_token not in MULT_METADATA_TOKEN_STOPWORDS
+            and normalized_token not in MULT_METADATA_OPAQUE_TOKENS_IGNORE
+            and normalized_token.upper() not in valid_codes
+            and normalized_token not in seen
+        ):
+            tokens.append(normalized_token)
+            seen.add(normalized_token)
+    return tokens
+
+
+def _find_sheet_table_row_idx(raw_sheet: "pd.DataFrame") -> Optional[int]:
+    try:
+        first_col = raw_sheet.iloc[:, 0].astype(str)
+        table_mask = first_col.str.contains(r"\btable\b", flags=re.IGNORECASE, na=False)
+        if table_mask.any():
+            return int(table_mask[table_mask].index[0])
+    except Exception:
+        return None
+    return None
+
+
+def _build_sheet_metadata_source(
+    raw_sheet: "pd.DataFrame",
+    table_row_idx: Optional[int],
+) -> Optional["pd.DataFrame"]:
+    if raw_sheet is None or raw_sheet.empty:
+        return None
+    max_rows = min((table_row_idx + 1) if table_row_idx is not None else 3, len(raw_sheet.index))
+    max_cols = min(len(raw_sheet.columns), 8)
+    if max_rows <= 0 or max_cols <= 0:
+        return None
+    return raw_sheet.iloc[:max_rows, :max_cols].copy()
+
+
+def _build_mult_category_profiles(categories_df: "pd.DataFrame") -> Dict[str, Dict[str, object]]:
+    cache_key = id(categories_df)
+    cached = _MULT_CATEGORY_PROFILE_CACHE.get(cache_key)
+    if cached is not None:
+        return cached
+
+    profiles: Dict[str, Dict[str, object]] = {}
+    token_freq: Dict[str, int] = {}
+    token_index: Dict[str, Set[str]] = {}
+    for category_code, row in categories_df.iterrows():
+        category_code_str = str(category_code).strip().upper()
+        if not category_code_str or category_code_str == "MULT":
+            continue
+        category_name = str(row.get("cat", "")).strip()
+        short_name = build_category_short_name(category_name)
+        basket_name = str(row.get("cest", "")).strip()
+        profile_tokens: Set[str] = set()
+        normalized_texts: List[str] = []
+        for clue_text in (category_name, short_name, basket_name):
+            profile_tokens.update(_tokenize_metadata_segment(clue_text))
+            normalized_text = _normalize_metadata_match_text(clue_text)
+            if normalized_text and normalized_text not in normalized_texts:
+                normalized_texts.append(normalized_text)
+        for token in profile_tokens:
+            token_freq[token] = token_freq.get(token, 0) + 1
+            token_index.setdefault(token, set()).add(category_code_str)
+        profiles[category_code_str] = {
+            "tokens": frozenset(profile_tokens),
+            "texts": tuple(normalized_texts),
+        }
+
+    _MULT_CATEGORY_PROFILE_CACHE[cache_key] = profiles
+    _MULT_CATEGORY_TOKEN_FREQ_CACHE[cache_key] = token_freq
+    _MULT_CATEGORY_TOKEN_INDEX_CACHE[cache_key] = {
+        token: tuple(sorted(category_codes))
+        for token, category_codes in token_index.items()
+    }
+    return profiles
+
+
+def _prepare_mult_semantic_segment(
+    segment_text: str,
+    token_frequencies: Dict[str, int],
+) -> Optional[PreparedMultSemanticSegment]:
+    segment_norm = _normalize_metadata_match_text(segment_text)
+    segment_tokens = tuple(sorted(_tokenize_metadata_segment(segment_text)))
+    if not segment_norm or not segment_tokens:
+        return None
+    segment_has_rare_token = any(token_frequencies.get(token, 99) <= 2 for token in segment_tokens)
+    segment_is_specific_phrase = len(segment_tokens) >= 2 or segment_has_rare_token
+    return PreparedMultSemanticSegment(
+        raw_text=segment_text,
+        normalized_text=segment_norm,
+        tokens=segment_tokens,
+        is_specific_phrase=segment_is_specific_phrase,
+    )
+
+
+def _score_mult_semantic_segment(
+    segment: PreparedMultSemanticSegment,
+    category_profile: Dict[str, object],
+    token_frequencies: Dict[str, int],
+) -> int:
+    segment_norm = segment.normalized_text
+    segment_tokens = segment.tokens
+    if not segment_norm or not segment_tokens:
+        return 0
+
+    profile_tokens = set(category_profile.get("tokens", set()))
+    profile_texts = tuple(category_profile.get("texts", ()))
+    score = 0
+    segment_is_specific_phrase = segment.is_specific_phrase
+
+    if segment_norm in profile_texts and segment_is_specific_phrase:
+        score += 130
+    elif (
+        len(segment_norm) >= 4
+        and segment_is_specific_phrase
+        and any(segment_norm in profile_text for profile_text in profile_texts)
+    ):
+        score += 100
+
+    covered_tokens = 0
+    token_strength = 0
+    for segment_token in segment_tokens:
+        best_token_score = 0
+        for profile_token in profile_tokens:
+            if segment_token == profile_token:
+                freq_weight = max(1, 5 - token_frequencies.get(profile_token, 5))
+                best_token_score = max(best_token_score, 3 * freq_weight)
+            elif (
+                len(segment_token) >= 4
+                and len(profile_token) >= 4
+                and (segment_token in profile_token or profile_token in segment_token)
+            ):
+                freq_weight = max(1, 5 - token_frequencies.get(profile_token, 5))
+                best_token_score = max(best_token_score, 2 * freq_weight)
+        if best_token_score:
+            covered_tokens += 1
+            token_strength += best_token_score
+
+    score += token_strength * 9
+    if covered_tokens == len(segment_tokens) and len(segment_tokens) >= 2:
+        score += 25
+    elif covered_tokens == len(segment_tokens) and len(segment_tokens) == 1:
+        rare_token = next(iter(segment_tokens))
+        if token_frequencies.get(rare_token, 99) <= 2:
+            score += 15
+    return score
+
+
+def _resolve_mult_semantic_category(
+    semantic_segments: Sequence[str],
+    categories_df: "pd.DataFrame",
+) -> Optional[MultCategoryResolution]:
+    profiles = _build_mult_category_profiles(categories_df)
+    cache_key = id(categories_df)
+    token_frequencies = _MULT_CATEGORY_TOKEN_FREQ_CACHE.get(cache_key, {})
+    token_index = _MULT_CATEGORY_TOKEN_INDEX_CACHE.get(cache_key, {})
+    semantic_cache_key = (
+        cache_key,
+        tuple(
+            dict.fromkeys(
+                normalized_segment
+                for normalized_segment in (
+                    _normalize_metadata_match_text(segment_text)
+                    for segment_text in semantic_segments
+                )
+                if normalized_segment
+            )
+        ),
+    )
+    if semantic_cache_key in _MULT_SEMANTIC_RESOLUTION_CACHE:
+        return _MULT_SEMANTIC_RESOLUTION_CACHE[semantic_cache_key]
+
+    prepared_segments: List[PreparedMultSemanticSegment] = []
+    seen_segment_keys: Set[str] = set()
+    for segment_text in semantic_segments:
+        prepared_segment = _prepare_mult_semantic_segment(segment_text, token_frequencies)
+        if (
+            prepared_segment is None
+            or prepared_segment.normalized_text in seen_segment_keys
+        ):
+            continue
+        prepared_segments.append(prepared_segment)
+        seen_segment_keys.add(prepared_segment.normalized_text)
+
+    best_code: Optional[str] = None
+    best_score = 0
+    second_score = 0
+    best_segment = ""
+
+    for segment in prepared_segments:
+        candidate_codes: Set[str] = set()
+        for segment_token in segment.tokens:
+            candidate_codes.update(token_index.get(segment_token, ()))
+        if not candidate_codes and len(segment.normalized_text) >= 4:
+            candidate_codes.update(
+                category_code
+                for category_code, profile in profiles.items()
+                if any(
+                    segment.normalized_text in profile_text or profile_text in segment.normalized_text
+                    for profile_text in profile.get("texts", ())
+                )
+            )
+
+        for category_code in candidate_codes:
+            profile = profiles[category_code]
+            score = _score_mult_semantic_segment(segment, profile, token_frequencies)
+            if score > best_score:
+                second_score = best_score
+                best_score = score
+                best_code = category_code
+                best_segment = segment.raw_text
+            elif score > second_score:
+                second_score = score
+
+    if best_code is None or best_score < 75:
+        _MULT_SEMANTIC_RESOLUTION_CACHE[semantic_cache_key] = None
+        return None
+    if best_score == second_score and best_score < 110:
+        _MULT_SEMANTIC_RESOLUTION_CACHE[semantic_cache_key] = None
+        return None
+    resolution = MultCategoryResolution(best_code, f"semantic:{best_segment}", best_score)
+    _MULT_SEMANTIC_RESOLUTION_CACHE[semantic_cache_key] = resolution
+    return resolution
+
+
+def _resolve_mult_exact_category(exact_category_codes: Sequence[str]) -> Optional[MultCategoryResolution]:
+    unique_codes = [code for code in dict.fromkeys(str(code).strip().upper() for code in exact_category_codes if str(code).strip())]
+    if len(unique_codes) != 1:
+        return None
+    return MultCategoryResolution(unique_codes[0], "exact_code", 94)
+
+
+def _resolve_mult_opaque_category(opaque_tokens: Sequence[str]) -> Optional[MultCategoryResolution]:
+    mapped_codes = [
+        MULT_METADATA_OPAQUE_TOKEN_CATEGORY_MAP[token]
+        for token in dict.fromkeys(str(token).strip().lower() for token in opaque_tokens if str(token).strip())
+        if token in MULT_METADATA_OPAQUE_TOKEN_CATEGORY_MAP
+    ]
+    unique_codes = list(dict.fromkeys(mapped_codes))
+    if len(unique_codes) != 1:
+        return None
+    return MultCategoryResolution(unique_codes[0], "opaque_token", 96)
+
+
+def _extract_sheet_metadata_hints(raw_sheet: "pd.DataFrame", sheet_name: str = "") -> MultSheetMetadataHints:
+    clue_texts: List[str] = []
+    semantic_segments: List[str] = []
+    exact_category_codes: List[str] = []
+    opaque_tokens: List[str] = []
+    seen_clues: Set[str] = set()
+    seen_segments: Set[str] = set()
+    seen_codes: Set[str] = set()
+    seen_opaque_tokens: Set[str] = set()
+    valid_codes = CATEGORY_CODE_SET
+
+    table_row_idx = _find_sheet_table_row_idx(raw_sheet)
+
+    if table_row_idx is not None:
+        max_rows = min(table_row_idx + 1, len(raw_sheet.index))
+    else:
+        max_rows = min(len(raw_sheet.index), 3)
+    max_cols = min(len(raw_sheet.columns), 8)
+
+    for row_idx in range(max_rows):
+        row_max_cols = 1 if table_row_idx is not None and row_idx == table_row_idx else max_cols
+        for col_idx in range(row_max_cols):
+            cell_value = raw_sheet.iat[row_idx, col_idx]
+            if pd.isna(cell_value):
+                continue
+            clue_text = str(cell_value).strip()
+            clue_key = _normalize_metadata_match_text(clue_text)
+            if not clue_key or clue_key in seen_clues:
+                continue
+            clue_texts.append(clue_text)
+            seen_clues.add(clue_key)
+
+            for segment_text in _split_metadata_segments(clue_text):
+                segment_key = _normalize_metadata_match_text(segment_text)
+                if (
+                    segment_key
+                    and segment_key not in seen_segments
+                    and len(_tokenize_metadata_segment(segment_text)) >= 2
+                ):
+                    semantic_segments.append(segment_text)
+                    seen_segments.add(segment_key)
+
+            for category_code in _extract_exact_category_codes_from_text(clue_text, valid_codes):
+                if category_code not in seen_codes:
+                    exact_category_codes.append(category_code)
+                    seen_codes.add(category_code)
+
+            for opaque_token in _extract_opaque_tokens_from_text(clue_text, valid_codes):
+                if opaque_token not in seen_opaque_tokens:
+                    opaque_tokens.append(opaque_token)
+                    seen_opaque_tokens.add(opaque_token)
+
+    if sheet_name:
+        extra_segments = [sheet_name, _clean_brand_name_from_sheet(sheet_name)]
+        sheet_subcategory = extract_sheet_subcategory(sheet_name)
+        if sheet_subcategory:
+            extra_segments.append(sheet_subcategory)
+        for extra_segment in extra_segments:
+            for segment_text in _split_metadata_segments(extra_segment):
+                segment_key = _normalize_metadata_match_text(segment_text)
+                if segment_key and segment_key not in seen_segments:
+                    semantic_segments.append(segment_text)
+                    seen_segments.add(segment_key)
+            for opaque_token in _extract_opaque_tokens_from_text(extra_segment, valid_codes):
+                if opaque_token not in seen_opaque_tokens:
+                    opaque_tokens.append(opaque_token)
+                    seen_opaque_tokens.add(opaque_token)
+
+    return MultSheetMetadataHints(
+        clue_texts=tuple(clue_texts),
+        semantic_segments=tuple(semantic_segments),
+        exact_category_codes=tuple(exact_category_codes),
+        opaque_tokens=tuple(opaque_tokens),
+    )
 
 
 SUBCATEGORY_CATALOG_TEXT = """
@@ -1491,6 +1959,28 @@ def _match_metadata_rule(source_value: object, rules: Sequence[Tuple[str, str]])
     return None
 
 
+def _resolve_rule_based_mult_category(
+    manufacturer_key: Optional[str],
+    marca_nombre_limpio: str,
+    section_title: Optional[str],
+) -> Optional[MultCategoryResolution]:
+    if not manufacturer_key:
+        return None
+
+    rule_config = MULT_METADATA_RULES.get(manufacturer_key, {})
+    category_sources: List[object] = []
+    if rule_config.get("category_source") == "section":
+        category_sources.extend([section_title, marca_nombre_limpio])
+    else:
+        category_sources.extend([marca_nombre_limpio, section_title])
+
+    for source_value in category_sources:
+        category_override_code = _match_metadata_rule(source_value, rule_config.get("category_rules", ()))
+        if category_override_code:
+            return MultCategoryResolution(category_override_code, "manufacturer_rule", 70)
+    return None
+
+
 def resolve_sheet_bank_metadata(
     category_code: str,
     fabricante: str,
@@ -1501,6 +1991,8 @@ def resolve_sheet_bank_metadata(
     default_cesta_nombre: str,
     default_categoria_nombre: str,
     default_categoria_nombre_corto: str,
+    sheet_metadata_hints: Optional[MultSheetMetadataHints] = None,
+    inherited_category_code: Optional[str] = None,
 ) -> SheetBankMetadata:
     """Resuelve metadata del banco a nivel hoja para escenarios MULT."""
     metadata = SheetBankMetadata(
@@ -1508,35 +2000,51 @@ def resolve_sheet_bank_metadata(
         cesta_nombre=default_cesta_nombre,
         categoria_nombre=default_categoria_nombre,
         categoria_nombre_corto=default_categoria_nombre_corto,
+        categoria_codigo=str(category_code or "").strip().upper(),
     )
     if str(category_code or "").strip().upper() != "MULT":
         return metadata
 
     manufacturer_key = _resolve_mult_manufacturer_key(fabricante)
-    if not manufacturer_key:
-        return metadata
+    sheet_metadata_hints = sheet_metadata_hints or MultSheetMetadataHints()
+    semantic_segments: List[str] = list(dict.fromkeys(sheet_metadata_hints.semantic_segments))
+    if section_title:
+        semantic_segments.append(section_title)
+    if marca_nombre_limpio:
+        semantic_segments.append(marca_nombre_limpio)
+    semantic_segments = list(dict.fromkeys(segment for segment in semantic_segments if str(segment or "").strip()))
 
-    rule_config = MULT_METADATA_RULES.get(manufacturer_key, {})
-    category_sources: List[object] = []
-    # Probamos primero la fuente preferida por fabricante y luego un fallback
-    # para tolerar nombres de hoja menos consistentes.
-    if rule_config.get("category_source") == "section":
-        category_sources.extend([section_title, marca_nombre_limpio])
-    else:
-        category_sources.extend([marca_nombre_limpio, section_title])
+    exact_resolution = _resolve_mult_exact_category(sheet_metadata_hints.exact_category_codes)
+    selected_resolution = _resolve_mult_opaque_category(sheet_metadata_hints.opaque_tokens)
+    rule_resolution = _resolve_rule_based_mult_category(manufacturer_key, marca_nombre_limpio, section_title)
 
-    for source_value in category_sources:
-        category_override_code = _match_metadata_rule(source_value, rule_config.get("category_rules", ()))
-        if category_override_code:
-            cesta_nombre, categoria_nombre, categoria_nombre_corto = _lookup_category_metadata(category_override_code, categories_df)
-            metadata = SheetBankMetadata(
-                pais_nombre=metadata.pais_nombre,
-                cesta_nombre=cesta_nombre,
-                categoria_nombre=categoria_nombre,
-                categoria_nombre_corto=categoria_nombre_corto,
-            )
-            break
+    if selected_resolution is None:
+        resolution_candidates: List[Tuple[int, int, MultCategoryResolution]] = []
+        if semantic_segments:
+            semantic_resolution = _resolve_mult_semantic_category(semantic_segments, categories_df)
+            if semantic_resolution:
+                resolution_candidates.append((semantic_resolution.confidence, 4, semantic_resolution))
+        if exact_resolution:
+            resolution_candidates.append((exact_resolution.confidence, 3, exact_resolution))
+        if inherited_category_code and str(inherited_category_code).strip().upper() != "MULT":
+            inherited_resolution = MultCategoryResolution(str(inherited_category_code).strip().upper(), "inherited_group", 80)
+            resolution_candidates.append((inherited_resolution.confidence, 2, inherited_resolution))
+        if rule_resolution:
+            resolution_candidates.append((rule_resolution.confidence, 1, rule_resolution))
+        if resolution_candidates:
+            _, _, selected_resolution = max(resolution_candidates, key=lambda item: (item[0], item[1]))
 
+    if selected_resolution and selected_resolution.category_code:
+        cesta_nombre, categoria_nombre, categoria_nombre_corto = _lookup_category_metadata(selected_resolution.category_code, categories_df)
+        metadata = SheetBankMetadata(
+            pais_nombre=metadata.pais_nombre,
+            cesta_nombre=cesta_nombre,
+            categoria_nombre=categoria_nombre,
+            categoria_nombre_corto=categoria_nombre_corto,
+            categoria_codigo=selected_resolution.category_code,
+        )
+
+    rule_config = MULT_METADATA_RULES.get(manufacturer_key, {}) if manufacturer_key else {}
     country_sources: List[object] = []
     # Si no hay regla explicita de pais, se conserva el pais derivado del archivo.
     if rule_config.get("country_source") == "section":
@@ -1551,6 +2059,7 @@ def resolve_sheet_bank_metadata(
                 cesta_nombre=metadata.cesta_nombre,
                 categoria_nombre=metadata.categoria_nombre,
                 categoria_nombre_corto=metadata.categoria_nombre_corto,
+                categoria_codigo=metadata.categoria_codigo,
             )
             break
 
@@ -2488,7 +2997,33 @@ def include_english_flag() -> bool:
     clear_and_print_summary()
     return include_en
 
-def load_and_preprocess_sheet(excel_file_obj, sheet_name):
+
+def _get_excel_sheet_load_cache(excel_file_obj) -> Dict[str, SheetLoadCacheEntry]:
+    cache = getattr(excel_file_obj, "_coverage_sheet_load_cache", None)
+    if cache is None:
+        cache = {}
+        setattr(excel_file_obj, "_coverage_sheet_load_cache", cache)
+    return cache
+
+
+def _ensure_cached_sheet_metadata_hints(
+    cache_entry: SheetLoadCacheEntry,
+    sheet_name: str,
+) -> None:
+    if cache_entry.df_sheet is None:
+        return
+    if cache_entry.metadata_hints is None:
+        metadata_source = cache_entry.metadata_source
+        cache_entry.metadata_hints = (
+            _extract_sheet_metadata_hints(metadata_source, sheet_name)
+            if metadata_source is not None and not metadata_source.empty
+            else MultSheetMetadataHints()
+        )
+        cache_entry.metadata_source = None
+    cache_entry.df_sheet.attrs["sheet_metadata_hints"] = cache_entry.metadata_hints
+
+
+def load_and_preprocess_sheet(excel_file_obj, sheet_name, include_metadata_hints: bool = True):
     """
     Carga una hoja del archivo Excel, la preprocesa (renombra, limpia, fechas)
     y devuelve el DataFrame procesado y la unidad de medida.
@@ -2496,22 +3031,36 @@ def load_and_preprocess_sheet(excel_file_obj, sheet_name):
     Args:
         excel_file_obj (pd.ExcelFile): Objeto ExcelFile abierto.
         sheet_name (str): Nombre de la hoja a procesar.
+        include_metadata_hints (bool): Cuando es True calcula o adjunta metadata
+            auxiliar para resolver escenarios MULT.
 
     Returns:
         tuple: (pd.DataFrame, str) - El DataFrame procesado y la unidad de medida.
                Retorna (None, None) si hay un error al cargar o procesar.
     """
+    cache = _get_excel_sheet_load_cache(excel_file_obj)
+    cached_entry = cache.get(sheet_name)
+    if cached_entry is not None:
+        if include_metadata_hints:
+            _ensure_cached_sheet_metadata_hints(cached_entry, sheet_name)
+        return cached_entry.df_sheet, cached_entry.measure
+
     try:
         raw_sheet = excel_file_obj.parse(sheet_name, header=None)
+        table_row_idx = _find_sheet_table_row_idx(raw_sheet)
+        metadata_source = _build_sheet_metadata_source(raw_sheet, table_row_idx)
+        sheet_metadata_hints = (
+            _extract_sheet_metadata_hints(metadata_source, sheet_name)
+            if include_metadata_hints and metadata_source is not None
+            else None
+        )
 
         # Detectar inicio real de la tabla buscando "table" en la primera columna
         start_idx = 0
         meta_header_text = None
         try:
-            first_col = raw_sheet.iloc[:, 0].astype(str)
-            table_mask = first_col.str.contains(r"\btable\b", flags=re.IGNORECASE, na=False)
-            if table_mask.any():
-                start_idx = table_mask[table_mask].index[0]
+            if table_row_idx is not None:
+                start_idx = table_row_idx
                 meta_header_text = raw_sheet.iloc[start_idx, 0]
         except Exception:
             start_idx = 0
@@ -2542,6 +3091,7 @@ def load_and_preprocess_sheet(excel_file_obj, sheet_name):
                     f"La hoja '{sheet_name}' tiene una estructura inesperada "
                     f"({rows} filas, {cols} columnas). Se omitirá."
                 )
+            cache[sheet_name] = SheetLoadCacheEntry(df_sheet=None, measure=None)
             return None, None
 
 
@@ -2556,6 +3106,7 @@ def load_and_preprocess_sheet(excel_file_obj, sheet_name):
 
         if _col8_empty:
             print(f"{Fore.RED}Advertencia: La hoja '{sheet_name}' se omitirá porque la columna 8 (Sell-in) no tiene datos debajo del encabezado.")
+            cache[sheet_name] = SheetLoadCacheEntry(df_sheet=None, measure=None)
             return None, None
         # === Fin validación adicional ===
 
@@ -2591,6 +3142,7 @@ def load_and_preprocess_sheet(excel_file_obj, sheet_name):
 
         if df_sheet.empty:
             print(f"{Fore.RED}Advertencia: La hoja '{sheet_name}' está vacía o no contiene fechas válidas después del preprocesamiento. Se omitirá.")
+            cache[sheet_name] = SheetLoadCacheEntry(df_sheet=None, measure=None)
             return None, None
 
         # Asegurar tipos numéricos (intentar convertir, rellenar NaN con 0 si falla)
@@ -2603,11 +3155,21 @@ def load_and_preprocess_sheet(excel_file_obj, sheet_name):
         df_sheet[COL_TRI] = df_sheet[COL_DATA].dt.quarter
         df_sheet[COL_SEM] = (df_sheet[COL_DATA].dt.month - 1) // 6 + 1
         df_sheet[COL_DATA] = df_sheet[COL_DATA].dt.date  # Convertir a solo fecha al final
+        if sheet_metadata_hints is not None:
+            df_sheet.attrs["sheet_metadata_hints"] = sheet_metadata_hints
+
+        cache[sheet_name] = SheetLoadCacheEntry(
+            df_sheet=df_sheet,
+            measure=measure,
+            metadata_source=None if sheet_metadata_hints is not None else metadata_source,
+            metadata_hints=sheet_metadata_hints,
+        )
 
         return df_sheet, measure
 
     except Exception as e:
         print(f"{Fore.RED}Error crítico al cargar o preprocesar la hoja '{sheet_name}': {e}")
+        cache[sheet_name] = SheetLoadCacheEntry(df_sheet=None, measure=None)
         return None, None
 
 # --- Funciones de Generación de Gráficos ---
@@ -5630,7 +6192,11 @@ def generate_excel_template(
                     status.update(f"Procesando hoja {idx_sheet}/{total_sheets}: {marca_sheet_name}")
 
                     # 1.1) Carga y preprocesa la hoja usando la función refactorizada
-                    df_marca, measure_unit = load_and_preprocess_sheet(excel_file_obj, marca_sheet_name)
+                    df_marca, measure_unit = load_and_preprocess_sheet(
+                        excel_file_obj,
+                        marca_sheet_name,
+                        include_metadata_hints=False,
+                    )
 
                     # Si la carga falló, continuar con la siguiente hoja
                     if df_marca is None:
@@ -6960,10 +7526,16 @@ def generate_presentation_and_bank(
     brand_section_map: Dict[str, List[int]] = {}
     current_section_title: Optional[str] = None
     current_metadata_group: Optional[str] = None
+    current_metadata_category_code: Optional[str] = None
 
     total_slides_to_generate = 0
+    needs_mult_metadata_hints = str(category_code or "").strip().upper() == "MULT"
     for marca_sheet_name in marcas:
-        df_marca_ppt, _ = load_and_preprocess_sheet(excel_file_obj, marca_sheet_name)
+        df_marca_ppt, _ = load_and_preprocess_sheet(
+            excel_file_obj,
+            marca_sheet_name,
+            include_metadata_hints=False,
+        )
         if df_marca_ppt is None:
             continue
         match = re.match(r"(?i)^p([0-6])_", marca_sheet_name)
@@ -6985,7 +7557,11 @@ def generate_presentation_and_bank(
     with progress:
         task_id = progress.add_task("Creando Diapositivas PPT", total=total_slides_to_generate + 1)
         for marca_sheet_name in marcas:
-            df_marca_ppt, measure_unit = load_and_preprocess_sheet(excel_file_obj, marca_sheet_name)
+            df_marca_ppt, measure_unit = load_and_preprocess_sheet(
+                excel_file_obj,
+                marca_sheet_name,
+                include_metadata_hints=needs_mult_metadata_hints,
+            )
             if df_marca_ppt is None:
                 continue
             marca_nombre_limpio = re.sub(r"(?i)^p[0-6]_", "", marca_sheet_name)
@@ -7011,8 +7587,13 @@ def generate_presentation_and_bank(
                 default_cesta_nombre=cesta_nombre,
                 default_categoria_nombre=categoria_nombre,
                 default_categoria_nombre_corto=categoria_nombre_corto,
+                sheet_metadata_hints=df_marca_ppt.attrs.get("sheet_metadata_hints"),
+                inherited_category_code=current_metadata_category_code,
             )
             current_metadata_group = next_metadata_group
+            if str(category_code or "").strip().upper() == "MULT" and is_total_group_sheet(marca_sheet_name):
+                next_code = str(sheet_bank_metadata.categoria_codigo or "").strip().upper()
+                current_metadata_category_code = next_code if next_code and next_code != "MULT" else None
             issues_detected = detect_brand_data_issues(df_marca_ppt, window=0)
             if issues_detected:
                 for issue in issues_detected:
