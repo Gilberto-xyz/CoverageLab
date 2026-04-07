@@ -966,6 +966,10 @@ CATEGORY_CODE_SET: Set[str] = frozenset(
     for code in CATEGORY_MAP
     if str(code).strip()
 )
+CATEGORY_CODE_ALIASES: Dict[str, str] = {
+    "CROSS": "CROS",
+}
+METADATA_RESOLUTION_CATEGORY_CODES: Set[str] = frozenset({"MULT", "CROS"})
 
 PPT_LAYOUT_INDEX = 1
 DEFAULT_POP_COVERAGE = "100%"
@@ -1126,8 +1130,18 @@ def quick_file_metadata(filename: str) -> str:
     if len(parts) < 2:
         return ""
     country = COUNTRY_MAP.get(parts[0], "Desconocido")
-    category = CATEGORY_MAP.get(parts[1], "Categoria desconocida")
+    category_code = _normalize_category_code(parts[1])
+    category = CATEGORY_MAP.get(category_code, "Categoria desconocida")
     return f"{country} - {category}"
+
+
+def _normalize_category_code(category_code: object) -> str:
+    normalized = str(category_code or "").strip().upper()
+    return CATEGORY_CODE_ALIASES.get(normalized, normalized)
+
+
+def _requires_metadata_category_resolution(category_code: object) -> bool:
+    return _normalize_category_code(category_code) in METADATA_RESOLUTION_CATEGORY_CODES
 
 
 def parse_input_filename_parts(excel_file_name: str) -> Tuple[str, str, str]:
@@ -1135,7 +1149,7 @@ def parse_input_filename_parts(excel_file_name: str) -> Tuple[str, str, str]:
     parts = os.path.splitext(excel_file_name)[0].split('_')
     if len(parts) < 3:
         raise ValueError("El nombre de archivo no contiene suficientes partes (pais_categoria_fabricante)")
-    return parts[0], parts[1], parts[2]
+    return parts[0], _normalize_category_code(parts[1]), parts[2]
 
 
 def build_category_short_name(categoria_nombre: object) -> str:
@@ -1283,14 +1297,14 @@ def _extract_exact_category_codes_from_text(value: object, valid_codes: Set[str]
     candidates: List[str] = []
     seen: Set[str] = set()
     for match in re.finditer(r"(?i)\b([a-z]{4,5})(?=\d)", raw_text):
-        candidate = match.group(1).upper()
+        candidate = _normalize_category_code(match.group(1))
         if candidate in valid_codes and candidate not in seen:
             candidates.append(candidate)
             seen.add(candidate)
 
     alpha_chunks = re.sub(r"\d+", " ", raw_text)
     for token in re.split(r"[^A-Za-z]+", alpha_chunks):
-        candidate = str(token or "").strip().upper()
+        candidate = _normalize_category_code(token)
         if candidate in valid_codes and candidate not in seen:
             candidates.append(candidate)
             seen.add(candidate)
@@ -1353,8 +1367,8 @@ def _build_mult_category_profiles(categories_df: "pd.DataFrame") -> Dict[str, Di
     token_freq: Dict[str, int] = {}
     token_index: Dict[str, Set[str]] = {}
     for category_code, row in categories_df.iterrows():
-        category_code_str = str(category_code).strip().upper()
-        if not category_code_str or category_code_str == "MULT":
+        category_code_str = _normalize_category_code(category_code)
+        if not category_code_str or category_code_str in METADATA_RESOLUTION_CATEGORY_CODES:
             continue
         category_name = str(row.get("cat", "")).strip()
         short_name = build_category_short_name(category_name)
@@ -1941,6 +1955,7 @@ def _resolve_mult_manufacturer_key(fabricante: str) -> Optional[str]:
 
 
 def _lookup_category_metadata(category_code: str, categories_df: "pd.DataFrame") -> Tuple[str, str, str]:
+    category_code = _normalize_category_code(category_code)
     if category_code not in categories_df.index:
         raise ValueError(f"El codigo de categoria '{category_code}' no esta en el catalogo")
     cesta_nombre = str(categories_df.loc[category_code, 'cest']).strip()
@@ -1994,15 +2009,16 @@ def resolve_sheet_bank_metadata(
     sheet_metadata_hints: Optional[MultSheetMetadataHints] = None,
     inherited_category_code: Optional[str] = None,
 ) -> SheetBankMetadata:
-    """Resuelve metadata del banco a nivel hoja para escenarios MULT."""
+    """Resuelve metadata del banco a nivel hoja para escenarios MULT/CROSS."""
+    normalized_category_code = _normalize_category_code(category_code)
     metadata = SheetBankMetadata(
         pais_nombre=default_pais_nombre,
         cesta_nombre=default_cesta_nombre,
         categoria_nombre=default_categoria_nombre,
         categoria_nombre_corto=default_categoria_nombre_corto,
-        categoria_codigo=str(category_code or "").strip().upper(),
+        categoria_codigo=normalized_category_code,
     )
-    if str(category_code or "").strip().upper() != "MULT":
+    if not _requires_metadata_category_resolution(normalized_category_code):
         return metadata
 
     manufacturer_key = _resolve_mult_manufacturer_key(fabricante)
@@ -2026,8 +2042,9 @@ def resolve_sheet_bank_metadata(
                 resolution_candidates.append((semantic_resolution.confidence, 4, semantic_resolution))
         if exact_resolution:
             resolution_candidates.append((exact_resolution.confidence, 3, exact_resolution))
-        if inherited_category_code and str(inherited_category_code).strip().upper() != "MULT":
-            inherited_resolution = MultCategoryResolution(str(inherited_category_code).strip().upper(), "inherited_group", 80)
+        normalized_inherited_category_code = _normalize_category_code(inherited_category_code)
+        if normalized_inherited_category_code and not _requires_metadata_category_resolution(normalized_inherited_category_code):
+            inherited_resolution = MultCategoryResolution(normalized_inherited_category_code, "inherited_group", 80)
             resolution_candidates.append((inherited_resolution.confidence, 2, inherited_resolution))
         if rule_resolution:
             resolution_candidates.append((rule_resolution.confidence, 1, rule_resolution))
@@ -7529,7 +7546,7 @@ def generate_presentation_and_bank(
     current_metadata_category_code: Optional[str] = None
 
     total_slides_to_generate = 0
-    needs_mult_metadata_hints = str(category_code or "").strip().upper() == "MULT"
+    needs_mult_metadata_hints = _requires_metadata_category_resolution(category_code)
     for marca_sheet_name in marcas:
         df_marca_ppt, _ = load_and_preprocess_sheet(
             excel_file_obj,
@@ -7591,9 +7608,13 @@ def generate_presentation_and_bank(
                 inherited_category_code=current_metadata_category_code,
             )
             current_metadata_group = next_metadata_group
-            if str(category_code or "").strip().upper() == "MULT" and is_total_group_sheet(marca_sheet_name):
-                next_code = str(sheet_bank_metadata.categoria_codigo or "").strip().upper()
-                current_metadata_category_code = next_code if next_code and next_code != "MULT" else None
+            if _requires_metadata_category_resolution(category_code) and is_total_group_sheet(marca_sheet_name):
+                next_code = _normalize_category_code(sheet_bank_metadata.categoria_codigo)
+                current_metadata_category_code = (
+                    next_code
+                    if next_code and not _requires_metadata_category_resolution(next_code)
+                    else None
+                )
             issues_detected = detect_brand_data_issues(df_marca_ppt, window=0)
             if issues_detected:
                 for issue in issues_detected:
