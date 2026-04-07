@@ -4513,59 +4513,88 @@ class SlideBuilder:
         cols = int(len(df_summary.columns))
         if cols <= 0:
             return []
+        total_width = int(width)
+        if total_width <= 0:
+            return []
+
         col_name_norms = [str(col_name).strip().lower() for col_name in df_summary.columns]
-        coverage_indexes = [
-            idx for idx, col_name_norm in enumerate(col_name_norms)
-            if col_name_norm.startswith("cobertura ") or col_name_norm.startswith("coverage ")
-        ]
-        explicit_shares: Dict[int, float] = {}
-        for idx, col_name_norm in enumerate(col_name_norms):
+
+        def _semantic_role(col_name_norm: str, idx: int) -> str:
             if "fabricante/marca" in col_name_norm or "manufacturer/brand" in col_name_norm:
-                explicit_shares[idx] = 0.195
-            elif col_name_norm.startswith("pipeline"):
-                explicit_shares[idx] = 0.075
-            elif "penetr" in col_name_norm:
-                explicit_shares[idx] = 0.165
-            elif "worldpanel by numerator" in col_name_norm:
-                explicit_shares[idx] = 0.18
-            elif "estabilidad" in col_name_norm or "stability" in col_name_norm:
-                explicit_shares[idx] = 0.09
-            elif "%var" in col_name_norm or "% var" in col_name_norm:
-                explicit_shares[idx] = 0.10
+                return "brand"
+            if col_name_norm.startswith("pipeline"):
+                return "pipeline"
+            if "penetr" in col_name_norm:
+                return "penetration"
+            if "worldpanel by numerator" in col_name_norm:
+                return "worldpanel"
+            if col_name_norm.startswith("cobertura ") or col_name_norm.startswith("coverage "):
+                return "coverage"
+            if "estabilidad" in col_name_norm or "estabilidade" in col_name_norm or "stability" in col_name_norm:
+                return "stability"
+            if idx in (3, 4):
+                return "variation"
+            return "generic"
 
-        remaining_share = max(0.0, 1.0 - sum(explicit_shares.values()))
-        if coverage_indexes:
-            coverage_share = remaining_share / len(coverage_indexes)
-            for idx in coverage_indexes:
-                explicit_shares[idx] = coverage_share
-        elif cols > len(explicit_shares):
-            fallback_share = remaining_share / max(1, cols - len(explicit_shares))
-            for idx in range(cols):
-                explicit_shares.setdefault(idx, fallback_share)
+        ideal_share_by_role: Dict[str, float] = {
+            "brand": 0.19,
+            "pipeline": 0.075,
+            "penetration": 0.16,
+            "variation": 0.12,
+            "worldpanel": 0.18,
+            "coverage": 0.145,
+            "stability": 0.10,
+            "generic": 0.11,
+        }
+        min_share_by_role: Dict[str, float] = {
+            "brand": 0.13,
+            "pipeline": 0.06,
+            "penetration": 0.12,
+            "variation": 0.09,
+            "worldpanel": 0.13,
+            "coverage": 0.10,
+            "stability": 0.08,
+            "generic": 0.07,
+        }
 
-        min_col_width = int(width * 0.06)
-        col_widths: List[int] = []
-        width_assigned = 0
-        for idx in range(cols):
-            if idx == cols - 1:
-                col_w = int(width - width_assigned)
-            else:
-                share = explicit_shares.get(idx)
-                if share is None:
-                    sample_values = df_summary.iloc[:, idx].head(15).tolist()
-                    max_cell_len = max((len(self._normalize_summary_table_value(v)) for v in sample_values), default=0)
-                    header_len = len(str(df_summary.columns[idx]))
-                    weight = max(8, min(24, max(max_cell_len, header_len)))
-                    dynamic_width = int(width * (float(weight) / float(max(8 * cols, weight))))
-                    col_w = max(dynamic_width, min_col_width)
-                else:
-                    col_w = int(width * share)
-                width_assigned += col_w
-            col_widths.append(max(col_w, min_col_width))
-        width_delta = int(width) - sum(col_widths)
-        if col_widths:
-            col_widths[-1] += width_delta
-        return col_widths
+        roles = [_semantic_role(col_name_norm, idx) for idx, col_name_norm in enumerate(col_name_norms)]
+        raw_weights: List[float] = []
+        min_widths: List[int] = []
+        for idx, role in enumerate(roles):
+            sample_values = df_summary.iloc[:, idx].head(15).tolist()
+            max_cell_len = max((len(self._normalize_summary_table_value(v)) for v in sample_values), default=0)
+            header_len = len(self._format_summary_header_label(df_summary.columns[idx]).replace("\n", " "))
+            content_factor = max(max_cell_len, header_len)
+            weight = ideal_share_by_role.get(role, ideal_share_by_role["generic"]) * (1.0 + min(0.18, max(0, content_factor - 10) * 0.01))
+            raw_weights.append(weight)
+            min_widths.append(max(int(total_width * min_share_by_role.get(role, min_share_by_role["generic"])), int(total_width * 0.055)))
+
+        min_required = sum(min_widths)
+        if min_required >= total_width:
+            even_width = total_width // cols
+            col_widths = [even_width] * cols
+            col_widths[-1] += total_width - sum(col_widths)
+            return col_widths
+
+        extra_width = total_width - min_required
+        total_weight = sum(raw_weights) or float(cols)
+        provisional = [min_widths[idx] + int(round(extra_width * (raw_weights[idx] / total_weight))) for idx in range(cols)]
+
+        width_delta = total_width - sum(provisional)
+        if width_delta != 0:
+            adjustable_indexes = sorted(range(cols), key=lambda i: raw_weights[i], reverse=(width_delta > 0))
+            cursor = 0
+            step = 1 if width_delta > 0 else -1
+            remaining = abs(width_delta)
+            while remaining > 0 and adjustable_indexes:
+                idx = adjustable_indexes[cursor % len(adjustable_indexes)]
+                next_width = provisional[idx] + step
+                if next_width >= min_widths[idx]:
+                    provisional[idx] = next_width
+                    remaining -= 1
+                cursor += 1
+
+        return provisional
 
     def _add_editable_summary_table(
         self,
