@@ -1044,7 +1044,11 @@ def visible_sell_in_label() -> str:
     return VISIBLE_SELL_IN_LABEL
 
 
-def visible_sell_out_label() -> str:
+def visible_sell_out_label(lang_idx: int = 2) -> str:
+    if lang_idx == 3:
+        return "Worldpanel Purchases"
+    if lang_idx == 1:
+        return "Compras do Worldpanel"
     return VISIBLE_SELL_OUT_LABEL
 
 
@@ -1054,7 +1058,11 @@ def visible_monthly_label(base_label: str, lang_idx: int) -> str:
 
 
 def visible_accum_sell_out_label(lang_idx: int) -> str:
-    return "MAT Worldpanel Purchases" if lang_idx == 3 else "Acum Compras de Worldpanel"
+    if lang_idx == 3:
+        return "MAT Worldpanel Purchases"
+    if lang_idx == 1:
+        return "Acum Compras do Worldpanel"
+    return "Acum Compras de Worldpanel"
 
 
 def visible_accum_sell_in_label(lang_idx: int) -> str:
@@ -3696,10 +3704,10 @@ def generar_grafico_tendencia(
             sell_out_data,
             color=COLOR_SELLOUT_TREND_LINE,
             linewidth=4,
-            label=visible_sell_out_label(),
+            label=visible_sell_out_label(lang_idx),
         )
         ax_trend.set_ylabel(visible_sell_in_label(), color=COLOR_SELLIN_TREND_LINE, fontsize=11)
-        ax2.set_ylabel(visible_sell_out_label(), color=COLOR_SELLOUT_TREND_LINE, fontsize=11)
+        ax2.set_ylabel(visible_sell_out_label(lang_idx), color=COLOR_SELLOUT_TREND_LINE, fontsize=11)
         # --- CORRECCIÓN: Configurar ambos ejes para empezar desde 0 ---
         ax_trend.set_ylim(bottom=0)
         ax2.set_ylim(bottom=0)
@@ -3719,10 +3727,10 @@ def generar_grafico_tendencia(
             sell_out_data,
             color=COLOR_SELLOUT_TREND_LINE,
             linewidth=4,
-            label=visible_sell_out_label(),
+            label=visible_sell_out_label(lang_idx),
         )
         ax_trend.set_ylabel(
-            f'{visible_sell_in_label()} / {visible_sell_out_label()}',
+            f'{visible_sell_in_label()} / {visible_sell_out_label(lang_idx)}',
             color='black',
             fontsize=11,
         )
@@ -6343,15 +6351,15 @@ def add_native_excel_charts(
                 trend_chart2 = _LineChart()
                 trend_chart2.y_axis.axId = 200
                 trend_chart2.y_axis.crosses = "max"
-                trend_chart2.y_axis.title = visible_sell_out_label()
+                trend_chart2.y_axis.title = visible_sell_out_label(lang_index)
                 trend_chart2.add_data(
                     _Reference(ws, min_col=sell_out_col, min_row=trend_start, max_row=trend_end),
                     titles_from_data=False,
                 )
-                trend_chart2.series[-1].title = _SeriesLabel(v=visible_sell_out_label())
+                trend_chart2.series[-1].title = _SeriesLabel(v=visible_sell_out_label(lang_index))
                 trend_chart += trend_chart2
             else:
-                trend_chart.y_axis.title = f"{visible_sell_in_label()} / {visible_sell_out_label()}"
+                trend_chart.y_axis.title = f"{visible_sell_in_label()} / {visible_sell_out_label(lang_index)}"
                 trend_chart.add_data(
                     _Reference(ws, min_col=sell_in_sim_col, min_row=sell_in_start, max_row=sell_in_end),
                     titles_from_data=False,
@@ -6361,7 +6369,7 @@ def add_native_excel_charts(
                     _Reference(ws, min_col=sell_out_col, min_row=trend_start, max_row=trend_end),
                     titles_from_data=False,
                 )
-                trend_chart.series[-1].title = _SeriesLabel(v=visible_sell_out_label())
+                trend_chart.series[-1].title = _SeriesLabel(v=visible_sell_out_label(lang_index))
                 trend_chart.set_categories(trend_categories)
 
             if len(trend_chart.series) >= 1:
