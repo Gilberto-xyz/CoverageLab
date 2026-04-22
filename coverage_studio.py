@@ -1071,7 +1071,7 @@ def _load_heavy_modules() -> None:
         global Presentation, Inches, get_column_letter, tqdm, mtick, MonthLocator
         global DateFormatter, matplotlib_style, Progress, BarColumn, TextColumn
         global TimeElapsedColumn, TimeRemainingColumn, SpinnerColumn, Image, ImageOps
-        global RGBColor, Pt, MSO_SHAPE, pais, pop_coverage
+        global RGBColor, Pt, MSO_SHAPE, pais, pop_coverage, OxmlElement, qn
 
         import dataframe_image as dfi
         import pandas as pd
@@ -1087,6 +1087,8 @@ def _load_heavy_modules() -> None:
         from pptx.util import Inches, Pt
         from pptx.enum.shapes import MSO_SHAPE
         from pptx.dml.color import RGBColor
+        from pptx.oxml.xmlchemy import OxmlElement
+        from pptx.oxml.ns import qn
         from openpyxl.utils import get_column_letter
         from openpyxl import load_workbook
         from openpyxl.formatting.rule import ColorScaleRule
@@ -4517,6 +4519,104 @@ class SlideBuilder:
         p.font.color.rgb = font_color if font_color is not None else RGBColor(0, 0, 0)
 
     @staticmethod
+    def _clear_table_cell_borders(cell) -> None:
+        tc = cell._tc
+        tc_pr = tc.get_or_add_tcPr()
+        for side in ("lnL", "lnR", "lnT", "lnB"):
+            existing = tc_pr.find(qn(f"a:{side}"))
+            if existing is not None:
+                tc_pr.remove(existing)
+
+    @staticmethod
+    def _add_table_cell_border(cell, side: str, color: "RGBColor", width: int = 12700) -> None:
+        tc = cell._tc
+        tc_pr = tc.get_or_add_tcPr()
+        ln = OxmlElement(f"a:{side}")
+        ln.set("w", str(int(width)))
+        ln.set("cap", "flat")
+        ln.set("cmpd", "sng")
+        ln.set("algn", "ctr")
+
+        solid_fill = OxmlElement("a:solidFill")
+        srgb_clr = OxmlElement("a:srgbClr")
+        srgb_clr.set("val", f"{int(color[0]):02X}{int(color[1]):02X}{int(color[2]):02X}")
+        solid_fill.append(srgb_clr)
+        ln.append(solid_fill)
+
+        prst_dash = OxmlElement("a:prstDash")
+        prst_dash.set("val", "solid")
+        ln.append(prst_dash)
+
+        round_join = OxmlElement("a:round")
+        ln.append(round_join)
+
+        head_end = OxmlElement("a:headEnd")
+        head_end.set("type", "none")
+        head_end.set("w", "med")
+        head_end.set("len", "med")
+        ln.append(head_end)
+
+        tail_end = OxmlElement("a:tailEnd")
+        tail_end.set("type", "none")
+        tail_end.set("w", "med")
+        tail_end.set("len", "med")
+        ln.append(tail_end)
+
+        tc_pr.append(ln)
+
+    def _apply_internal_table_borders(
+        self,
+        slide,
+        table,
+        *,
+        left,
+        top,
+        table_width,
+        table_height,
+        color: "RGBColor",
+        border_width: int = 12700,
+    ) -> None:
+        row_count = len(table.rows)
+        col_count = len(table.columns)
+        for r in range(row_count):
+            for c in range(col_count):
+                cell = table.cell(r, c)
+                self._clear_table_cell_borders(cell)
+                if c < col_count - 1:
+                    self._add_table_cell_border(cell, "lnR", color, width=border_width)
+                if r < row_count - 1:
+                    self._add_table_cell_border(cell, "lnB", color, width=border_width)
+
+        line_thickness = max(int(border_width), int(Pt(1)))
+        x_cursor = int(left)
+        for c in range(col_count - 1):
+            x_cursor += int(table.columns[c].width)
+            line = slide.shapes.add_shape(
+                MSO_SHAPE.RECTANGLE,
+                x_cursor - int(line_thickness / 2),
+                int(top),
+                line_thickness,
+                int(table_height),
+            )
+            line.fill.solid()
+            line.fill.fore_color.rgb = color
+            line.line.fill.background()
+
+        y_cursor = int(top)
+        for r in range(row_count - 1):
+            y_cursor += int(table.rows[r].height)
+            line = slide.shapes.add_shape(
+                MSO_SHAPE.RECTANGLE,
+                int(left),
+                y_cursor - int(line_thickness / 2),
+                int(table_width),
+                line_thickness,
+            )
+            line.fill.solid()
+            line.fill.fore_color.rgb = color
+            line.line.fill.background()
+
+    @staticmethod
     def _normalize_summary_table_value(value: object) -> str:
         if value is None:
             return "-"
@@ -4899,6 +4999,106 @@ class SlideBuilder:
                     align=align,
                     word_wrap=False,
                 )
+
+    def _add_editable_coverage_variation_table(
+        self,
+        slide,
+        variation_table: "pd.DataFrame",
+        *,
+        left,
+        top,
+        width,
+        height,
+    ) -> None:
+        if variation_table is None or variation_table.empty:
+            return
+
+        table_df = variation_table[[col for col in variation_table.columns if not str(col).startswith("_")]].copy()
+        if table_df.empty:
+            return
+
+        rows = int(len(table_df.index)) + 1
+        cols = int(len(table_df.columns))
+        if rows <= 1 or cols <= 0:
+            return
+
+        table_shape = slide.shapes.add_table(rows, cols, left, top, width, height)
+        table = table_shape.table
+        try:
+            table.first_row = False
+            table.first_col = False
+            table.last_row = False
+            table.last_col = False
+            table.horz_banding = False
+            table.vert_banding = False
+        except Exception:
+            pass
+
+        if cols == 3:
+            width_ratios = [0.28, 0.36, 0.36]
+            assigned = 0
+            for idx, ratio in enumerate(width_ratios):
+                if idx == cols - 1:
+                    col_w = int(width - assigned)
+                else:
+                    col_w = int(width * ratio)
+                    assigned += col_w
+                table.columns[idx].width = col_w
+        else:
+            col_w = int(width / max(cols, 1))
+            for idx in range(cols):
+                table.columns[idx].width = col_w
+
+        header_h = int(height * 0.42)
+        body_rows = max(rows - 1, 1)
+        body_h = int((height - header_h) / body_rows)
+        table.rows[0].height = header_h
+        for r in range(1, rows):
+            if r == rows - 1:
+                table.rows[r].height = height - header_h - (body_h * max(rows - 2, 0))
+            else:
+                table.rows[r].height = body_h
+
+        white_bg = RGBColor(255, 255, 255)
+        black = RGBColor(0, 0, 0)
+
+        for c, col_name in enumerate(table_df.columns):
+            header_text = "" if str(col_name).strip() == "" else self._normalize_summary_table_value(col_name)
+            self._set_table_cell_text(
+                table.cell(0, c),
+                header_text,
+                fill_color=white_bg,
+                font_color=black,
+                font_size=9,
+                bold=True,
+                align=2,
+                word_wrap=True,
+            )
+
+        for r, row_values in enumerate(table_df.itertuples(index=False), start=1):
+            for c, raw_val in enumerate(row_values):
+                font_color = black if c == 0 else self._summary_variation_font_color(raw_val)
+                self._set_table_cell_text(
+                    table.cell(r, c),
+                    self._normalize_summary_table_value(raw_val),
+                    fill_color=white_bg,
+                    font_color=font_color,
+                    font_size=11,
+                    bold=False,
+                    align=2,
+                    word_wrap=False,
+                )
+
+        self._apply_internal_table_borders(
+            slide,
+            table,
+            left=left,
+            top=top,
+            table_width=width,
+            table_height=height,
+            color=black,
+            border_width=12700,
+        )
 
     def _add_penetration_header_table_shape(
         self,
@@ -5480,8 +5680,14 @@ class SlideBuilder:
             except Exception as exc:
                 print(f"{Fore.YELLOW}Advertencia: No se pudo generar el header complementado (penetración/cobertura) para {marca_nombre_limpio} P{assets.pipeline}. Error: {exc}")
                 try:
-                    table_stream = dataframe_to_bordered_stream(assets.variation_table, hide_index=True, dpi=200)
-                    slide_cov.shapes.add_picture(table_stream, Inches(0.5), Inches(1.1), height=Inches(0.6))
+                    self._add_editable_coverage_variation_table(
+                        slide_cov,
+                        assets.variation_table,
+                        left=Inches(0.5),
+                        top=Inches(1.1),
+                        width=Inches(6.2),
+                        height=Inches(0.62),
+                    )
                 except Exception as exc2:
                     print(f"{Fore.YELLOW}Advertencia: Tampoco se pudo generar la tabla VAR % MAT (fallback) para {marca_nombre_limpio} P{assets.pipeline}. Error: {exc2}")
         elif self.coverage_slide_variant == "pg":
@@ -5490,14 +5696,26 @@ class SlideBuilder:
             except Exception as exc:
                 print(f"{Fore.YELLOW}Advertencia: No se pudo generar el layout P&G para {marca_nombre_limpio} P{assets.pipeline}. Error: {exc}")
                 try:
-                    table_stream = dataframe_to_bordered_stream(assets.variation_table, hide_index=True, dpi=200)
-                    slide_cov.shapes.add_picture(table_stream, Inches(0.5), Inches(1.1), height=Inches(0.6))
+                    self._add_editable_coverage_variation_table(
+                        slide_cov,
+                        assets.variation_table,
+                        left=Inches(0.5),
+                        top=Inches(1.1),
+                        width=Inches(6.2),
+                        height=Inches(0.62),
+                    )
                 except Exception as exc2:
                     print(f"{Fore.YELLOW}Advertencia: Tampoco se pudo generar la tabla VAR % MAT (fallback) para {marca_nombre_limpio} P{assets.pipeline}. Error: {exc2}")
         else:
             try:
-                table_stream = dataframe_to_bordered_stream(assets.variation_table, hide_index=True, dpi=200)
-                slide_cov.shapes.add_picture(table_stream, Inches(0.5), Inches(1.1), height=Inches(0.6))
+                self._add_editable_coverage_variation_table(
+                    slide_cov,
+                    assets.variation_table,
+                    left=Inches(0.5),
+                    top=Inches(1.1),
+                    width=Inches(6.2),
+                    height=Inches(0.62),
+                )
             except Exception as exc:
                 print(f"{Fore.YELLOW}Advertencia: No se pudo generar la tabla de variación MAT para {marca_nombre_limpio} P{assets.pipeline}. Error: {exc}")
         self._add_low_penetration_footer(slide_cov, getattr(assets, "buyers_mat_actual", None))
