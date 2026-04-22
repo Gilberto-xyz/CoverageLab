@@ -1052,6 +1052,18 @@ def visible_monthly_label(base_label: str, lang_idx: int) -> str:
     suffix = "Monthly" if lang_idx == 3 else "Mensual"
     return f"{base_label} ({suffix})"
 
+
+def visible_accum_sell_out_label(lang_idx: int) -> str:
+    return "MAT Worldpanel Purchases" if lang_idx == 3 else "Acum Compras de Worldpanel"
+
+
+def visible_accum_sell_in_label(lang_idx: int) -> str:
+    return "MAT Sell-in" if lang_idx == 3 else "Acum Sell-in"
+
+
+def evolution_mat_axis_label(lang_idx: int) -> str:
+    return "MAT Volume" if lang_idx == 3 else "Volumen MAT"
+
 def _load_heavy_modules() -> None:
     """Carga en segundo plano las bibliotecas pesadas y datos estaticos."""
     try:
@@ -2350,7 +2362,7 @@ def clear_and_print_summary():
         _line("Slide de cobertura", "Slide Cobertura", slide_disp)
     if _get("Slide Evolucion") is not None:
         evo_mode = str(_get("Slide Evolucion")).strip().lower()
-        evo_disp = "Simple (lineas de variacion)" if "simple" in evo_mode else "Clasico/avanzado (volumen + barras)"
+        evo_disp = "Simple (lineas de variacion)" if "simple" in evo_mode else "Clasico/avanzado (volumen MAT + barras)"
         _line("Slide evolucion mensual", "Slide Evolucion", evo_disp)
     if _get("Estilo variaciones") is not None:
         var_style = str(_get("Estilo variaciones")).strip().lower()
@@ -2995,7 +3007,7 @@ def evolution_slide_variant_option() -> str:
     else:
         print(Fore.CYAN + "\n¿Modo del slide 'Evolucion mensual y variacion'?")
         print(Fore.WHITE + "1 - Simple (solo variacion: lineas, sin volumen mensual)")
-        print(Fore.WHITE + "2 - Clasico/avanzado (volumen mensual + barras de variacion)")
+        print(Fore.WHITE + "2 - Clasico/avanzado (volumen MAT + barras de variacion)")
         opciones = {
             "1": "simple",
             "2": "classic",
@@ -3222,7 +3234,8 @@ def generar_grafico_evolucion_mensual(
     variant: str = "classic",
 ):
     """
-    Genera un gráfico de evolución mensual de WP by Numerator vs Sell-in con variación interanual.
+    Genera un gráfico de evolución mensual con series MAT de WP by Numerator vs Sell-in
+    y variación interanual.
 
     Args:
         df_graf (pd.DataFrame): DataFrame con datos mensuales (col 'Data' debe ser datetime).
@@ -3367,25 +3380,25 @@ def generar_grafico_evolucion_mensual(
             pad = max(abs(y_min), abs(y_max)) * 0.18
             ax1.set_ylim(y_min - pad, y_max + pad)
         else:
-            # Clasico/avanzado: volumen mensual (lineas) + variacion (barras)
-            sellin_label = visible_monthly_label(visible_sell_in_label(), lang_idx) + (
+            # Clasico/avanzado: volumen MAT (lineas) + variacion (barras)
+            sellin_label = visible_accum_sell_in_label(lang_idx) + (
                 f" - P:{pipeline_meses}" if pipeline_meses > 0 else ""
             )
             ax1.plot(
-                df_plot[COL_DATA], df_plot[COL_SELL_OUT],
+                df_plot[COL_DATA], df_plot["Kantar_12m"],
                 color=COLOR_KANTAR_LINE, marker="o", linewidth=2, markersize=5,
-                label=visible_monthly_label(visible_sell_out_label(), lang_idx),
+                label=visible_accum_sell_out_label(lang_idx),
             )
             ax1.plot(
                 df_plot[COL_DATA],
-                df_plot[COL_SELL_IN],
+                df_plot["Sellin_12m"],
                 color=COLOR_SELLIN_LINE,
                 marker="o",
                 linewidth=2,
                 markersize=5,
                 label=sellin_label,
             )
-            ax1.set_ylabel("Volumen Mensual" if lang_idx != 3 else "Monthly Volume", fontsize=11, labelpad=15)
+            ax1.set_ylabel(evolution_mat_axis_label(lang_idx), fontsize=11, labelpad=15)
             ax1.tick_params(axis='y', labelsize=9)
             ax1.set_ylim(bottom=0)
             ax1.grid(axis='y', linestyle='--', alpha=0.4)
