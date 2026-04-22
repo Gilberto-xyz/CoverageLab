@@ -1010,6 +1010,16 @@ COL_SEM = "Sem"
 COL_EVO_KANTAR_YOY = "% VAR WP by Numerator"
 COL_EVO_SELLIN_YOY = "% VAR Sell-in (Cliente)"
 
+VISIBLE_SELL_IN_LABEL = "Sell-in"
+VISIBLE_SELL_OUT_LABEL = "Compras de Worldpanel"
+VISIBLE_EXCEL_HEADER_MAP = {
+    COL_SELL_IN: VISIBLE_SELL_IN_LABEL,
+    COL_SELL_OUT: VISIBLE_SELL_OUT_LABEL,
+    COL_SELL_IN_SIM: "Sell-in sim",
+    COL_ACUM_SELL_IN: "Acum Sell-in",
+    COL_ACUM_SELL_OUT: "Acum Compras de Worldpanel",
+}
+
 COLOR_KANTAR_LINE = "#2C3E50"
 COLOR_SELLIN_LINE = "#D4AC0D"
 COLOR_SELLOUT_LINE = "#1F618D"
@@ -1028,6 +1038,19 @@ COLOR_POS_LABEL_ALT = '#27AE60'
 COLOR_NEG_LABEL_ALT = '#C0392B'
 COLOR_SELLIN_TREND_LINE = "#D4AC0D"
 COLOR_SELLOUT_TREND_LINE = "#2C3E50"
+
+
+def visible_sell_in_label() -> str:
+    return VISIBLE_SELL_IN_LABEL
+
+
+def visible_sell_out_label() -> str:
+    return VISIBLE_SELL_OUT_LABEL
+
+
+def visible_monthly_label(base_label: str, lang_idx: int) -> str:
+    suffix = "Monthly" if lang_idx == 3 else "Mensual"
+    return f"{base_label} ({suffix})"
 
 def _load_heavy_modules() -> None:
     """Carga en segundo plano las bibliotecas pesadas y datos estaticos."""
@@ -3345,15 +3368,23 @@ def generar_grafico_evolucion_mensual(
             ax1.set_ylim(y_min - pad, y_max + pad)
         else:
             # Clasico/avanzado: volumen mensual (lineas) + variacion (barras)
-            sellin_label = (
-                f"{COL_SELL_IN} (Mensual)" if lang_idx != 3 else f"{COL_SELL_IN} (Monthly)"
-            ) + (f" - P:{pipeline_meses}" if pipeline_meses > 0 else "")
+            sellin_label = visible_monthly_label(visible_sell_in_label(), lang_idx) + (
+                f" - P:{pipeline_meses}" if pipeline_meses > 0 else ""
+            )
             ax1.plot(
                 df_plot[COL_DATA], df_plot[COL_SELL_OUT],
                 color=COLOR_KANTAR_LINE, marker="o", linewidth=2, markersize=5,
-                label=f"{COL_SELL_OUT} (Mensual)" if lang_idx != 3 else f"{COL_SELL_OUT} (Monthly)"
+                label=visible_monthly_label(visible_sell_out_label(), lang_idx),
             )
-            ax1.plot(df_plot[COL_DATA], df_plot[COL_SELL_IN], color=COLOR_SELLIN_LINE, marker="o", linewidth=2, markersize=5, label=sellin_label)
+            ax1.plot(
+                df_plot[COL_DATA],
+                df_plot[COL_SELL_IN],
+                color=COLOR_SELLIN_LINE,
+                marker="o",
+                linewidth=2,
+                markersize=5,
+                label=sellin_label,
+            )
             ax1.set_ylabel("Volumen Mensual" if lang_idx != 3 else "Monthly Volume", fontsize=11, labelpad=15)
             ax1.tick_params(axis='y', labelsize=9)
             ax1.set_ylim(bottom=0)
@@ -3638,10 +3669,22 @@ def generar_grafico_tendencia(
 
     if doble_eje:
         ax2 = ax_trend.twinx()
-        lns1 = ax_trend.plot(x_labels, sell_in_data, color=COLOR_SELLIN_TREND_LINE, linewidth=4, label=f'{COL_SELL_IN} (P:{pipeline})')
-        lns2 = ax2.plot(x_labels, sell_out_data, color=COLOR_SELLOUT_TREND_LINE, linewidth=4, label=COL_SELL_OUT)
-        ax_trend.set_ylabel(f'{COL_SELL_IN}', color=COLOR_SELLIN_TREND_LINE, fontsize=11)
-        ax2.set_ylabel(f'{COL_SELL_OUT}', color=COLOR_SELLOUT_TREND_LINE, fontsize=11)
+        lns1 = ax_trend.plot(
+            x_labels,
+            sell_in_data,
+            color=COLOR_SELLIN_TREND_LINE,
+            linewidth=4,
+            label=f'{visible_sell_in_label()} (P:{pipeline})',
+        )
+        lns2 = ax2.plot(
+            x_labels,
+            sell_out_data,
+            color=COLOR_SELLOUT_TREND_LINE,
+            linewidth=4,
+            label=visible_sell_out_label(),
+        )
+        ax_trend.set_ylabel(visible_sell_in_label(), color=COLOR_SELLIN_TREND_LINE, fontsize=11)
+        ax2.set_ylabel(visible_sell_out_label(), color=COLOR_SELLOUT_TREND_LINE, fontsize=11)
         # --- CORRECCIÓN: Configurar ambos ejes para empezar desde 0 ---
         ax_trend.set_ylim(bottom=0)
         ax2.set_ylim(bottom=0)
@@ -3649,9 +3692,25 @@ def generar_grafico_tendencia(
         labs = [l.get_label() for l in lns]
         ax2.legend(lns, labs, loc='lower center', bbox_to_anchor=(0.5, legend_y), frameon=False, prop={'size': 11}, ncol=2)
     else:
-        lns1 = ax_trend.plot(x_labels, sell_in_data, color=COLOR_SELLIN_TREND_LINE, linewidth=4, label=f'{COL_SELL_IN} (P:{pipeline})')
-        lns2 = ax_trend.plot(x_labels, sell_out_data, color=COLOR_SELLOUT_TREND_LINE, linewidth=4, label=COL_SELL_OUT)
-        ax_trend.set_ylabel(f'{COL_SELL_IN} / {COL_SELL_OUT}', color='black', fontsize=11)
+        lns1 = ax_trend.plot(
+            x_labels,
+            sell_in_data,
+            color=COLOR_SELLIN_TREND_LINE,
+            linewidth=4,
+            label=f'{visible_sell_in_label()} (P:{pipeline})',
+        )
+        lns2 = ax_trend.plot(
+            x_labels,
+            sell_out_data,
+            color=COLOR_SELLOUT_TREND_LINE,
+            linewidth=4,
+            label=visible_sell_out_label(),
+        )
+        ax_trend.set_ylabel(
+            f'{visible_sell_in_label()} / {visible_sell_out_label()}',
+            color='black',
+            fontsize=11,
+        )
         ax_trend.set_ylim(bottom=0)
         lns = lns1 + lns2
         labs = [l.get_label() for l in lns]
@@ -5320,12 +5379,12 @@ class SlideBuilder:
                 _add_value_card(x, y, col_kantar_w, kantar_fill, "WP by Numerator", self._fmt_pct(wp_val))
             x += col_kantar_w
             if p0_col is not None:
-                _add_value_card(x, y, col_sell0_w, sellin_fill, "SELL-IN", self._fmt_pct(p0_val))
+                _add_value_card(x, y, col_sell0_w, sellin_fill, visible_sell_in_label(), self._fmt_pct(p0_val))
             x += col_sell0_w
             if show_pipeline_group:
                 _add_var_text(x, y, col_varp_w, pip_period)
                 x += col_varp_w
-                _add_value_card(x, y, col_sellp_w, sellin_fill, "SELL-IN", self._fmt_pct(px_val))
+                _add_value_card(x, y, col_sellp_w, sellin_fill, visible_sell_in_label(), self._fmt_pct(px_val))
 
     # --- Portada -----------------------------------------------------------------
     def configure_cover(self, pais_nombre: str, fabricante: str, categoria_nombre: str, ref_month_year: str, chosen_lang: str) -> None:
@@ -6042,36 +6101,36 @@ def add_native_excel_charts(
             trend_chart.y_axis.scaling.min = 0
 
             if trend_axis_norm == "doble":
-                trend_chart.y_axis.title = COL_SELL_IN
+                trend_chart.y_axis.title = visible_sell_in_label()
                 trend_chart.add_data(
                     _Reference(ws, min_col=sell_in_sim_col, min_row=sell_in_start, max_row=sell_in_end),
                     titles_from_data=False,
                 )
-                trend_chart.series[-1].title = _SeriesLabel(v=f"{COL_SELL_IN} (P:{pipeline})")
+                trend_chart.series[-1].title = _SeriesLabel(v=f"{visible_sell_in_label()} (P:{pipeline})")
                 trend_chart.set_categories(trend_categories)
 
                 trend_chart2 = _LineChart()
                 trend_chart2.y_axis.axId = 200
                 trend_chart2.y_axis.crosses = "max"
-                trend_chart2.y_axis.title = COL_SELL_OUT
+                trend_chart2.y_axis.title = visible_sell_out_label()
                 trend_chart2.add_data(
                     _Reference(ws, min_col=sell_out_col, min_row=trend_start, max_row=trend_end),
                     titles_from_data=False,
                 )
-                trend_chart2.series[-1].title = _SeriesLabel(v=COL_SELL_OUT)
+                trend_chart2.series[-1].title = _SeriesLabel(v=visible_sell_out_label())
                 trend_chart += trend_chart2
             else:
-                trend_chart.y_axis.title = f"{COL_SELL_IN} / {COL_SELL_OUT}"
+                trend_chart.y_axis.title = f"{visible_sell_in_label()} / {visible_sell_out_label()}"
                 trend_chart.add_data(
                     _Reference(ws, min_col=sell_in_sim_col, min_row=sell_in_start, max_row=sell_in_end),
                     titles_from_data=False,
                 )
-                trend_chart.series[-1].title = _SeriesLabel(v=f"{COL_SELL_IN} (P:{pipeline})")
+                trend_chart.series[-1].title = _SeriesLabel(v=f"{visible_sell_in_label()} (P:{pipeline})")
                 trend_chart.add_data(
                     _Reference(ws, min_col=sell_out_col, min_row=trend_start, max_row=trend_end),
                     titles_from_data=False,
                 )
-                trend_chart.series[-1].title = _SeriesLabel(v=COL_SELL_OUT)
+                trend_chart.series[-1].title = _SeriesLabel(v=visible_sell_out_label())
                 trend_chart.set_categories(trend_categories)
 
             if len(trend_chart.series) >= 1:
@@ -7013,13 +7072,27 @@ def generate_excel_template(
             )
             print(Fore.GREEN + "Graficos nativos de Excel insertados (editables).")
 
+            def apply_visible_excel_labels(xlsx_path: str) -> None:
+                from openpyxl import load_workbook as _load_wb4
+
+                wb4 = _load_wb4(xlsx_path)
+                for ws in wb4.worksheets:
+                    for col in range(1, ws.max_column + 1):
+                        header_cell = ws.cell(row=1, column=col)
+                        if header_cell.value in VISIBLE_EXCEL_HEADER_MAP:
+                            header_cell.value = VISIBLE_EXCEL_HEADER_MAP[header_cell.value]
+                wb4.save(xlsx_path)
+
+            apply_visible_excel_labels(excel_temp_path)
+            print(Fore.GREEN + "Etiquetas visibles de Sell-in/Sell-out actualizadas en Excel.")
+
             # Colorear pestañas por marca para identificar rápidamente cada grupo de hojas.
             apply_template_tab_colors(excel_temp_path, marcas)
             print(Fore.GREEN + "Color de pestañas aplicado por marca en el template.")
 
             def apply_template_autofit(xlsx_path: str) -> None:
-                from openpyxl import load_workbook as _load_wb4
-                wb4 = _load_wb4(xlsx_path)
+                from openpyxl import load_workbook as _load_wb5
+                wb4 = _load_wb5(xlsx_path)
                 for ws in wb4.worksheets:
                     autofit_worksheet_columns(ws, min_width=10.0, max_width=30.0, padding=2.0)
                 wb4.save(xlsx_path)
