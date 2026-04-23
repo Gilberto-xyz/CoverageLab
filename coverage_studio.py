@@ -6144,6 +6144,7 @@ def add_native_excel_charts(
     from openpyxl.utils import get_column_letter as _get_col_letter
 
     lang_code = _excel_lang_code(include_english, pais_nombre)
+    lang_index = {"PT": 1, "ES": 2, "EN": 3}[lang_code]
     trend_axis_norm = str(trend_axis or "").strip().lower()
     evolution_variant_norm = normalize_evolution_slide_variant(evolution_slide_variant)
     chart_titles = {
@@ -7339,7 +7340,7 @@ def generate_excel_template(
             apply_template_autofit(excel_temp_path)
             print(Fore.GREEN + "Ancho de columnas ajustado automaticamente en el template.")
         except Exception as e:
-            print(Fore.YELLOW + f"No se pudo aplicar el formato de correlaciones: {e}")
+            print(Fore.YELLOW + f"No se pudo completar el postproceso del template Excel: {e}")
 
     except PermissionError:
         # Usualmente pasa cuando el Excel de salida esta abierto/bloqueado.
