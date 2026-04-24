@@ -1038,6 +1038,7 @@ COLOR_POS_LABEL_ALT = '#27AE60'
 COLOR_NEG_LABEL_ALT = '#C0392B'
 COLOR_SELLIN_TREND_LINE = "#D4AC0D"
 COLOR_SELLOUT_TREND_LINE = "#2C3E50"
+EXCEL_TREND_INITIAL_GAP_MONTHS = 6
 
 
 def visible_sell_in_label() -> str:
@@ -6116,6 +6117,17 @@ def _set_bar_series_color(series_obj: "object", color_value: str, line_color: st
         pass
 
 
+def _find_excel_header_col(headers: Dict[str, int], canonical_header: str) -> Optional[int]:
+    """Busca una columna por encabezado interno o por su etiqueta visible."""
+    direct = headers.get(canonical_header)
+    if direct is not None:
+        return direct
+    visible = VISIBLE_EXCEL_HEADER_MAP.get(canonical_header)
+    if visible:
+        return headers.get(visible)
+    return None
+
+
 def add_native_excel_charts(
     xlsx_path: str,
     *,
@@ -6220,17 +6232,21 @@ def add_native_excel_charts(
         headers = _build_sheet_header_index(ws)
         pipeline = _parse_pipeline_from_sheet_name(ws.title)
         cov_header = f"P{pipeline}"
-        required_headers = [COL_DATA, COL_SELL_OUT, COL_SELL_IN_SIM, COL_PENET, cov_header]
-        if any(header not in headers for header in required_headers):
-            continue
 
-        data_col = headers[COL_DATA]
-        sell_out_col = headers[COL_SELL_OUT]
-        sell_in_sim_col = headers[COL_SELL_IN_SIM]
-        pen_col = headers[COL_PENET]
-        cov_col = headers[cov_header]
-        evo_kantar_col = headers.get(COL_EVO_KANTAR_YOY)
-        evo_sellin_col = headers.get(COL_EVO_SELLIN_YOY)
+        data_col = _find_excel_header_col(headers, COL_DATA)
+        sell_out_col = _find_excel_header_col(headers, COL_SELL_OUT)
+        sell_in_sim_col = _find_excel_header_col(headers, COL_SELL_IN_SIM)
+        pen_col = _find_excel_header_col(headers, COL_PENET)
+        cov_col = headers.get(cov_header)
+        evo_kantar_col = _find_excel_header_col(headers, COL_EVO_KANTAR_YOY)
+        evo_sellin_col = _find_excel_header_col(headers, COL_EVO_SELLIN_YOY)
+        if any(col is None for col in (data_col, sell_out_col, sell_in_sim_col, pen_col, cov_col)):
+            continue
+        data_col = int(data_col)
+        sell_out_col = int(sell_out_col)
+        sell_in_sim_col = int(sell_in_sim_col)
+        pen_col = int(pen_col)
+        cov_col = int(cov_col)
 
         last_data_row = _find_last_data_row(ws, data_col=data_col, start_row=2)
         if last_data_row < 3:
@@ -6264,9 +6280,9 @@ def add_native_excel_charts(
             ws._charts = [c for c in ws._charts if _chart_anchor_cell(c) not in target_anchors]  # type: ignore[attr-defined]
 
         brand_name = _clean_brand_name_from_sheet(ws.title)
-        trend_start = 2 + pipeline
+        trend_start = 2 + pipeline + EXCEL_TREND_INITIAL_GAP_MONTHS
         trend_end = last_data_row
-        sell_in_start = 2
+        sell_in_start = 2 + EXCEL_TREND_INITIAL_GAP_MONTHS
         sell_in_end = last_data_row - pipeline
 
         # 1) Cobertura vs Penetracion (rangos directos de columnas originales).
@@ -6317,7 +6333,7 @@ def add_native_excel_charts(
             _set_bar_series_color(coverage_chart.series[1], COLOR_COBERTURA_BAR)
             ws.add_chart(coverage_chart, f"{chart_anchor_col}2")
 
-        # 2) Tendencia (rangos directos para evitar graficos vacios por formulas auxiliares).
+        # 2) Tendencia (rangos directos de columnas reales; omite los primeros 6 meses).
         if trend_start <= trend_end and sell_in_start <= sell_in_end:
             trend_categories = _Reference(
                 ws,
