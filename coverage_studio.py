@@ -3208,6 +3208,8 @@ def load_and_preprocess_sheet(excel_file_obj, sheet_name, include_metadata_hints
             cache[sheet_name] = SheetLoadCacheEntry(df_sheet=None, measure=None)
             return None, None
 
+        df_sheet.reset_index(drop=True, inplace=True)
+
         # Asegurar tipos numéricos (intentar convertir, rellenar NaN con 0 si falla)
         numeric_cols = [COL_SELL_IN, COL_SELL_OUT, COL_COMPRA_MEDIA, COL_COMPRA_OCA, COL_FREQ, COL_PENET, COL_BUYERS]
         for col in numeric_cols:
@@ -6882,7 +6884,7 @@ def generate_excel_template(
 
                     def _window_invalid(series: "pd.Series", start_row_excel: int, end_row_excel: int) -> bool:
                         """
-                        Valida que la ventana exista, no tenga NaN y no tenga ceros.
+                        Valida que la ventana exista y no tenga NaN.
                         Devuelve True si la ventana es inválida.
                         """
                         start_idx = start_row_excel - excel_row_offset
@@ -6890,7 +6892,7 @@ def generate_excel_template(
                         if start_idx < 0 or end_idx >= len(series):
                             return True
                         window = series.iloc[start_idx:end_idx+1]
-                        return window.isna().any() or (window == 0).any()
+                        return window.isna().any()
 
                     def _build_correl_row(label: str, window: int, end_offset: int = 0) -> dict:
                         """
@@ -6924,7 +6926,8 @@ def generate_excel_template(
 
                                 # Ambas ventanas deben tener exactamente 'window' filas
                                 if (m_end - m_start + 1 == window) and (n_end - n_start + 1 == window):
-                                    # Si hay 0s o NaN en alguna ventana, se considera incompleto y se marca con '-'
+                                    # Si hay NaN en alguna ventana, se considera incompleto y se marca con '-'.
+                                    # Los ceros son datos validos para correlacion; CORREL solo falla si no hay varianza.
                                     if _window_invalid(series_sell_out, m_start, m_end) or _window_invalid(series_sell_in, n_start, n_end):
                                         row[f'P{p}'] = "-"
                                     else:
@@ -6932,9 +6935,8 @@ def generate_excel_template(
                                         m_range = f"M{m_start}:M{m_end}"
                                         n_range = f"N{n_start}:N{n_end}"
                                         row[f'P{p}'] = (
-                                            f"=IF(OR(COUNTBLANK({m_range})>0,COUNTBLANK({n_range})>0,"
-                                            f"COUNTIF({m_range},0)>0,COUNTIF({n_range},0)>0),\"-\","
-                                            f"CORREL({m_range},{n_range}))"
+                                            f"=IFERROR(IF(OR(COUNTBLANK({m_range})>0,COUNTBLANK({n_range})>0),\"-\","
+                                            f"CORREL({m_range},{n_range})),\"-\")"
                                         )
                                 else:
                                     row[f'P{p}'] = '-'
@@ -7511,7 +7513,7 @@ def compute_pipeline_current_year_correlation(df_marca: "pd.DataFrame", pipeline
     """Calcula la correlación Pearson del Año Actual para un pipeline dado.
 
     Replica el criterio del bloque Excel: últimos 12 meses, sell-out vs sell-in
-    desplazado por pipeline, sin NaN, sin ceros y con longitud completa.
+    desplazado por pipeline, sin NaN y con longitud completa.
     Retorna el coeficiente en escala 0-1/-1-1, o NaN si no aplica.
     """
     if df_marca is None or df_marca.empty:
@@ -7538,8 +7540,6 @@ def compute_pipeline_current_year_correlation(df_marca: "pd.DataFrame", pipeline
     if len(sell_out_window) != 12 or len(sell_in_window) != 12:
         return np.nan
     if sell_out_window.isna().any() or sell_in_window.isna().any():
-        return np.nan
-    if (sell_out_window == 0).any() or (sell_in_window == 0).any():
         return np.nan
     try:
         if float(sell_out_window.std()) == 0.0 or float(sell_in_window.std()) == 0.0:
