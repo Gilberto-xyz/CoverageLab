@@ -18,6 +18,7 @@ import time
 import unicodedata
 import uuid
 import zipfile
+from collections import OrderedDict
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Dict, Iterable, List, Optional, Sequence, Tuple, Callable, Set
@@ -4789,14 +4790,14 @@ class SlideBuilder:
         width,
         max_height,
         low_penetration_brands: Optional[Sequence[str]] = None,
-    ) -> None:
+    ) -> Optional[int]:
         if df_summary is None or df_summary.empty:
-            return
+            return None
 
         rows = int(len(df_summary.index)) + 1
         cols = int(len(df_summary.columns))
         if rows <= 1 or cols <= 0:
-            return
+            return None
 
         max_height = int(max_height)
         if max_height <= 0:
@@ -4877,6 +4878,19 @@ class SlideBuilder:
                     align=align,
                     word_wrap=False,
                 )
+
+        separator_color = RGBColor(255, 255, 255)
+        separator_width = int(Pt(0.45))
+        for r in range(rows):
+            for c in range(cols):
+                cell = table.cell(r, c)
+                self._clear_table_cell_borders(cell)
+                if c < cols - 1:
+                    self._add_table_cell_border(cell, "lnR", separator_color, width=separator_width)
+                # No dibujar borde inferior en el header: evita la linea blanca entre header y contenido.
+                if r > 0 and r < rows - 1:
+                    self._add_table_cell_border(cell, "lnB", separator_color, width=separator_width)
+        return needed_h
 
     def _add_editable_variations_table(
         self,
@@ -5869,6 +5883,7 @@ class SlideBuilder:
         pais_nombre: str,
         categoria_nombre: str,
         low_penetration_brands: Optional[Sequence[str]] = None,
+        summary_groups: Optional[Sequence[Tuple[str, "pd.DataFrame"]]] = None,
     ) -> None:
         slide_summary = self.ppt.slides.add_slide(self.ppt.slide_layouts[PPT_LAYOUT_INDEX])
         title_frame = ensure_title_frame(slide_summary)
@@ -5884,24 +5899,87 @@ class SlideBuilder:
         comentarios_frame.word_wrap = True
         comentarios_frame.auto_size = True
         comentarios_frame.text = "Comentarios:"
-        if df_summary.empty:
+
+        summary_groups = [
+            (period, group_df)
+            for period, group_df in (summary_groups or [])
+            if group_df is not None and not group_df.empty
+        ]
+        if not summary_groups and df_summary is not None and not df_summary.empty:
+            summary_groups = [(self.ref_month_year, df_summary)]
+        if not summary_groups:
             print(f"{Fore.YELLOW}Advertencia: No hay datos para generar la tabla de resumen en el PPT.")
             return
+
         low_penetration_brands = list(low_penetration_brands or [])
+
+        def _summary_period_title(period_token: str) -> str:
+            try:
+                period_dt = dt.strptime(str(period_token), "%m-%y")
+                month_txt = period_dt.strftime("%b-%y")
+            except Exception:
+                month_txt = str(period_token)
+            if self.lang_index == 3:
+                return f"As of {month_txt}"
+            if self.lang_index == 1:
+                return f"Corte {month_txt}"
+            return f"Corte {month_txt}"
+
+        def _add_group_heading(text: str, left, top, width) -> None:
+            tb = slide_summary.shapes.add_textbox(left, top, width, Inches(0.22))
+            tf = tb.text_frame
+            tf.clear()
+            p_head = tf.paragraphs[0]
+            p_head.text = text
+            p_head.font.size = Pt(11)
+            p_head.font.bold = True
+            p_head.font.color.rgb = RGBColor(0, 0, 0)
+            p_head.alignment = 1
+
         try:
             left = Inches(0.5)
-            top = Inches(1.0)
+            top = Inches(1.20)
             usable_w = self.ppt.slide_width - 2 * left
-            max_h = Inches(4.8)
-            self._add_editable_summary_table(
-                slide_summary,
-                df_summary,
-                left=left,
-                top=top,
-                width=usable_w,
-                max_height=max_h,
-                low_penetration_brands=low_penetration_brands,
-            )
+            total_h = Inches(4.6)
+            if len(summary_groups) == 1:
+                self._add_editable_summary_table(
+                    slide_summary,
+                    summary_groups[0][1],
+                    left=left,
+                    top=top,
+                    width=usable_w,
+                    max_height=total_h,
+                    low_penetration_brands=low_penetration_brands,
+                )
+            else:
+                heading_h = Inches(0.22)
+                heading_table_gap_h = Inches(0.13)
+                gap_h = Inches(0.25)
+                available_table_h = int(
+                    total_h
+                    - (len(summary_groups) * (heading_h + heading_table_gap_h))
+                    - ((len(summary_groups) - 1) * gap_h)
+                )
+                total_body_rows = sum(max(1, len(group_df.index)) for _, group_df in summary_groups)
+                y = top
+                for idx, (period_token, group_df) in enumerate(summary_groups):
+                    group_rows = max(1, len(group_df.index))
+                    if idx == len(summary_groups) - 1:
+                        table_h = int((top + total_h) - y - heading_h)
+                    else:
+                        table_h = max(Inches(0.95), int(available_table_h * (group_rows / max(total_body_rows, 1))))
+                    _add_group_heading(_summary_period_title(period_token), left, y, usable_w)
+                    y += heading_h + heading_table_gap_h
+                    used_h = self._add_editable_summary_table(
+                        slide_summary,
+                        group_df,
+                        left=left,
+                        top=y,
+                        width=usable_w,
+                        max_height=table_h,
+                        low_penetration_brands=low_penetration_brands,
+                    ) or table_h
+                    y += int(used_h) + gap_h
         except Exception as exc:
             print(f"{Fore.YELLOW}Advertencia: No se pudo generar la tabla resumen en el PPT. Error: {exc}")
         if low_penetration_brands:
@@ -7896,6 +7974,7 @@ def generate_presentation_and_bank(
     builder.configure_cover(pais_nombre, fabricante, categoria_nombre, ref_month_year, chosen_lang)
 
     summary_rows: List[Dict[str, str]] = []
+    summary_rows_by_period: "OrderedDict[str, List[Dict[str, str]]]" = OrderedDict()
     bank_rows: List[Dict[str, object]] = []
     low_penetration_brands: List[str] = []
     brand_section_map: Dict[str, List[int]] = {}
@@ -7989,6 +8068,12 @@ def generate_presentation_and_bank(
             )
             df_variations = compute_variations_dataframe(df_marca_ppt)
             averages = compute_averages(df_marca_ppt)
+            sheet_ref_value = pd.to_datetime(df_marca_ppt[COL_DATA].iloc[-1], errors="coerce")
+            sheet_ref_month_year = (
+                sheet_ref_value.strftime("%m-%y")
+                if not pd.isna(sheet_ref_value)
+                else ref_month_year
+            )
             notify_buyers_threshold(marca_nombre_limpio, averages.get('Buyers_MAT_Actual'))
             try:
                 buyers_val = averages.get('Buyers_MAT_Actual')
@@ -8014,7 +8099,7 @@ def generate_presentation_and_bank(
                     labels,
                     lang_index,
                     pipeline,
-                    ref_month_year,
+                    sheet_ref_month_year,
                     var_cliente_mat,
                     var_kantar_mat,
                 )
@@ -8078,21 +8163,49 @@ def generate_presentation_and_bank(
                     coverage_reason=coverage_reason,
                     measure_unit=measure_unit,
                     coverage_type=coverage_type,
-                    ref_month_year=ref_month_year,
+                    ref_month_year=sheet_ref_month_year,
                     round_coverage=round_coverage,
                     summary_extra_months=summary_extra_months,
                     summary_extra_months_mode=summary_extra_months_mode,
                 )
                 summary_rows.append(summary_row)
+                summary_rows_by_period.setdefault(sheet_ref_month_year, []).append(summary_row)
                 bank_rows.append(bank_row)
         progress.update(task_id, advance=1)
 
-    df_summary = pd.DataFrame(summary_rows)
-    if not df_summary.empty:
-        df_summary = df_summary[labels[(lang_index, 'Summary')]]
+    summary_groups: List[Tuple[str, "pd.DataFrame"]] = []
+    for period_token, rows_for_period in summary_rows_by_period.items():
+        try:
+            period_dt = dt.strptime(period_token, "%m-%y")
+            period_columns, _, _ = build_summary_columns(
+                lang_index=lang_index,
+                fabricante=fabricante,
+                ref_dt=period_dt,
+                summary_extra_months=summary_extra_months,
+                summary_extra_months_mode=summary_extra_months_mode,
+            )
+        except Exception:
+            period_columns = labels[(lang_index, 'Summary')]
+        group_df = pd.DataFrame(rows_for_period)
+        if not group_df.empty:
+            group_df = group_df.reindex(columns=period_columns)
+        summary_groups.append((period_token, group_df))
+
+    if summary_groups:
+        df_summary = pd.concat([group_df for _, group_df in summary_groups], ignore_index=True, sort=False)
+    else:
+        df_summary = pd.DataFrame(summary_rows)
+        if not df_summary.empty:
+            df_summary = df_summary.reindex(columns=labels[(lang_index, 'Summary')])
     df_bank = pd.DataFrame(bank_rows, columns=COVERAGE_BANK_COLUMNS)
 
-    builder.add_summary_slide(df_summary, pais_nombre, categoria_nombre, low_penetration_brands=low_penetration_brands)
+    builder.add_summary_slide(
+        df_summary,
+        pais_nombre,
+        categoria_nombre,
+        low_penetration_brands=low_penetration_brands,
+        summary_groups=summary_groups,
+    )
     builder.insert_thanks_text(chosen_lang)
     builder.reorder_summary_and_credit()
 
@@ -8113,22 +8226,22 @@ def generate_presentation_and_bank(
 
     ruta_ppt_final = os.path.join(carpeta_salida, f"{nombre_base_archivo}.pptx")
     summary_slide_index = 6 if len(ppt.slides) > 7 else max(0, len(ppt.slides) - 1)
-    summary_table_headers = (
-        [builder._format_summary_header_label(col_name) for col_name in df_summary.columns]
-        if not df_summary.empty
-        else []
-    )
-    summary_table_widths = (
-        builder._compute_summary_table_column_widths(df_summary, ppt.slide_width - (2 * Inches(0.5)))
-        if not df_summary.empty
-        else []
-    )
+    summary_table_specs = [
+        (
+            [builder._format_summary_header_label(col_name) for col_name in group_df.columns],
+            builder._compute_summary_table_column_widths(group_df, ppt.slide_width - (2 * Inches(0.5))),
+        )
+        for _, group_df in summary_groups
+        if group_df is not None and not group_df.empty
+    ]
 
     def write_final_presentation() -> None:
         if os.path.exists(ruta_ppt_final):
             os.remove(ruta_ppt_final)
         ppt.save(ruta_ppt_final)
-        if summary_table_headers and summary_table_widths:
+        for summary_table_headers, summary_table_widths in summary_table_specs:
+            if not summary_table_headers or not summary_table_widths:
+                continue
             apply_table_grid_widths_in_pptx(
                 ruta_ppt_final,
                 slide_index=summary_slide_index,
