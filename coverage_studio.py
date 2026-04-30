@@ -925,6 +925,8 @@ CRBR,Diversos,Cross Category (Desayuno)-Yogurt - Cereal - Pan y Queso
 CRDT,Diversos,Cross Category (Diet y Light)
 CRDF,Diversos,Cross Category (Alimentos Secos)
 CRFO,Diversos,Cross Category (Alimentos)
+CRCU,Diversos,Cross Category (Untables + Leche Condensada)
+MXEV,Diversos,Cross Category (Leche Evaporada)
 CRSA,Diversos,Cross Category (Salsas)-Mayonesas-Ketchup - Salsas Frias
 CRSN,Diversos,Cross Category (Snacks)
 DEMO,Diversos,Demo
@@ -1192,11 +1194,15 @@ def _requires_metadata_category_resolution(category_code: object) -> bool:
 
 
 def parse_input_filename_parts(excel_file_name: str) -> Tuple[str, str, str]:
-    """Extrae codigo de pais, codigo de categoria y fabricante del nombre del archivo."""
+    """Extrae codigo de pais, codigo de categoria y fabricante del nombre del archivo.
+
+    Acepta un descriptor opcional entre categoria y fabricante, por ejemplo:
+    52_CRCU_Untables_Nestle.xlsx.
+    """
     parts = os.path.splitext(excel_file_name)[0].split('_')
     if len(parts) < 3:
         raise ValueError("El nombre de archivo no contiene suficientes partes (pais_categoria_fabricante)")
-    return parts[0], _normalize_category_code(parts[1]), parts[2]
+    return parts[0], _normalize_category_code(parts[1]), parts[-1]
 
 
 def build_category_short_name(categoria_nombre: object) -> str:
