@@ -1205,6 +1205,30 @@ def parse_input_filename_parts(excel_file_name: str) -> Tuple[str, str, str]:
     return parts[0], _normalize_category_code(parts[1]), parts[-1]
 
 
+def extract_input_filename_descriptor(excel_file_name: str) -> str:
+    """Devuelve el descriptor opcional entre categoria y fabricante."""
+    parts = os.path.splitext(excel_file_name)[0].split('_')
+    if len(parts) <= 3:
+        return ""
+    return " ".join(part.strip() for part in parts[2:-1] if part.strip())
+
+
+def sanitize_output_name_segment(value: object) -> str:
+    """Limpia caracteres no validos para segmentos de nombres de archivo en Windows."""
+    text = str(value or "").strip()
+    text = re.sub(r'[<>:"/\\|?*\x00-\x1f]+', " ", text)
+    text = re.sub(r"\s+", " ", text).strip(" .")
+    return text
+
+
+def build_output_category_segment(categoria_nombre_corto: object, descriptor: object = "") -> str:
+    base = sanitize_output_name_segment(categoria_nombre_corto)
+    qualifier = sanitize_output_name_segment(descriptor)
+    if qualifier and qualifier.casefold() != base.casefold():
+        return f"{base} - {qualifier}"
+    return base
+
+
 def build_category_short_name(categoria_nombre: object) -> str:
     """Genera una version corta de la categoria tomando el texto previo al primer guion."""
     try:
@@ -6618,6 +6642,7 @@ def generate_excel_template(
     trend_axis: str,
     evolution_slide_variant: str,
     include_english: bool,
+    output_descriptor: str = "",
     elapsed_seconds_fn: Optional[Callable[[], Optional[float]]] = None,
 ) -> Tuple[str, str, str, str]:
     """Genera el archivo Excel temporal y devuelve datos clave."""
@@ -7470,7 +7495,8 @@ def generate_excel_template(
          )
          exit()
 
-    nombre_base_archivo = f"{pais_nombre}-{categoria_nombre_corto}-{fabricante}-{ref_month_year}_{coverage_label}"
+    categoria_salida = build_output_category_segment(categoria_nombre_corto, output_descriptor)
+    nombre_base_archivo = f"{pais_nombre}-{categoria_salida}-{fabricante}-{ref_month_year}_{coverage_label}"
     carpeta_salida = os.path.join(root_dir, nombre_base_archivo) # Carpeta con el mismo nombre base
 
     if not os.path.exists(carpeta_salida):
@@ -8278,6 +8304,7 @@ def save_coverage_bank(
     coverage_label: str,
     coverage_type: str,
     coverage_slide_variant: str,
+    output_descriptor: str = "",
     elapsed_seconds_fn: Optional[Callable[[], Optional[float]]] = None,
 ) -> str:
     df_bank = df_bank.copy()
@@ -8289,7 +8316,7 @@ def save_coverage_bank(
             df_bank['Mes_Ejecucion'] = mes_ejecucion_dt
     except Exception as exc:
         print(f"{Fore.YELLOW}Advertencia: No se pudo agregar la columna 'Mes_Ejecucion': {exc}")
-    categoria_para_banco = categoria_nombre_corto or categoria_nombre
+    categoria_para_banco = build_output_category_segment(categoria_nombre_corto or categoria_nombre, output_descriptor)
     nombre_banco_final = f"Banco_{fabricante}_{categoria_para_banco}_{pais_nombre}_{ref_month_year}_{coverage_label}.xlsx"
     ruta_banco_final = os.path.join(carpeta_salida, nombre_banco_final)
 
@@ -8683,6 +8710,7 @@ class CoverageStudioUltraApp:
 
             try:
                 _, category_code, _ = parse_input_filename_parts(excel_file_name)
+                output_descriptor = extract_input_filename_descriptor(excel_file_name)
                 pais_nombre, cesta_nombre, categoria_nombre, categoria_nombre_corto, fabricante = parse_file_metadata(excel_file_name, self.categories)
             except ValueError as exc:
                 print(f"{Fore.RED}{Style.BRIGHT}{exc}")
@@ -8725,6 +8753,7 @@ class CoverageStudioUltraApp:
                 options.trend_axis,
                 options.evolution_slide_variant,
                 options.include_english,
+                output_descriptor=output_descriptor,
                 elapsed_seconds_fn=get_elapsed,
             )
             ruta_ppt_final, df_summary, df_bank = generate_presentation_and_bank(
@@ -8767,6 +8796,7 @@ class CoverageStudioUltraApp:
                 coverage_label=coverage_label,
                 coverage_type=options.coverage_type,
                 coverage_slide_variant=options.coverage_slide_variant,
+                output_descriptor=output_descriptor,
                 elapsed_seconds_fn=get_elapsed,
             )
             print_file_summary(ruta_template_final, ruta_ppt_final, ruta_banco_final, elapsed_seconds=elapsed)
