@@ -1449,6 +1449,28 @@ def build_output_category_segment(categoria_nombre_corto: object, descriptor: ob
     return base
 
 
+def build_bounded_output_filename(directory: str, desired_filename: str, *, max_path_len: int = 240) -> str:
+    """Recorta el nombre de archivo si la ruta completa se acerca al limite de Windows."""
+    safe_filename = sanitize_output_name_segment(os.path.splitext(desired_filename)[0])
+    ext = os.path.splitext(desired_filename)[1]
+    filename = f"{safe_filename}{ext}"
+    directory_abs = os.path.abspath(directory)
+    full_path = os.path.join(directory_abs, filename)
+    if len(full_path) <= max_path_len:
+        return filename
+
+    digest = uuid.uuid5(uuid.NAMESPACE_URL, filename).hex[:8]
+    suffix = f"_{digest}{ext}"
+    max_filename_len = max_path_len - len(directory_abs) - 1
+    if max_filename_len <= len(suffix) + 8:
+        compact_root = "output"
+    else:
+        compact_root = safe_filename[: max_filename_len - len(suffix)].rstrip(" .-_")
+        if not compact_root:
+            compact_root = "output"
+    return f"{compact_root}{suffix}"
+
+
 def build_category_short_name(categoria_nombre: object) -> str:
     """Genera una version corta de la categoria tomando el texto previo al primer guion."""
     try:
@@ -8098,7 +8120,7 @@ def generate_excel_template(
     else:
         print(Fore.YELLOW + "Carpeta de salida ya existe, no se creara de nuevo")
 
-    nombre_template_final = f"Template_{nombre_base_archivo}.xlsx"
+    nombre_template_final = build_bounded_output_filename(carpeta_salida, f"Template_{nombre_base_archivo}.xlsx")
     ruta_template_final = os.path.join(carpeta_salida, nombre_template_final)
 
     def write_final_template() -> None:
@@ -8854,7 +8876,8 @@ def generate_presentation_and_bank(
     if len(ppt.slides) > 7:
         register_section_slide_range(section_slide_map, closing_title, len(ppt.slides) - 1, 1)
 
-    ruta_ppt_final = os.path.join(carpeta_salida, f"{nombre_base_archivo}.pptx")
+    nombre_ppt_final = build_bounded_output_filename(carpeta_salida, f"{nombre_base_archivo}.pptx")
+    ruta_ppt_final = os.path.join(carpeta_salida, nombre_ppt_final)
     summary_slide_index = 6 if len(ppt.slides) > 7 else max(0, len(ppt.slides) - 1)
     summary_table_specs = [
         (
@@ -8917,7 +8940,10 @@ def save_coverage_bank(
     except Exception as exc:
         print(f"{Fore.YELLOW}Advertencia: No se pudo agregar la columna 'Mes_Ejecucion': {exc}")
     categoria_para_banco = build_output_category_segment(categoria_nombre_corto or categoria_nombre, output_descriptor)
-    nombre_banco_final = f"Banco_{fabricante}_{categoria_para_banco}_{pais_nombre}_{ref_month_year}_{coverage_label}.xlsx"
+    nombre_banco_final = build_bounded_output_filename(
+        carpeta_salida,
+        f"Banco_{fabricante}_{categoria_para_banco}_{pais_nombre}_{ref_month_year}_{coverage_label}.xlsx",
+    )
     ruta_banco_final = os.path.join(carpeta_salida, nombre_banco_final)
 
     def write_bank_file() -> None:
