@@ -483,6 +483,13 @@ def ansi_truecolor(text: str, rgb: Tuple[int, int, int]) -> str:
     return f"\033[38;2;{r};{g};{b}m{text}{ANSI_RESET}"
 
 
+SCENARIO_AUTO = "AUTO"
+SCENARIO_PG_GLOBAL_EN = "PG_GLOBAL_EN"
+SCENARIO_NATURA_BR = "NATURA_BR"
+SCENARIO_PG_COLOR = (64, 105, 205)
+SCENARIO_NATURA_COLOR = (255, 105, 19)
+
+
 def relative_luminance(rgb: Tuple[int, int, int]) -> float:
     """Calcula luminancia relativa simple para evitar colores oscuros."""
     r, g, b = rgb
@@ -2417,8 +2424,13 @@ def clear_and_print_summary():
     cov = _as_text(_get("Cobertura"))
     if cov != "-":
         cov_disp = cov
-        if cov.strip().lower() == "auto":
+        scenario_key = normalize_scenario_key(cov)
+        if scenario_key == SCENARIO_AUTO:
             cov_disp = "AUTO (usa configuracion predeterminada)"
+        elif scenario_key == SCENARIO_PG_GLOBAL_EN:
+            cov_disp = "P&G - Global - Ingles"
+        elif scenario_key == SCENARIO_NATURA_BR:
+            cov_disp = "Natura - Br"
         _line("Tipo de cobertura", "Cobertura", cov_disp)
     if _get("Razón") is not None:
         _line("Razon de cobertura", "Razón", _get("Razón"))
@@ -2987,9 +2999,29 @@ def tipo_cobertura():
         print(Fore.WHITE + "Opciones:")
         print(Fore.WHITE + "1 - Cobertura Absoluta")
         print(Fore.WHITE + "2 - Cobertura Relativa")
-        print(Fore.WHITE + "3 - AUTO (usar configuración predeterminada)")
-        tipos = {'1': "Absoluta", '2': "relativa", '3': "AUTO"}
-        eleccion = input(Fore.GREEN + "Elija 1, 2 o 3: ")
+        print(Fore.GREEN + "3 - Template AUTO (usar configuración predeterminada)")
+        print(
+            Fore.WHITE
+            + "4 - Template "
+            + ansi_truecolor("P&G", SCENARIO_PG_COLOR)
+            + Fore.WHITE
+            + " - Global - Ingles"
+        )
+        print(
+            Fore.WHITE
+            + "5 - Template "
+            + ansi_truecolor("Natura", SCENARIO_NATURA_COLOR)
+            + Fore.WHITE
+            + " - Br"
+        )
+        tipos = {
+            '1': "Absoluta",
+            '2': "relativa",
+            '3': SCENARIO_AUTO,
+            '4': SCENARIO_PG_GLOBAL_EN,
+            '5': SCENARIO_NATURA_BR,
+        }
+        eleccion = input(Fore.GREEN + "Elija 1, 2, 3, 4 o 5: ")
         tipo_seleccionado = tipos.get(eleccion, "Absoluta")  # Default a 'Absoluta'
     SELECTIONS['Cobertura'] = tipo_seleccionado
     clear_and_print_summary()
@@ -3895,6 +3927,19 @@ def generar_grafico_tendencia(
 
 # --- Configuración y estructuras de alto nivel --------------------------------
 
+def normalize_scenario_key(value: object) -> str:
+    """Normaliza aliases de escenarios predefinidos del menu de cobertura."""
+    normalized = normalize_brand_key(str(value or "")).replace("&", "and")
+    normalized = re.sub(r"[^a-z0-9]+", "_", normalized).strip("_")
+    if normalized in {"auto", "3"}:
+        return SCENARIO_AUTO
+    if normalized in {"pg_global_en", "p_g_global_ingles", "p_g_global_english", "pg", "p_g", "4"}:
+        return SCENARIO_PG_GLOBAL_EN
+    if normalized in {"natura_br", "natura_brasil", "natura", "5"}:
+        return SCENARIO_NATURA_BR
+    return str(value or "").strip()
+
+
 @dataclass
 class ExecutionOptions:
     coverage_type: str
@@ -3908,7 +3953,62 @@ class ExecutionOptions:
     evolution_slide_variant: str = "classic"
     summary_extra_months: List[int] = field(default_factory=list)
     summary_extra_months_mode: str = "recent"
+    variations_include_same_period_last_year: bool = True
     auto_mode: bool = False
+
+    @classmethod
+    def from_scenario(cls, scenario_key: str) -> Optional["ExecutionOptions"]:
+        """Crea opciones predefinidas para escenarios del menu de cobertura."""
+        scenario = normalize_scenario_key(scenario_key)
+        if scenario == SCENARIO_AUTO:
+            return cls(
+                coverage_type="Absoluta",
+                coverage_reason="Actualización periódica por contrato",
+                trend_axis="simple",
+                trend_granularity="monthly",
+                variations_box_style="classic",
+                include_english=False,
+                round_coverage=False,
+                coverage_slide_variant="classic",
+                evolution_slide_variant="classic",
+                summary_extra_months=[],
+                summary_extra_months_mode="recent",
+                variations_include_same_period_last_year=True,
+                auto_mode=True,
+            )
+        if scenario == SCENARIO_PG_GLOBAL_EN:
+            return cls(
+                coverage_type="Absoluta",
+                coverage_reason="Actualización periódica por contrato",
+                trend_axis="simple",
+                trend_granularity="monthly",
+                variations_box_style="classic",
+                include_english=True,
+                round_coverage=False,
+                coverage_slide_variant="pg",
+                evolution_slide_variant="classic",
+                summary_extra_months=[],
+                summary_extra_months_mode="recent",
+                variations_include_same_period_last_year=True,
+                auto_mode=True,
+            )
+        if scenario == SCENARIO_NATURA_BR:
+            return cls(
+                coverage_type="Absoluta",
+                coverage_reason="Actualización periódica por contrato",
+                trend_axis="simple",
+                trend_granularity="monthly",
+                variations_box_style="pretty",
+                include_english=False,
+                round_coverage=False,
+                coverage_slide_variant="complemented",
+                evolution_slide_variant="simple",
+                summary_extra_months=[],
+                summary_extra_months_mode="recent",
+                variations_include_same_period_last_year=False,
+                auto_mode=True,
+            )
+        return None
 
     @classmethod
     def from_environment(cls) -> Optional["ExecutionOptions"]:
@@ -3917,6 +4017,9 @@ class ExecutionOptions:
         if not auto_file:
             return None
         coverage_type = os.environ.get("AUTO_COV_TYPE", "Absoluta")
+        scenario_options = cls.from_scenario(coverage_type)
+        if scenario_options:
+            return scenario_options
         variations_box_style = normalize_variations_box_style(
             next((os.environ.get(k) for k in VARIATIONS_BOX_STYLE_ENV_KEYS if os.environ.get(k) is not None), None)
         )
@@ -3956,8 +4059,34 @@ class ExecutionOptions:
             evolution_slide_variant=evolution_slide_variant,
             summary_extra_months=summary_extra_months,
             summary_extra_months_mode=summary_extra_months_mode,
+            variations_include_same_period_last_year=True,
             auto_mode=auto_mode,
         )
+
+
+def apply_execution_options_to_selections(options: ExecutionOptions) -> None:
+    """Refleja opciones calculadas en el resumen visible del CLI."""
+    SELECTIONS['Cobertura'] = options.coverage_type
+    SELECTIONS['Razón'] = options.coverage_reason
+    SELECTIONS['Eje tendencia'] = options.trend_axis
+    SELECTIONS['Modo tendencia'] = trend_granularity_label(options.trend_granularity)
+    SELECTIONS['Idioma PPT'] = 'EN (forzado)' if options.include_english else 'ES (por pais)'
+    SELECTIONS['Inglés'] = 'Sí' if options.include_english else 'No'
+    SELECTIONS['Redondeo Cobertura'] = 'Sí' if options.round_coverage else 'No'
+    SELECTIONS["Estilo variaciones"] = (
+        "Bonito" if normalize_variations_box_style(options.variations_box_style) == "pretty" else "Clasico"
+    )
+    SELECTIONS["Slide Cobertura"] = coverage_slide_variant_label(options.coverage_slide_variant)
+    SELECTIONS["Slide Evolucion"] = (
+        "Simple" if normalize_evolution_slide_variant(options.evolution_slide_variant) == "simple" else "Clasico/Avanzado"
+    )
+    SELECTIONS['Meses extra summary'] = format_summary_extra_months(options.summary_extra_months)
+    if options.summary_extra_months:
+        SELECTIONS['Modo meses extra summary'] = (
+            "Mes más reciente" if options.summary_extra_months_mode == "recent" else "Año actual y anterior"
+        )
+    else:
+        SELECTIONS.pop('Modo meses extra summary', None)
 
 
 @dataclass
@@ -5476,6 +5605,8 @@ class SlideBuilder:
         row_h = int((container_height - ((row_count - 1) * row_gap)) / row_count)
         if row_h <= 0:
             row_h = Inches(0.50)
+        if row_count <= 3:
+            row_h = min(row_h, Inches(0.56))
 
         # Intentar derivar el mes base del gráfico (mm-yy) para construir periodos por pipeline.
         base_year = None
@@ -5521,8 +5652,11 @@ class SlideBuilder:
         col_varp_w = Inches(base_cols.get("varp", 0.0) * scale)
         col_sellp_w = Inches(base_cols.get("sellp", 0.0) * scale)
 
+        rows_block_h = (row_count * row_h) + ((row_count - 1) * row_gap)
         left = container_left
         top = container_top
+        if rows_block_h < container_height:
+            top = container_top + int((container_height - rows_block_h) / 2)
         total_w = container_width
 
         def _add_row_box(y):
@@ -5566,23 +5700,27 @@ class SlideBuilder:
 
             p2 = tf.add_paragraph()
             p2.alignment = 1
-            # period_text esperado: "JUN-25 vs JUN-24" (o similar)
-            parts = [p.strip() for p in str(period_text or "").split("vs")]
+            # Acepta "MAT Mar-26 x MAT Mar-25", "MAT Mar-26 vs MAT Mar-25" o variantes.
+            period_raw = str(period_text or "").strip()
+            parts = re.split(r"\s+(?:vs|x)\s+", period_raw, maxsplit=1, flags=re.IGNORECASE)
+            if len(parts) == 1:
+                parts = re.split(r"\s*(?:vs|x)\s*", period_raw, maxsplit=1, flags=re.IGNORECASE)
             left_txt = parts[0].strip()
             right_txt = parts[1].strip() if len(parts) > 1 else ""
             r1 = p2.add_run()
             r1.text = f"{left_txt} " if left_txt else ""
             r1.font.size = Pt(8)
             r1.font.color.rgb = black
-            rvs = p2.add_run()
-            rvs.text = "vs"
-            rvs.font.size = Pt(8)
-            rvs.font.bold = True
-            rvs.font.color.rgb = red
-            r2 = p2.add_run()
-            r2.text = f" {right_txt}" if right_txt else ""
-            r2.font.size = Pt(8)
-            r2.font.color.rgb = black
+            if right_txt:
+                rvs = p2.add_run()
+                rvs.text = "vs"
+                rvs.font.size = Pt(8)
+                rvs.font.bold = True
+                rvs.font.color.rgb = red
+                r2 = p2.add_run()
+                r2.text = f" {right_txt}"
+                r2.font.size = Pt(8)
+                r2.font.color.rgb = black
 
         def _add_value_card(x, y, w, fill_rgb, title, value):
             card = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, x, y, w, row_h)
@@ -6306,7 +6444,7 @@ def add_native_excel_charts(
     evolution_variant_norm = normalize_evolution_slide_variant(evolution_slide_variant)
     chart_titles = {
         "ES": {
-            "coverage_title": "Cobertura en Ano Movil",
+            "coverage_title": "Cobertura en Año Móvil",
             "penetration_label": "Penetracion Mensual",
             "trend_title": "Tendencia en Volumen",
             "evolution_title": "Evolucion Mensual y Variacion",
@@ -7760,6 +7898,7 @@ def build_variations_detail_table(
     df_variations: "pd.DataFrame",
     pipeline: int,
     df_marca: "pd.DataFrame",
+    include_same_period_last_year: bool = True,
 ) -> "pd.DataFrame":
     """Construye la tabla de variaciones utilizada en el slide de tendencia."""
     if df_variations is None or df_variations.empty:
@@ -7793,8 +7932,8 @@ def build_variations_detail_table(
             current_dt = pd.to_datetime(df_marca[COL_DATA].iloc[-1])
             period_specs = {
                 'Anual': {'label': 'MAT', 'current_lag': 12, 'yoy_lag': None, 'show_yoy': False},
-                'Semestral': {'label': 'SEM', 'current_lag': 6, 'yoy_lag': 12, 'show_yoy': True},
-                'Trimestral': {'label': 'TRI', 'current_lag': 3, 'yoy_lag': 12, 'show_yoy': True},
+                'Semestral': {'label': 'SEM', 'current_lag': 6, 'yoy_lag': 12, 'show_yoy': include_same_period_last_year},
+                'Trimestral': {'label': 'TRI', 'current_lag': 3, 'yoy_lag': 12, 'show_yoy': include_same_period_last_year},
             }
             wp_yoy_vars = calc_var_same_period_last_year(df_marca, COL_SELL_OUT, 0)
             p0_yoy_vars = calc_var_same_period_last_year(df_marca, COL_SELL_IN, 0)
@@ -8018,6 +8157,7 @@ def generate_presentation_and_bank(
     round_coverage: bool,
     summary_extra_months: Sequence[int],
     summary_extra_months_mode: str,
+    variations_include_same_period_last_year: bool = True,
     elapsed_seconds_fn: Optional[Callable[[], Optional[float]]] = None,
 ) -> Tuple[str, "pd.DataFrame", "pd.DataFrame"]:
     chosen_lang, lang_index = determine_language(include_english, pais_nombre)
@@ -8170,7 +8310,12 @@ def generate_presentation_and_bank(
                     var_cliente_mat,
                     var_kantar_mat,
                 )
-                variations_detail = build_variations_detail_table(df_variations, pipeline, df_marca_ppt)
+                variations_detail = build_variations_detail_table(
+                    df_variations,
+                    pipeline,
+                    df_marca_ppt,
+                    include_same_period_last_year=variations_include_same_period_last_year,
+                )
                 evolution_figure = build_evolution_figure(
                     df_marca_ppt,
                     pipeline,
@@ -8645,43 +8790,11 @@ class CoverageStudioUltraApp:
 
     def gather_interactive_options(self) -> ExecutionOptions:
         coverage_type = tipo_cobertura()
-        auto_mode = str(coverage_type).strip().lower() == "auto"
-        if auto_mode:
-            coverage_type_value = "Absoluta"
-            coverage_reason = "Actualización periódica por contrato"
-            trend_axis = "simple"
-            trend_granularity = normalize_trend_granularity(
-                next((os.environ.get(k) for k in TREND_GRANULARITY_ENV_KEYS if os.environ.get(k) is not None), None)
-            )
-            variations_box_style = normalize_variations_box_style(
-                next((os.environ.get(k) for k in VARIATIONS_BOX_STYLE_ENV_KEYS if os.environ.get(k) is not None), None)
-            )
-            coverage_slide_variant = normalize_coverage_slide_variant(
-                next((os.environ.get(k) for k in COVERAGE_SLIDE_VARIANT_ENV_KEYS if os.environ.get(k) is not None), None)
-            )
-            evolution_slide_variant = normalize_evolution_slide_variant(
-                next((os.environ.get(k) for k in EVOLUTION_SLIDE_VARIANT_ENV_KEYS if os.environ.get(k) is not None), None)
-            )
-            include_english = False
-            round_cov = False
-            SELECTIONS['Razón'] = coverage_reason
-            SELECTIONS['Eje tendencia'] = trend_axis
-            SELECTIONS['Modo tendencia'] = trend_granularity_label(trend_granularity)
-            SELECTIONS['Idioma PPT'] = 'ESPAÑOL'
-            SELECTIONS['Inglés'] = 'No'
-            SELECTIONS['Redondeo Cobertura'] = 'No'
-            SELECTIONS["Estilo variaciones"] = "Bonito" if variations_box_style == "pretty" else "Clasico"
-            SELECTIONS["Slide Cobertura"] = coverage_slide_variant_label(coverage_slide_variant)
-            SELECTIONS["Slide Evolucion"] = "Simple" if evolution_slide_variant == "simple" else "Clasico/Avanzado"
-            summary_extra_months = get_summary_extra_months_from_env()
-            SELECTIONS['Meses extra summary'] = format_summary_extra_months(summary_extra_months)
-            summary_extra_months_mode = get_summary_extra_months_mode_from_env() or "recent"
-            if summary_extra_months:
-                SELECTIONS['Modo meses extra summary'] = "Mes más reciente" if summary_extra_months_mode == "recent" else "Año actual y anterior"
-            else:
-                # Evitar confusión y arrastre de estado de corridas anteriores.
-                SELECTIONS.pop('Modo meses extra summary', None)
+        scenario_options = ExecutionOptions.from_scenario(coverage_type)
+        if scenario_options:
+            apply_execution_options_to_selections(scenario_options)
             clear_and_print_summary()
+            return scenario_options
         else:
             coverage_type_value = coverage_type
             coverage_reason = razao_cov()
@@ -8694,6 +8807,7 @@ class CoverageStudioUltraApp:
             round_cov = round_coverage_flag()
             summary_extra_months = summary_extra_months_option()
             summary_extra_months_mode = summary_extra_months_mode_option(bool(summary_extra_months))
+            auto_mode = False
         return ExecutionOptions(
             coverage_type=coverage_type_value,
             coverage_reason=coverage_reason,
@@ -8706,6 +8820,7 @@ class CoverageStudioUltraApp:
             evolution_slide_variant=evolution_slide_variant,
             summary_extra_months=summary_extra_months,
             summary_extra_months_mode=summary_extra_months_mode,
+            variations_include_same_period_last_year=True,
             auto_mode=auto_mode,
         )
 
@@ -8753,21 +8868,7 @@ class CoverageStudioUltraApp:
 
             # Asegurar que el resumen refleje opciones también en modo AUTO (sin selección interactiva).
             SELECTIONS['Excel'] = excel_file_name
-            SELECTIONS['Cobertura'] = options.coverage_type
-            SELECTIONS['Razón'] = options.coverage_reason
-            SELECTIONS['Eje tendencia'] = options.trend_axis
-            SELECTIONS['Modo tendencia'] = trend_granularity_label(options.trend_granularity)
-            SELECTIONS['Inglés'] = 'Sí' if options.include_english else 'No'
-            SELECTIONS['Redondeo Cobertura'] = 'Sí' if options.round_coverage else 'No'
-            SELECTIONS['Estilo variaciones'] = "Bonito" if normalize_variations_box_style(options.variations_box_style) == "pretty" else "Clasico"
-            SELECTIONS['Slide Cobertura'] = coverage_slide_variant_label(options.coverage_slide_variant)
-            SELECTIONS['Slide Evolucion'] = "Simple" if normalize_evolution_slide_variant(options.evolution_slide_variant) == "simple" else "Clasico/Avanzado"
-            if options.summary_extra_months:
-                SELECTIONS['Meses extra summary'] = format_summary_extra_months(options.summary_extra_months)
-                SELECTIONS['Modo meses extra summary'] = "Mes más reciente" if options.summary_extra_months_mode == "recent" else "Año actual y anterior"
-            else:
-                SELECTIONS['Meses extra summary'] = "Ninguno"
-                SELECTIONS.pop('Modo meses extra summary', None)
+            apply_execution_options_to_selections(options)
 
             SELECTIONS['Pais'] = pais_nombre
             clear_and_print_summary()
@@ -8817,6 +8918,7 @@ class CoverageStudioUltraApp:
                 round_coverage=options.round_coverage,
                 summary_extra_months=options.summary_extra_months,
                 summary_extra_months_mode=options.summary_extra_months_mode,
+                variations_include_same_period_last_year=options.variations_include_same_period_last_year,
                 elapsed_seconds_fn=get_elapsed,
             )
             ruta_banco_final = save_coverage_bank(
