@@ -3954,6 +3954,7 @@ class ExecutionOptions:
     summary_extra_months: List[int] = field(default_factory=list)
     summary_extra_months_mode: str = "recent"
     variations_include_same_period_last_year: bool = True
+    variations_compact_period_labels: bool = False
     auto_mode: bool = False
 
     @classmethod
@@ -3974,6 +3975,7 @@ class ExecutionOptions:
                 summary_extra_months=[],
                 summary_extra_months_mode="recent",
                 variations_include_same_period_last_year=True,
+                variations_compact_period_labels=False,
                 auto_mode=True,
             )
         if scenario == SCENARIO_PG_GLOBAL_EN:
@@ -3990,6 +3992,7 @@ class ExecutionOptions:
                 summary_extra_months=[],
                 summary_extra_months_mode="recent",
                 variations_include_same_period_last_year=True,
+                variations_compact_period_labels=False,
                 auto_mode=True,
             )
         if scenario == SCENARIO_NATURA_BR:
@@ -4006,6 +4009,7 @@ class ExecutionOptions:
                 summary_extra_months=[],
                 summary_extra_months_mode="recent",
                 variations_include_same_period_last_year=False,
+                variations_compact_period_labels=True,
                 auto_mode=True,
             )
         return None
@@ -4060,6 +4064,7 @@ class ExecutionOptions:
             summary_extra_months=summary_extra_months,
             summary_extra_months_mode=summary_extra_months_mode,
             variations_include_same_period_last_year=True,
+            variations_compact_period_labels=False,
             auto_mode=auto_mode,
         )
 
@@ -4332,6 +4337,7 @@ class SlideBuilder:
         trend_granularity: str = "monthly",
         variations_box_style: str = "classic",
         coverage_slide_variant: str = "classic",
+        variations_compact_period_labels: bool = False,
     ) -> None:
         self.ppt = presentation
         self.lang_index = lang_index
@@ -4346,6 +4352,7 @@ class SlideBuilder:
         self.trend_granularity = normalize_trend_granularity(trend_granularity)
         self.variations_box_style = normalize_variations_box_style(variations_box_style)
         self.coverage_slide_variant = normalize_coverage_slide_variant(coverage_slide_variant)
+        self.variations_compact_period_labels = bool(variations_compact_period_labels)
 
     def _add_picture_fit(
         self,
@@ -5707,6 +5714,9 @@ class SlideBuilder:
                 parts = re.split(r"\s*(?:vs|x)\s*", period_raw, maxsplit=1, flags=re.IGNORECASE)
             left_txt = parts[0].strip()
             right_txt = parts[1].strip() if len(parts) > 1 else ""
+            if self.variations_compact_period_labels:
+                left_txt = re.sub(r"(?i)^(?:MAT|SEM|TRI)\s+", "", left_txt).strip()
+                right_txt = re.sub(r"(?i)^(?:MAT|SEM|TRI)\s+", "", right_txt).strip()
             r1 = p2.add_run()
             r1.text = f"{left_txt} " if left_txt else ""
             r1.font.size = Pt(8)
@@ -5746,7 +5756,7 @@ class SlideBuilder:
 
             p2 = tf.add_paragraph()
             p2.text = value
-            p2.font.size = Pt(22)
+            p2.font.size = Pt(20)
             p2.font.bold = True
             p2.font.color.rgb = white
             p2.alignment = 1
@@ -5967,14 +5977,14 @@ class SlideBuilder:
             divider_w = Inches(0.06)
             avail_w = self.ppt.slide_width - margin_l - margin_r - divider_w
             left_w = int(avail_w / 2)
-            right_w = avail_w - left_w
-            chart_left = margin_l
+            compact_shift = Inches(0.18) if self.variations_compact_period_labels else 0
+            chart_left = max(Inches(0.18), margin_l - (Inches(0.12) if self.variations_compact_period_labels else 0))
             chart_top = content_top
-            var_left = margin_l + left_w + divider_w
             var_top = content_top
 
             # Divisor vertical (como referencia)
-            divider_x = margin_l + left_w
+            divider_x = margin_l + left_w - compact_shift
+            chart_w = max(Inches(5.8), divider_x - chart_left)
             divider = slide_trend.shapes.add_shape(MSO_SHAPE.RECTANGLE, divider_x, content_top, divider_w, content_h)
             divider.fill.solid()
             # Azul verdoso (segun referencia)
@@ -5992,7 +6002,7 @@ class SlideBuilder:
                 granularity=self.trend_granularity,
                 box_left=chart_left,
                 box_top=chart_top,
-                box_width=left_w,
+                box_width=chart_w,
                 box_height=content_h,
                 # Imagen más "alta" para que se aproveche mejor la columna izquierda sin estirar.
                 figsize=(9.0, 7.0),
@@ -6020,8 +6030,12 @@ class SlideBuilder:
                 divider_w = Inches(0.06)
                 avail_w = self.ppt.slide_width - margin_l - margin_r - divider_w
                 left_w = int(avail_w / 2)
-                right_w = avail_w - left_w
+                compact_shift = Inches(0.18) if self.variations_compact_period_labels else 0
+                divider_x = margin_l + left_w - compact_shift
                 var_left = margin_l + left_w + divider_w
+                if self.variations_compact_period_labels:
+                    var_left = divider_x + divider_w + Inches(0.08)
+                right_w = self.ppt.slide_width - var_left - margin_r
                 # Reducir altura a la mitad y centrar verticalmente en el área de contenido.
                 var_h = int(content_h * 0.5)
                 var_top = content_top + int((content_h - var_h) / 2)
@@ -8158,6 +8172,7 @@ def generate_presentation_and_bank(
     summary_extra_months: Sequence[int],
     summary_extra_months_mode: str,
     variations_include_same_period_last_year: bool = True,
+    variations_compact_period_labels: bool = False,
     elapsed_seconds_fn: Optional[Callable[[], Optional[float]]] = None,
 ) -> Tuple[str, "pd.DataFrame", "pd.DataFrame"]:
     chosen_lang, lang_index = determine_language(include_english, pais_nombre)
@@ -8177,6 +8192,7 @@ def generate_presentation_and_bank(
         trend_granularity=trend_granularity,
         variations_box_style=variations_box_style,
         coverage_slide_variant=coverage_slide_variant,
+        variations_compact_period_labels=variations_compact_period_labels,
     )
     builder.configure_cover(pais_nombre, fabricante, categoria_nombre, ref_month_year, chosen_lang)
 
@@ -8821,6 +8837,7 @@ class CoverageStudioUltraApp:
             summary_extra_months=summary_extra_months,
             summary_extra_months_mode=summary_extra_months_mode,
             variations_include_same_period_last_year=True,
+            variations_compact_period_labels=False,
             auto_mode=auto_mode,
         )
 
@@ -8919,6 +8936,7 @@ class CoverageStudioUltraApp:
                 summary_extra_months=options.summary_extra_months,
                 summary_extra_months_mode=options.summary_extra_months_mode,
                 variations_include_same_period_last_year=options.variations_include_same_period_last_year,
+                variations_compact_period_labels=options.variations_compact_period_labels,
                 elapsed_seconds_fn=get_elapsed,
             )
             ruta_banco_final = save_coverage_bank(
