@@ -375,6 +375,183 @@ def apply_powerpoint_sections(pptx_path: str, section_slide_map: Dict[str, List[
                 pass
 
 
+def _make_table_border_xml(side: str, *, visible: bool, width: int = 12700) -> ET.Element:
+    line_width = str(int(width if visible else 0))
+    line = ET.Element(
+        f"{{{PPTX_DRAWING_NS}}}{side}",
+        {"w": line_width, "cap": "flat", "cmpd": "sng", "algn": "ctr"},
+    )
+    solid_fill = ET.SubElement(line, f"{{{PPTX_DRAWING_NS}}}solidFill")
+    if visible:
+        ET.SubElement(solid_fill, f"{{{PPTX_DRAWING_NS}}}srgbClr", {"val": "000000"})
+    else:
+        color = ET.SubElement(solid_fill, f"{{{PPTX_DRAWING_NS}}}prstClr", {"val": "black"})
+        ET.SubElement(color, f"{{{PPTX_DRAWING_NS}}}alpha", {"val": "0"})
+    ET.SubElement(line, f"{{{PPTX_DRAWING_NS}}}prstDash", {"val": "solid"})
+    ET.SubElement(line, f"{{{PPTX_DRAWING_NS}}}round")
+    ET.SubElement(line, f"{{{PPTX_DRAWING_NS}}}headEnd", {"type": "none", "w": "med", "len": "med"})
+    ET.SubElement(line, f"{{{PPTX_DRAWING_NS}}}tailEnd", {"type": "none", "w": "med", "len": "med"})
+    return line
+
+
+def apply_variation_table_internal_borders_in_pptx(pptx_path: str) -> None:
+    """Oculta el perimetro de tablas VAR % MAT y conserva solo bordes internos."""
+    if not pptx_path or not os.path.exists(pptx_path):
+        return
+    ET.register_namespace("a", PPTX_DRAWING_NS)
+    ET.register_namespace("r", PPTX_REL_NS)
+    ET.register_namespace("p", PPTX_PRESENTATION_NS)
+
+    updated_parts: Dict[str, bytes] = {}
+    with zipfile.ZipFile(pptx_path, "r") as src_zip:
+        for entry in src_zip.infolist():
+            if not re.match(r"^ppt/slides/slide\d+\.xml$", entry.filename):
+                continue
+            slide_xml = src_zip.read(entry.filename)
+            slide_root = ET.fromstring(slide_xml)
+            slide_changed = False
+            for tbl_node in slide_root.findall(f".//{{{PPTX_DRAWING_NS}}}tbl"):
+                table_text = " ".join(
+                    text_node.text or ""
+                    for text_node in tbl_node.findall(f".//{{{PPTX_DRAWING_NS}}}t")
+                )
+                if "VAR % MAT" not in table_text:
+                    continue
+
+                tbl_pr = tbl_node.find(f"{{{PPTX_DRAWING_NS}}}tblPr")
+                if tbl_pr is None:
+                    tbl_pr = ET.Element(f"{{{PPTX_DRAWING_NS}}}tblPr")
+                    tbl_node.insert(0, tbl_pr)
+                for style_node in list(tbl_pr.findall(f"{{{PPTX_DRAWING_NS}}}tableStyleId")):
+                    tbl_pr.remove(style_node)
+                for attr_name in ("firstRow", "bandRow", "lastRow", "firstCol", "lastCol", "bandCol"):
+                    tbl_pr.attrib.pop(attr_name, None)
+
+                rows = tbl_node.findall(f"{{{PPTX_DRAWING_NS}}}tr")
+                row_count = len(rows)
+                for row_idx, row_node in enumerate(rows):
+                    cells = row_node.findall(f"{{{PPTX_DRAWING_NS}}}tc")
+                    col_count = len(cells)
+                    for col_idx, cell_node in enumerate(cells):
+                        tc_pr = cell_node.find(f"{{{PPTX_DRAWING_NS}}}tcPr")
+                        if tc_pr is None:
+                            tc_pr = ET.SubElement(cell_node, f"{{{PPTX_DRAWING_NS}}}tcPr")
+                        for side in ("lnL", "lnR", "lnT", "lnB"):
+                            existing = tc_pr.find(f"{{{PPTX_DRAWING_NS}}}{side}")
+                            if existing is not None:
+                                tc_pr.remove(existing)
+                        side_visibility = {
+                            "lnL": col_idx > 0,
+                            "lnR": col_idx < col_count - 1,
+                            "lnT": row_idx > 0,
+                            "lnB": row_idx < row_count - 1,
+                        }
+                        insert_index = 0
+                        for side, visible in side_visibility.items():
+                            tc_pr.insert(insert_index, _make_table_border_xml(side, visible=visible))
+                            insert_index += 1
+                slide_changed = True
+            if slide_changed:
+                updated_parts[entry.filename] = ET.tostring(slide_root, encoding="utf-8", xml_declaration=True)
+
+    if not updated_parts:
+        return
+
+    tmp_path: Optional[str] = None
+    try:
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".pptx", dir=os.path.dirname(pptx_path)) as tmp_file:
+            tmp_path = tmp_file.name
+        with zipfile.ZipFile(pptx_path, "r") as read_zip, zipfile.ZipFile(tmp_path, "w") as write_zip:
+            for entry in read_zip.infolist():
+                payload = updated_parts.get(entry.filename)
+                write_zip.writestr(entry, payload if payload is not None else read_zip.read(entry.filename))
+        os.replace(tmp_path, pptx_path)
+    finally:
+        if tmp_path and os.path.exists(tmp_path):
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
+
+
+def apply_trend_variation_table_transparent_style_in_pptx(pptx_path: str) -> None:
+    """Deja transparente la tabla de variaciones del slide de tendencia."""
+    if not pptx_path or not os.path.exists(pptx_path):
+        return
+    ET.register_namespace("a", PPTX_DRAWING_NS)
+    ET.register_namespace("r", PPTX_REL_NS)
+    ET.register_namespace("p", PPTX_PRESENTATION_NS)
+
+    updated_parts: Dict[str, bytes] = {}
+    with zipfile.ZipFile(pptx_path, "r") as src_zip:
+        for entry in src_zip.infolist():
+            if not re.match(r"^ppt/slides/slide\d+\.xml$", entry.filename):
+                continue
+            slide_xml = src_zip.read(entry.filename)
+            slide_root = ET.fromstring(slide_xml)
+            slide_changed = False
+            for tbl_node in slide_root.findall(f".//{{{PPTX_DRAWING_NS}}}tbl"):
+                rows = tbl_node.findall(f"{{{PPTX_DRAWING_NS}}}tr")
+                if not rows:
+                    continue
+                header_texts = [
+                    "".join(text_node.text or "" for text_node in cell_node.findall(f".//{{{PPTX_DRAWING_NS}}}t")).strip()
+                    for cell_node in rows[0].findall(f"{{{PPTX_DRAWING_NS}}}tc")
+                ]
+                normalized_headers = {re.sub(r"\s+", " ", header).strip().lower() for header in header_texts}
+                is_trend_variation_table = (
+                    "tipo" in normalized_headers
+                    and "periodo" in normalized_headers
+                    and any("wp by numerator" in header for header in normalized_headers)
+                )
+                if not is_trend_variation_table:
+                    continue
+
+                tbl_pr = tbl_node.find(f"{{{PPTX_DRAWING_NS}}}tblPr")
+                if tbl_pr is None:
+                    tbl_pr = ET.Element(f"{{{PPTX_DRAWING_NS}}}tblPr")
+                    tbl_node.insert(0, tbl_pr)
+                for style_node in list(tbl_pr.findall(f"{{{PPTX_DRAWING_NS}}}tableStyleId")):
+                    tbl_pr.remove(style_node)
+                for attr_name in ("firstRow", "bandRow", "lastRow", "firstCol", "lastCol", "bandCol"):
+                    tbl_pr.attrib.pop(attr_name, None)
+
+                for cell_node in tbl_node.findall(f".//{{{PPTX_DRAWING_NS}}}tc"):
+                    tc_pr = cell_node.find(f"{{{PPTX_DRAWING_NS}}}tcPr")
+                    if tc_pr is None:
+                        tc_pr = ET.SubElement(cell_node, f"{{{PPTX_DRAWING_NS}}}tcPr")
+                    for child in list(tc_pr):
+                        local_name = child.tag.rsplit("}", 1)[-1]
+                        if local_name in ("lnL", "lnR", "lnT", "lnB"):
+                            tc_pr.remove(child)
+                    insert_index = 0
+                    for side in ("lnL", "lnR", "lnT", "lnB"):
+                        tc_pr.insert(insert_index, _make_table_border_xml(side, visible=False))
+                        insert_index += 1
+                slide_changed = True
+            if slide_changed:
+                updated_parts[entry.filename] = ET.tostring(slide_root, encoding="utf-8", xml_declaration=True)
+
+    if not updated_parts:
+        return
+
+    tmp_path: Optional[str] = None
+    try:
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".pptx", dir=os.path.dirname(pptx_path)) as tmp_file:
+            tmp_path = tmp_file.name
+        with zipfile.ZipFile(pptx_path, "r") as read_zip, zipfile.ZipFile(tmp_path, "w") as write_zip:
+            for entry in read_zip.infolist():
+                payload = updated_parts.get(entry.filename)
+                write_zip.writestr(entry, payload if payload is not None else read_zip.read(entry.filename))
+        os.replace(tmp_path, pptx_path)
+    finally:
+        if tmp_path and os.path.exists(tmp_path):
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
+
+
 def apply_table_grid_widths_in_pptx(
     pptx_path: str,
     *,
@@ -4833,34 +5010,26 @@ class SlideBuilder:
                 if r < row_count - 1:
                     self._add_table_cell_border(cell, "lnB", color, width=border_width)
 
-        line_thickness = max(int(border_width), int(Pt(1)))
-        x_cursor = int(left)
-        for c in range(col_count - 1):
-            x_cursor += int(table.columns[c].width)
-            line = slide.shapes.add_shape(
-                MSO_SHAPE.RECTANGLE,
-                x_cursor - int(line_thickness / 2),
-                int(top),
-                line_thickness,
-                int(table_height),
-            )
-            line.fill.solid()
-            line.fill.fore_color.rgb = color
-            line.line.fill.background()
-
-        y_cursor = int(top)
-        for r in range(row_count - 1):
-            y_cursor += int(table.rows[r].height)
-            line = slide.shapes.add_shape(
-                MSO_SHAPE.RECTANGLE,
-                int(left),
-                y_cursor - int(line_thickness / 2),
-                int(table_width),
-                line_thickness,
-            )
-            line.fill.solid()
-            line.fill.fore_color.rgb = color
-            line.line.fill.background()
+    @staticmethod
+    def _clear_powerpoint_table_style(table) -> None:
+        try:
+            table.first_row = False
+            table.first_col = False
+            table.last_row = False
+            table.last_col = False
+            table.horz_banding = False
+            table.vert_banding = False
+        except Exception:
+            pass
+        try:
+            tbl_pr = table._tbl.tblPr
+            for style_node in list(tbl_pr.findall(qn("a:tableStyleId"))):
+                tbl_pr.remove(style_node)
+            for attr_name in ("firstRow", "bandRow", "lastRow", "firstCol", "lastCol", "bandCol"):
+                if attr_name in tbl_pr.attrib:
+                    del tbl_pr.attrib[attr_name]
+        except Exception:
+            pass
 
     @staticmethod
     def _normalize_summary_table_value(value: object) -> str:
@@ -5178,15 +5347,7 @@ class SlideBuilder:
 
         table_shape = slide.shapes.add_table(rows, cols, left, top, width, needed_h)
         table = table_shape.table
-        try:
-            tbl_pr = table._tbl.tblPr
-            for style_node in list(tbl_pr.findall(qn("a:tableStyleId"))):
-                tbl_pr.remove(style_node)
-            for attr_name in ("firstRow", "bandRow", "lastRow", "firstCol", "lastCol", "bandCol"):
-                if attr_name in tbl_pr.attrib:
-                    del tbl_pr.attrib[attr_name]
-        except Exception:
-            pass
+        self._clear_powerpoint_table_style(table)
 
         col_ratios = [0.14, 0.085, 0.085, 0.07, 0.11, 0.11, 0.07, 0.07, 0.085, 0.085, 0.09]
         assigned_w = 0
@@ -5371,15 +5532,7 @@ class SlideBuilder:
 
         table_shape = slide.shapes.add_table(rows, cols, left, top, width, needed_h)
         table = table_shape.table
-        try:
-            table.first_row = False
-            table.first_col = False
-            table.last_row = False
-            table.last_col = False
-            table.horz_banding = False
-            table.vert_banding = False
-        except Exception:
-            pass
+        self._clear_powerpoint_table_style(table)
 
         col_weights: List[int] = []
         for col_name in table_df.columns:
@@ -5456,6 +5609,10 @@ class SlideBuilder:
                     align=align,
                     word_wrap=False,
                 )
+        for r in range(rows):
+            for c in range(cols):
+                cell = table.cell(r, c)
+                self._clear_table_cell_borders(cell)
 
     def _add_editable_coverage_variation_table(
         self,
@@ -5481,15 +5638,7 @@ class SlideBuilder:
 
         table_shape = slide.shapes.add_table(rows, cols, left, top, width, height)
         table = table_shape.table
-        try:
-            table.first_row = False
-            table.first_col = False
-            table.last_row = False
-            table.last_col = False
-            table.horz_banding = False
-            table.vert_banding = False
-        except Exception:
-            pass
+        self._clear_powerpoint_table_style(table)
 
         if cols == 3:
             width_ratios = [0.28, 0.36, 0.36]
@@ -8730,6 +8879,8 @@ def generate_presentation_and_bank(
                 column_widths=summary_table_widths,
             )
         apply_powerpoint_sections(ruta_ppt_final, section_slide_map)
+        apply_variation_table_internal_borders_in_pptx(ruta_ppt_final)
+        apply_trend_variation_table_transparent_style_in_pptx(ruta_ppt_final)
 
     run_file_write_with_retry(
         ruta_ppt_final,
