@@ -184,6 +184,18 @@ def extract_total_group_tokens(sheet_name: str) -> List[str]:
     ]
 
 
+def extract_total_group_display_tokens(sheet_name: str) -> List[str]:
+    """Extrae tokens de una hoja total conservando capitalizacion para mostrar."""
+    cleaned = _clean_brand_name_from_sheet(sheet_name)
+    normalized = unicodedata.normalize("NFKD", cleaned)
+    normalized = "".join(ch for ch in normalized if not unicodedata.combining(ch))
+    return [
+        token
+        for token in re.split(r"[^A-Za-z0-9']+", normalized)
+        if token
+    ]
+
+
 def derive_primary_section_title_from_total_sheet(sheet_name: str) -> str:
     """Devuelve la seccion principal si la hoja total representa un grupo raiz."""
     generic_tokens = {"t", "total", "ul"}
@@ -199,15 +211,33 @@ def derive_primary_section_title_from_total_sheet(sheet_name: str) -> str:
 def derive_section_title_from_total_sheet(sheet_name: str) -> str:
     """Deriva el nombre de la seccion principal a partir de una hoja total."""
     cleaned = _clean_brand_name_from_sheet(sheet_name)
-    tokens = extract_total_group_tokens(sheet_name)
+    tokens = extract_total_group_display_tokens(sheet_name)
     generic_tokens = {"t", "total"}
     for token in reversed(tokens):
-        if token in generic_tokens:
+        token_key = token.lower()
+        if token_key in generic_tokens:
             continue
-        if len(token) <= 2 and token.isalpha():
+        if len(token_key) <= 2 and token_key.isalpha():
             continue
         return normalize_section_title(token)
     return normalize_section_title(cleaned)
+
+
+def _section_membership_key(value: str) -> str:
+    """Normaliza una hoja/seccion a su marca base para decidir herencia."""
+    cleaned = _clean_brand_name_from_sheet(value)
+    cleaned = re.sub(r"\([^)]*\)", "", cleaned)
+    cleaned = re.sub(r"(?i)^\s*(?:t|total)\s*[.\-_\s]+", "", cleaned).strip()
+    return normalize_brand_key(normalize_section_title(cleaned))
+
+
+def sheet_belongs_to_section(sheet_name: str, section_title: Optional[str]) -> bool:
+    """Indica si una hoja debe heredar la seccion abierta actualmente."""
+    current_key = _section_membership_key(section_title or "")
+    if not current_key:
+        return False
+    sheet_key = _section_membership_key(sheet_name)
+    return bool(sheet_key and sheet_key == current_key)
 
 
 def build_section_title_for_sheet(sheet_name: str, current_group: Optional[str]) -> Tuple[str, Optional[str]]:
@@ -217,11 +247,16 @@ def build_section_title_for_sheet(sheet_name: str, current_group: Optional[str])
         if primary_group_title:
             return primary_group_title, primary_group_title
         group_title = derive_section_title_from_total_sheet(sheet_name)
-        if current_group:
+        if current_group and (
+            sheet_belongs_to_section(sheet_name, current_group)
+            or "(" not in str(sheet_name or "")
+        ):
             return current_group, current_group
         return group_title, group_title
     brand_title = normalize_section_title(_clean_brand_name_from_sheet(sheet_name))
-    return current_group or brand_title, current_group
+    if current_group and sheet_belongs_to_section(sheet_name, current_group):
+        return current_group, current_group
+    return brand_title, brand_title
 
 
 def build_metadata_group_for_sheet(sheet_name: str, current_group: Optional[str], fabricante: str = "") -> Tuple[str, Optional[str]]:
