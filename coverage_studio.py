@@ -1125,7 +1125,7 @@ def _load_heavy_modules() -> None:
         global Presentation, Inches, get_column_letter, tqdm, mtick, MonthLocator
         global DateFormatter, matplotlib_style, Progress, BarColumn, TextColumn
         global TimeElapsedColumn, TimeRemainingColumn, SpinnerColumn, Image, ImageOps
-        global RGBColor, Pt, MSO_SHAPE, pais, pop_coverage, OxmlElement, qn
+        global RGBColor, Pt, MSO_SHAPE, MSO_VERTICAL_ANCHOR, pais, pop_coverage, OxmlElement, qn
 
         import dataframe_image as dfi
         import pandas as pd
@@ -1140,6 +1140,7 @@ def _load_heavy_modules() -> None:
         from pptx import Presentation
         from pptx.util import Inches, Pt
         from pptx.enum.shapes import MSO_SHAPE
+        from pptx.enum.text import MSO_VERTICAL_ANCHOR
         from pptx.dml.color import RGBColor
         from pptx.oxml.xmlchemy import OxmlElement
         from pptx.oxml.ns import qn
@@ -4510,6 +4511,34 @@ class SlideBuilder:
             rel_curr = (float(cov_curr) / pop_val_num) if pop_val_num > 0 and pd.notna(cov_curr) else np.nan
         return abs_prev, abs_curr, rel_prev, rel_curr
 
+    def _resolve_pg_bank_coverage_values(self, bank_row: object) -> Tuple[float, float, float, float]:
+        try:
+            abs_curr = float(bank_row.get('Cobertura Año Mov Actual'))
+        except Exception:
+            abs_curr = np.nan
+        try:
+            abs_prev = float(bank_row.get('Cobertura Año Mov Anterior'))
+        except Exception:
+            abs_prev = np.nan
+        try:
+            country_name = str(bank_row.get('Pais', self.country_name))
+            pop_val_num = get_population_coverage_percent(country_name) / 100.0
+        except Exception:
+            pop_val_num = 0.0
+
+        ctype = (self.coverage_type or "").strip().lower()
+        if ctype == "auto":
+            ctype = "absoluta"
+        if ctype == "relativa":
+            rel_curr = abs_curr
+            rel_prev = abs_prev
+            abs_curr = (float(abs_curr) * pop_val_num) if pop_val_num > 0 and pd.notna(abs_curr) else np.nan
+            abs_prev = (float(abs_prev) * pop_val_num) if pop_val_num > 0 and pd.notna(abs_prev) else np.nan
+        else:
+            rel_curr = (float(abs_curr) / pop_val_num) if pop_val_num > 0 and pd.notna(abs_curr) else np.nan
+            rel_prev = (float(abs_prev) / pop_val_num) if pop_val_num > 0 and pd.notna(abs_prev) else np.nan
+        return abs_prev, abs_curr, rel_prev, rel_curr
+
     def _add_pg_variation_table_shape(self, slide, assets: PipelineAssets, *, left, top, width, height) -> None:
         table_shape = slide.shapes.add_table(3, 3, left, top, width, height)
         table_shape.height = height
@@ -4723,6 +4752,10 @@ class SlideBuilder:
         tf.margin_right = Pt(2)
         tf.margin_top = Pt(2)
         tf.margin_bottom = Pt(2)
+        try:
+            cell.vertical_anchor = MSO_VERTICAL_ANCHOR.MIDDLE
+        except Exception:
+            pass
 
         p = tf.paragraphs[0]
         p.text = "" if text is None else str(text)
@@ -5091,6 +5124,204 @@ class SlideBuilder:
                 # No dibujar borde inferior en el header: evita la linea blanca entre header y contenido.
                 if r > 0 and r < rows - 1:
                     self._add_table_cell_border(cell, "lnB", separator_color, width=separator_width)
+        return needed_h
+
+    def _add_pg_summary_table(
+        self,
+        slide,
+        df_bank: "pd.DataFrame",
+        *,
+        left,
+        top,
+        width,
+        max_height,
+    ) -> Optional[int]:
+        if df_bank is None or df_bank.empty:
+            return None
+
+        try:
+            ref_dt = dt.strptime(self.ref_month_year, "%m-%y")
+            prev_year = int(ref_dt.year) - 1
+            curr_year = int(ref_dt.year)
+            month_label = ref_dt.strftime("%b")
+        except Exception:
+            curr_year = dt.now().year
+            prev_year = curr_year - 1
+            month_label = ""
+        prev_mat_label = f"MAT {month_label} {prev_year}".strip()
+        curr_mat_label = f"MAT {month_label} {curr_year}".strip()
+
+        table_df = df_bank.copy()
+        rows = int(len(table_df.index)) + 2
+        cols = 11
+        if rows <= 2:
+            return None
+
+        header_h1 = int(Inches(0.36))
+        header_h2 = int(Inches(0.34))
+        body_rows = rows - 2
+        preferred_body_h = int(Inches(0.28))
+        min_body_h = int(Inches(0.20))
+        max_height = int(max_height)
+        body_h = preferred_body_h
+        needed_h = header_h1 + header_h2 + (body_rows * body_h)
+        if needed_h > max_height:
+            body_h = max(min_body_h, int((max_height - header_h1 - header_h2) / max(body_rows, 1)))
+            needed_h = header_h1 + header_h2 + (body_rows * body_h)
+
+        header_bg = self._hex_to_rgb("#8FA9C3")
+        header_bg_light = self._hex_to_rgb("#A9CBE8")
+        white = RGBColor(255, 255, 255)
+        black = RGBColor(35, 35, 35)
+        white_bg = RGBColor(255, 255, 255)
+        positive_green = RGBColor(0, 176, 80)
+
+        table_shape = slide.shapes.add_table(rows, cols, left, top, width, needed_h)
+        table = table_shape.table
+        try:
+            tbl_pr = table._tbl.tblPr
+            for style_node in list(tbl_pr.findall(qn("a:tableStyleId"))):
+                tbl_pr.remove(style_node)
+            for attr_name in ("firstRow", "bandRow", "lastRow", "firstCol", "lastCol", "bandCol"):
+                if attr_name in tbl_pr.attrib:
+                    del tbl_pr.attrib[attr_name]
+        except Exception:
+            pass
+
+        col_ratios = [0.14, 0.085, 0.085, 0.07, 0.11, 0.11, 0.07, 0.07, 0.085, 0.085, 0.09]
+        assigned_w = 0
+        for idx, ratio in enumerate(col_ratios):
+            if idx == cols - 1:
+                col_w = int(width - assigned_w)
+            else:
+                col_w = int(width * ratio)
+                assigned_w += col_w
+            table.columns[idx].width = col_w
+
+        table.rows[0].height = header_h1
+        table.rows[1].height = header_h2
+        for row_idx in range(2, rows):
+            table.rows[row_idx].height = body_h
+
+        merge_specs = [
+            (0, 0, 1, 0),
+            (0, 1, 0, 2),
+            (0, 3, 1, 3),
+            (0, 4, 0, 5),
+            (0, 6, 0, 7),
+            (0, 8, 0, 9),
+            (0, 10, 1, 10),
+        ]
+        for r1, c1, r2, c2 in merge_specs:
+            try:
+                table.cell(r1, c1).merge(table.cell(r2, c2))
+            except Exception:
+                pass
+
+        top_headers = {
+            (0, 0): "Brand",
+            (0, 1): "Annual Penetration %",
+            (0, 3): "PIPELINE",
+            (0, 4): f"Var % ({curr_year} vs {prev_year})",
+            (0, 6): "Coverage",
+            (0, 8): "Relative Coverage",
+            (0, 10): "Var. pp",
+        }
+        bottom_headers = {
+            (1, 1): prev_mat_label,
+            (1, 2): curr_mat_label,
+            (1, 4): f"{str(self.manufacturer_name or 'P&G').upper()} WITH\nPIPELINE",
+            (1, 5): "Worldpanel by\nNumerator",
+            (1, 6): str(prev_year),
+            (1, 7): str(curr_year),
+            (1, 8): str(prev_year),
+            (1, 9): str(curr_year),
+        }
+
+        for (row_idx, col_idx), text in top_headers.items():
+            fill = header_bg if col_idx in (0, 3, 4, 10) else header_bg_light
+            font_color = white if col_idx in (0, 3, 4) else black
+            self._set_table_cell_text(
+                table.cell(row_idx, col_idx),
+                text,
+                fill_color=fill,
+                font_color=font_color,
+                font_size=9,
+                bold=True,
+                align=2,
+                word_wrap=True,
+            )
+        for (row_idx, col_idx), text in bottom_headers.items():
+            fill = header_bg if col_idx in (4, 5) else header_bg_light
+            font_color = white if col_idx in (4, 5) else black
+            self._set_table_cell_text(
+                table.cell(row_idx, col_idx),
+                text,
+                fill_color=fill,
+                font_color=font_color,
+                font_size=8,
+                bold=True,
+                align=2,
+                word_wrap=True,
+            )
+
+        def _fmt_num(value: object) -> str:
+            try:
+                if pd.isna(value):
+                    return "-"
+                return f"{float(value):.1f}"
+            except Exception:
+                return "-"
+
+        def _fmt_pct_from_points(value: object) -> str:
+            try:
+                if pd.isna(value):
+                    return "-"
+                return f"{float(value):.1f}%"
+            except Exception:
+                return "-"
+
+        for table_row, (_, bank_row) in enumerate(table_df.iterrows(), start=2):
+            abs_prev, abs_curr, rel_prev, rel_curr = self._resolve_pg_bank_coverage_values(bank_row)
+            var_pp = (abs_curr - abs_prev) if pd.notna(abs_curr) and pd.notna(abs_prev) else np.nan
+            row_values = [
+                bank_row.get('Fabricante', '') or bank_row.get('Fabricante/Marca', ''),
+                "",
+                "",
+                bank_row.get('Pipeline', ''),
+                _fmt_pct_from_points(bank_row.get('%VAR Cliente', np.nan)),
+                _fmt_pct_from_points(bank_row.get('% VAR WP by Numerator', np.nan)),
+                _fmt_num(abs_prev),
+                _fmt_num(abs_curr),
+                _fmt_num(rel_prev),
+                _fmt_num(rel_curr),
+                _fmt_num(var_pp),
+            ]
+            for col_idx, value in enumerate(row_values):
+                font_color = black
+                if col_idx in (4, 5):
+                    font_color = self._summary_variation_font_color(value)
+                    if self._parse_summary_percent_value(value) and self._parse_summary_percent_value(value) > 0:
+                        font_color = positive_green
+                self._set_table_cell_text(
+                    table.cell(table_row, col_idx),
+                    value,
+                    fill_color=white_bg,
+                    font_color=font_color,
+                    font_size=8,
+                    bold=False,
+                    align=2,
+                    word_wrap=False,
+                )
+
+        border_color = RGBColor(0, 0, 0)
+        border_width = int(Pt(0.75))
+        for row_idx in range(rows):
+            for col_idx in range(cols):
+                cell = table.cell(row_idx, col_idx)
+                self._clear_table_cell_borders(cell)
+                for side in ("lnL", "lnR", "lnT", "lnB"):
+                    self._add_table_cell_border(cell, side, border_color, width=border_width)
         return needed_h
 
     def _add_editable_variations_table(
@@ -6101,13 +6332,14 @@ class SlideBuilder:
         categoria_nombre: str,
         low_penetration_brands: Optional[Sequence[str]] = None,
         summary_groups: Optional[Sequence[Tuple[str, "pd.DataFrame"]]] = None,
+        df_bank: Optional["pd.DataFrame"] = None,
     ) -> None:
         slide_summary = self.ppt.slides.add_slide(self.ppt.slide_layouts[PPT_LAYOUT_INDEX])
         title_frame = ensure_title_frame(slide_summary)
         p = title_frame.paragraphs[0]
         p.text = f"Summary - {pais_nombre} {categoria_nombre} - {self.coverage_label}"
         p.font.bold = True
-        p.font.size = Pt(26)
+        p.font.size = Pt(22 if self.coverage_slide_variant == "pg" else 26)
         tx_s1 = slide_summary.shapes.add_textbox(Inches(0.5), Inches(6.8), Inches(9), Inches(0.5))
         s1_frame = tx_s1.text_frame
         s1_frame.text = self.labels.get((self.lang_index, "S1"), "")
@@ -6158,7 +6390,27 @@ class SlideBuilder:
             top = Inches(1.20)
             usable_w = self.ppt.slide_width - 2 * left
             total_h = Inches(4.6)
-            if len(summary_groups) == 1:
+            if self.coverage_slide_variant == "pg" and df_bank is not None and not df_bank.empty:
+                label_box = slide_summary.shapes.add_textbox(Inches(0.18), top + Inches(0.78), Inches(1.22), Inches(0.34))
+                label_tf = label_box.text_frame
+                label_tf.clear()
+                label_tf.word_wrap = True
+                label_p = label_tf.paragraphs[0]
+                label_p.text = str(categoria_nombre or "").strip()
+                label_p.font.size = Pt(12)
+                label_p.font.bold = True
+                label_p.font.color.rgb = RGBColor(35, 35, 35)
+                label_p.alignment = 1
+                pg_left = Inches(1.45)
+                self._add_pg_summary_table(
+                    slide_summary,
+                    df_bank,
+                    left=pg_left,
+                    top=top,
+                    width=self.ppt.slide_width - pg_left - Inches(0.35),
+                    max_height=total_h,
+                )
+            elif len(summary_groups) == 1:
                 self._add_editable_summary_table(
                     slide_summary,
                     summary_groups[0][1],
@@ -8433,6 +8685,7 @@ def generate_presentation_and_bank(
         categoria_nombre,
         low_penetration_brands=low_penetration_brands,
         summary_groups=summary_groups,
+        df_bank=df_bank,
     )
     builder.insert_thanks_text(chosen_lang)
     builder.reorder_summary_and_credit()
