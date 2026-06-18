@@ -375,7 +375,7 @@ def apply_powerpoint_sections(pptx_path: str, section_slide_map: Dict[str, List[
                 pass
 
 
-def _make_table_border_xml(side: str, *, visible: bool, width: int = 12700) -> ET.Element:
+def _make_table_border_xml(side: str, *, visible: bool, width: int = 12700, color_hex: str = "000000") -> ET.Element:
     line_width = str(int(width if visible else 0))
     line = ET.Element(
         f"{{{PPTX_DRAWING_NS}}}{side}",
@@ -383,7 +383,7 @@ def _make_table_border_xml(side: str, *, visible: bool, width: int = 12700) -> E
     )
     solid_fill = ET.SubElement(line, f"{{{PPTX_DRAWING_NS}}}solidFill")
     if visible:
-        ET.SubElement(solid_fill, f"{{{PPTX_DRAWING_NS}}}srgbClr", {"val": "000000"})
+        ET.SubElement(solid_fill, f"{{{PPTX_DRAWING_NS}}}srgbClr", {"val": color_hex})
     else:
         color = ET.SubElement(solid_fill, f"{{{PPTX_DRAWING_NS}}}prstClr", {"val": "black"})
         ET.SubElement(color, f"{{{PPTX_DRAWING_NS}}}alpha", {"val": "0"})
@@ -407,6 +407,98 @@ def _force_text_size_xml(container_node: ET.Element, font_size_points: int) -> N
         end_props = paragraph_node.find(f"{{{PPTX_DRAWING_NS}}}endParaRPr")
         if end_props is not None:
             end_props.set("sz", size_value)
+
+
+def apply_summary_table_border_style_in_pptx(pptx_path: str) -> None:
+    """Evita que PowerPoint Web pinte contornos negros en la tabla summary."""
+    if not pptx_path or not os.path.exists(pptx_path):
+        return
+    ET.register_namespace("a", PPTX_DRAWING_NS)
+    ET.register_namespace("r", PPTX_REL_NS)
+    ET.register_namespace("p", PPTX_PRESENTATION_NS)
+
+    updated_parts: Dict[str, bytes] = {}
+    with zipfile.ZipFile(pptx_path, "r") as src_zip:
+        for entry in src_zip.infolist():
+            if not re.match(r"^ppt/slides/slide\d+\.xml$", entry.filename):
+                continue
+            slide_xml = src_zip.read(entry.filename)
+            slide_root = ET.fromstring(slide_xml)
+            slide_changed = False
+            for tbl_node in slide_root.findall(f".//{{{PPTX_DRAWING_NS}}}tbl"):
+                rows = tbl_node.findall(f"{{{PPTX_DRAWING_NS}}}tr")
+                if not rows:
+                    continue
+                header_texts = [
+                    "".join(text_node.text or "" for text_node in cell_node.findall(f".//{{{PPTX_DRAWING_NS}}}t")).strip()
+                    for cell_node in rows[0].findall(f"{{{PPTX_DRAWING_NS}}}tc")
+                ]
+                normalized_headers = {re.sub(r"\s+", " ", header).strip().lower() for header in header_texts}
+                is_summary_table = (
+                    any(header in normalized_headers for header in ("fabricante/marca", "manufacturer/brand"))
+                    and "pipeline" in normalized_headers
+                    and any("worldpanel by numerator" in header for header in normalized_headers)
+                    and any(header.startswith(("cobertura ", "coverage ")) for header in normalized_headers)
+                )
+                if not is_summary_table:
+                    continue
+
+                tbl_pr = tbl_node.find(f"{{{PPTX_DRAWING_NS}}}tblPr")
+                if tbl_pr is None:
+                    tbl_pr = ET.Element(f"{{{PPTX_DRAWING_NS}}}tblPr")
+                    tbl_node.insert(0, tbl_pr)
+                for style_node in list(tbl_pr.findall(f"{{{PPTX_DRAWING_NS}}}tableStyleId")):
+                    tbl_pr.remove(style_node)
+                for attr_name in ("firstRow", "bandRow", "lastRow", "firstCol", "lastCol", "bandCol"):
+                    tbl_pr.attrib.pop(attr_name, None)
+
+                row_count = len(rows)
+                for row_idx, row_node in enumerate(rows):
+                    cells = row_node.findall(f"{{{PPTX_DRAWING_NS}}}tc")
+                    col_count = len(cells)
+                    for col_idx, cell_node in enumerate(cells):
+                        tc_pr = cell_node.find(f"{{{PPTX_DRAWING_NS}}}tcPr")
+                        if tc_pr is None:
+                            tc_pr = ET.SubElement(cell_node, f"{{{PPTX_DRAWING_NS}}}tcPr")
+                        for child in list(tc_pr):
+                            local_name = child.tag.rsplit("}", 1)[-1]
+                            if local_name in ("lnL", "lnR", "lnT", "lnB"):
+                                tc_pr.remove(child)
+                        side_visibility = {
+                            "lnL": False,
+                            "lnR": col_idx < col_count - 1,
+                            "lnT": False,
+                            "lnB": row_idx > 0 and row_idx < row_count - 1,
+                        }
+                        insert_index = 0
+                        for side, visible in side_visibility.items():
+                            tc_pr.insert(
+                                insert_index,
+                                _make_table_border_xml(side, visible=visible, width=int(5715), color_hex="FFFFFF"),
+                            )
+                            insert_index += 1
+                slide_changed = True
+            if slide_changed:
+                updated_parts[entry.filename] = ET.tostring(slide_root, encoding="utf-8", xml_declaration=True)
+
+    if not updated_parts:
+        return
+
+    tmp_path: Optional[str] = None
+    try:
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".pptx", dir=os.path.dirname(pptx_path)) as tmp_file:
+            tmp_path = tmp_file.name
+        with zipfile.ZipFile(pptx_path, "r") as read_zip, zipfile.ZipFile(tmp_path, "w") as write_zip:
+            for entry in read_zip.infolist():
+                payload = updated_parts.get(entry.filename)
+                write_zip.writestr(entry, payload if payload is not None else read_zip.read(entry.filename))
+        os.replace(tmp_path, pptx_path)
+    finally:
+        if tmp_path and os.path.exists(tmp_path):
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
 
 
 def apply_variation_table_internal_borders_in_pptx(pptx_path: str) -> None:
@@ -5052,6 +5144,31 @@ class SlideBuilder:
 
         tc_pr.append(ln)
 
+    @staticmethod
+    def _add_transparent_table_cell_border(cell, side: str, width: int = 0) -> None:
+        tc = cell._tc
+        tc_pr = tc.get_or_add_tcPr()
+        ln = OxmlElement(f"a:{side}")
+        ln.set("w", str(int(width)))
+        ln.set("cap", "flat")
+        ln.set("cmpd", "sng")
+        ln.set("algn", "ctr")
+
+        solid_fill = OxmlElement("a:solidFill")
+        prst_clr = OxmlElement("a:prstClr")
+        prst_clr.set("val", "black")
+        alpha = OxmlElement("a:alpha")
+        alpha.set("val", "0")
+        prst_clr.append(alpha)
+        solid_fill.append(prst_clr)
+        ln.append(solid_fill)
+
+        prst_dash = OxmlElement("a:prstDash")
+        prst_dash.set("val", "solid")
+        ln.append(prst_dash)
+
+        tc_pr.append(ln)
+
     def _apply_internal_table_borders(
         self,
         slide,
@@ -5354,11 +5471,17 @@ class SlideBuilder:
             for c in range(cols):
                 cell = table.cell(r, c)
                 self._clear_table_cell_borders(cell)
+                self._add_transparent_table_cell_border(cell, "lnL")
                 if c < cols - 1:
                     self._add_table_cell_border(cell, "lnR", separator_color, width=separator_width)
+                else:
+                    self._add_transparent_table_cell_border(cell, "lnR")
+                self._add_transparent_table_cell_border(cell, "lnT")
                 # No dibujar borde inferior en el header: evita la linea blanca entre header y contenido.
                 if r > 0 and r < rows - 1:
                     self._add_table_cell_border(cell, "lnB", separator_color, width=separator_width)
+                else:
+                    self._add_transparent_table_cell_border(cell, "lnB")
         return needed_h
 
     def _add_pg_summary_table(
@@ -8926,6 +9049,7 @@ def generate_presentation_and_bank(
                 header_row=summary_table_headers,
                 column_widths=summary_table_widths,
             )
+        apply_summary_table_border_style_in_pptx(ruta_ppt_final)
         apply_powerpoint_sections(ruta_ppt_final, section_slide_map)
         apply_variation_table_internal_borders_in_pptx(ruta_ppt_final)
         apply_trend_variation_table_transparent_style_in_pptx(ruta_ppt_final)
