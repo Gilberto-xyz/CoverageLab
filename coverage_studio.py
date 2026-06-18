@@ -394,6 +394,21 @@ def _make_table_border_xml(side: str, *, visible: bool, width: int = 12700) -> E
     return line
 
 
+def _force_text_size_xml(container_node: ET.Element, font_size_points: int) -> None:
+    """Fija el tamano de texto en runs XML para evitar defaults ambiguos en PowerPoint Web."""
+    size_value = str(int(font_size_points) * 100)
+    for paragraph_node in container_node.findall(f".//{{{PPTX_DRAWING_NS}}}p"):
+        for run_node in paragraph_node.findall(f"{{{PPTX_DRAWING_NS}}}r"):
+            run_props = run_node.find(f"{{{PPTX_DRAWING_NS}}}rPr")
+            if run_props is None:
+                run_props = ET.Element(f"{{{PPTX_DRAWING_NS}}}rPr")
+                run_node.insert(0, run_props)
+            run_props.set("sz", size_value)
+        end_props = paragraph_node.find(f"{{{PPTX_DRAWING_NS}}}endParaRPr")
+        if end_props is not None:
+            end_props.set("sz", size_value)
+
+
 def apply_variation_table_internal_borders_in_pptx(pptx_path: str) -> None:
     """Oculta el perimetro de tablas VAR % MAT y conserva solo bordes internos."""
     if not pptx_path or not os.path.exists(pptx_path):
@@ -516,18 +531,21 @@ def apply_trend_variation_table_transparent_style_in_pptx(pptx_path: str) -> Non
                 for attr_name in ("firstRow", "bandRow", "lastRow", "firstCol", "lastCol", "bandCol"):
                     tbl_pr.attrib.pop(attr_name, None)
 
-                for cell_node in tbl_node.findall(f".//{{{PPTX_DRAWING_NS}}}tc"):
-                    tc_pr = cell_node.find(f"{{{PPTX_DRAWING_NS}}}tcPr")
-                    if tc_pr is None:
-                        tc_pr = ET.SubElement(cell_node, f"{{{PPTX_DRAWING_NS}}}tcPr")
-                    for child in list(tc_pr):
-                        local_name = child.tag.rsplit("}", 1)[-1]
-                        if local_name in ("lnL", "lnR", "lnT", "lnB"):
-                            tc_pr.remove(child)
-                    insert_index = 0
-                    for side in ("lnL", "lnR", "lnT", "lnB"):
-                        tc_pr.insert(insert_index, _make_table_border_xml(side, visible=False))
-                        insert_index += 1
+                for row_idx, row_node in enumerate(rows):
+                    row_font_size = 8 if row_idx == 0 or len(rows) > 5 else 9
+                    for cell_node in row_node.findall(f"{{{PPTX_DRAWING_NS}}}tc"):
+                        _force_text_size_xml(cell_node, row_font_size)
+                        tc_pr = cell_node.find(f"{{{PPTX_DRAWING_NS}}}tcPr")
+                        if tc_pr is None:
+                            tc_pr = ET.SubElement(cell_node, f"{{{PPTX_DRAWING_NS}}}tcPr")
+                        for child in list(tc_pr):
+                            local_name = child.tag.rsplit("}", 1)[-1]
+                            if local_name in ("lnL", "lnR", "lnT", "lnB"):
+                                tc_pr.remove(child)
+                        insert_index = 0
+                        for side in ("lnL", "lnR", "lnT", "lnB"):
+                            tc_pr.insert(insert_index, _make_table_border_xml(side, visible=False))
+                            insert_index += 1
                 slide_changed = True
             if slide_changed:
                 updated_parts[entry.filename] = ET.tostring(slide_root, encoding="utf-8", xml_declaration=True)
@@ -4742,6 +4760,7 @@ class SlideBuilder:
         table_shape = slide.shapes.add_table(3, 3, left, top, width, height)
         table_shape.height = height
         table = table_shape.table
+        self._clear_powerpoint_table_style(table)
         table.columns[0].width = int(width * 0.32)
         table.columns[1].width = int(width * 0.34)
         table.columns[2].width = width - table.columns[0].width - table.columns[1].width
@@ -4788,6 +4807,7 @@ class SlideBuilder:
         table_shape = slide.shapes.add_table(3, 4, left, top, width, height)
         table_shape.height = height
         table = table_shape.table
+        self._clear_powerpoint_table_style(table)
         table.columns[0].width = int(width * 0.22)
         table.columns[1].width = int(width * 0.26)
         table.columns[2].width = int(width * 0.26)
@@ -4928,6 +4948,27 @@ class SlideBuilder:
         except Exception:
             return RGBColor(0, 0, 0)
 
+    @staticmethod
+    def _set_paragraph_text(
+        paragraph,
+        text: object,
+        *,
+        font_size: int,
+        font_color: Optional["RGBColor"] = None,
+        bold: bool = False,
+        align: int = 1,
+    ) -> None:
+        paragraph.clear()
+        paragraph.alignment = align
+        paragraph.font.bold = bool(bold)
+        paragraph.font.size = Pt(font_size)
+        paragraph.font.color.rgb = font_color if font_color is not None else RGBColor(0, 0, 0)
+        run = paragraph.add_run()
+        run.text = "" if text is None else str(text)
+        run.font.bold = bool(bold)
+        run.font.size = Pt(font_size)
+        run.font.color.rgb = font_color if font_color is not None else RGBColor(0, 0, 0)
+
     def _set_table_cell_text(
         self,
         cell,
@@ -4956,12 +4997,14 @@ class SlideBuilder:
         except Exception:
             pass
 
-        p = tf.paragraphs[0]
-        p.text = "" if text is None else str(text)
-        p.alignment = align
-        p.font.bold = bool(bold)
-        p.font.size = Pt(font_size)
-        p.font.color.rgb = font_color if font_color is not None else RGBColor(0, 0, 0)
+        self._set_paragraph_text(
+            tf.paragraphs[0],
+            text,
+            font_size=font_size,
+            font_color=font_color if font_color is not None else RGBColor(0, 0, 0),
+            bold=bold,
+            align=align,
+        )
 
     @staticmethod
     def _clear_table_cell_borders(cell) -> None:
@@ -5246,6 +5289,7 @@ class SlideBuilder:
 
         table_shape = slide.shapes.add_table(rows, cols, left, top, width, needed_h)
         table = table_shape.table
+        self._clear_powerpoint_table_style(table)
 
         col_widths = self._compute_summary_table_column_widths(df_summary, width)
         for idx, col_w in enumerate(col_widths):
@@ -6082,12 +6126,7 @@ class SlideBuilder:
             tf.word_wrap = False
             tf.margin_left = Pt(2)
             tf.margin_right = Pt(2)
-            p = tf.paragraphs[0]
-            p.text = text
-            p.font.bold = True
-            p.font.size = Pt(12)
-            p.font.color.rgb = black
-            p.alignment = 1
+            self._set_paragraph_text(tf.paragraphs[0], text, font_size=12, font_color=black, bold=True, align=1)
 
         def _add_var_text(x, y, w, period_text: str):
             tb = slide.shapes.add_textbox(x, y, w, row_h)
@@ -6101,11 +6140,8 @@ class SlideBuilder:
 
             p1 = tf.paragraphs[0]
             # Mantener texto base, ya que el diseño es un "badge" visual.
-            p1.text = "VAR %\nMOVEL" if self.lang_index == 1 else ("YOY %\nCHANGE" if self.lang_index == 3 else "VAR %\nMOVIL")
-            p1.font.size = Pt(8)
-            p1.font.bold = True
-            p1.font.color.rgb = grey
-            p1.alignment = 1
+            p1_text = "VAR %\nMOVEL" if self.lang_index == 1 else ("YOY %\nCHANGE" if self.lang_index == 3 else "VAR %\nMOVIL")
+            self._set_paragraph_text(p1, p1_text, font_size=8, font_color=grey, bold=True, align=1)
 
             p2 = tf.add_paragraph()
             p2.alignment = 1
@@ -6149,19 +6185,12 @@ class SlideBuilder:
             tf.margin_bottom = Pt(4)
 
             p1 = tf.paragraphs[0]
-            p1.text = title
+            title_font_size = 7 if len(str(title)) >= 11 else 9
+            self._set_paragraph_text(p1, title, font_size=title_font_size, font_color=white, bold=True, align=1)
             # "WP by Numerator" es más largo que SELL-IN; bajamos un poco el tamaño.
-            p1.font.size = Pt(7) if len(str(title)) >= 11 else Pt(9)
-            p1.font.bold = True
-            p1.font.color.rgb = white
-            p1.alignment = 1
 
             p2 = tf.add_paragraph()
-            p2.text = value
-            p2.font.size = Pt(20)
-            p2.font.bold = True
-            p2.font.color.rgb = white
-            p2.alignment = 1
+            self._set_paragraph_text(p2, value, font_size=20, font_color=white, bold=True, align=1)
 
         def _period_label(end_year: Optional[int], end_month: Optional[int], offset: int) -> str:
             if end_year is None or end_month is None:
@@ -6183,11 +6212,7 @@ class SlideBuilder:
             tb = slide.shapes.add_textbox(x, header_y, w, header_h)
             tf = tb.text_frame
             tf.clear()
-            p = tf.paragraphs[0]
-            p.text = text
-            p.font.size = Pt(10)
-            p.font.color.rgb = grey
-            p.alignment = 1
+            self._set_paragraph_text(tf.paragraphs[0], text, font_size=10, font_color=grey, bold=False, align=1)
 
         # Sem pipeline: encima del SELL-IN (verde) del sem pipeline (P0), no sobre el bloque completo.
         x_sem = left + col_tipo_w + col_var0_w + col_kantar_w
