@@ -231,6 +231,31 @@ def _section_membership_key(value: str) -> str:
     return normalize_brand_key(normalize_section_title(cleaned))
 
 
+def _section_exact_title_key(value: str) -> str:
+    """Normaliza una hoja/seccion conservando el detalle entre parentesis."""
+    cleaned = _clean_brand_name_from_sheet(value)
+    cleaned = re.sub(r"(?i)^\s*(?:t|total)\s*[.\-_\s]+", "", cleaned).strip()
+    return normalize_brand_key(normalize_section_title(cleaned))
+
+
+def _section_has_detail(value: str) -> bool:
+    """Detecta titulos con detalle explicito, por ejemplo 'Marca (Segmento)'."""
+    return bool(re.search(r"\([^)]*\)", str(value or "")))
+
+
+def should_inherit_current_section(sheet_name: str, section_title: Optional[str]) -> bool:
+    """Indica si una hoja debe heredar la seccion activa sin perder subsegmentos."""
+    if not section_title:
+        return False
+    current_exact_key = _section_exact_title_key(section_title)
+    sheet_exact_key = _section_exact_title_key(sheet_name)
+    if current_exact_key and current_exact_key == sheet_exact_key:
+        return True
+    if _section_has_detail(section_title):
+        return False
+    return sheet_belongs_to_section(sheet_name, section_title)
+
+
 def sheet_belongs_to_section(sheet_name: str, section_title: Optional[str]) -> bool:
     """Indica si una hoja debe heredar la seccion abierta actualmente."""
     current_key = _section_membership_key(section_title or "")
@@ -248,13 +273,13 @@ def build_section_title_for_sheet(sheet_name: str, current_group: Optional[str])
             return primary_group_title, primary_group_title
         group_title = derive_section_title_from_total_sheet(sheet_name)
         if current_group and (
-            sheet_belongs_to_section(sheet_name, current_group)
+            should_inherit_current_section(sheet_name, current_group)
             or "(" not in str(sheet_name or "")
         ):
             return current_group, current_group
         return group_title, group_title
     brand_title = normalize_section_title(_clean_brand_name_from_sheet(sheet_name))
-    if current_group and sheet_belongs_to_section(sheet_name, current_group):
+    if current_group and should_inherit_current_section(sheet_name, current_group):
         return current_group, current_group
     return brand_title, brand_title
 
