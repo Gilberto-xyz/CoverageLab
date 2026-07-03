@@ -2364,9 +2364,17 @@ MULT_MANUFACTURER_ALIASES: Dict[str, Tuple[str, ...]] = {
 MULT_METADATA_RULES: Dict[str, Dict[str, object]] = {
     "unilever": {
         "category_source": "section",
+        "brand_category_rules": (
+            (r"\bfab\s*clean\b|\bfabclean\b", "LAUN"),
+            (r"\bamaciantes?\b", "SOFT"),
+            (r"\bpos\s+shampoo\b|\bposshampoo\b", "COND"),
+            (r"\bclean\b", "CLEA"),
+        ),
         "category_rules": (
             (r"\bclean\b", "CLEA"),
+            (r"\bamaciantes?\b", "SOFT"),
             (r"\bfe\b", "SOFT"),
+            (r"\bfab\s*clean\b|\bfabclean\b", "LAUN"),
             (r"\blaundry\b", "LAUN"),
             (r"\bmayonesa\b", "MAYO"),
             (r"\bsc\b", "TOIL"),
@@ -2374,6 +2382,7 @@ MULT_METADATA_RULES: Dict[str, Dict[str, object]] = {
             (r"\bliquido\b", "TOIL"),
             (r"\bdeos\b", "DEOD"),
             (r"\bhair\b", "HAIR"),
+            (r"\bpos\s+shampoo\b|\bposshampoo\b", "COND"),
             (r"\bshampoo\b", "SHAM"),
             (r"\b(cond|acondicionador)\b", "COND"),
         ),
@@ -2438,6 +2447,13 @@ def _resolve_rule_based_mult_category(
         return None
 
     rule_config = MULT_METADATA_RULES.get(manufacturer_key, {})
+    brand_category_override = _match_metadata_rule(
+        marca_nombre_limpio,
+        rule_config.get("brand_category_rules", ()),
+    )
+    if brand_category_override:
+        return MultCategoryResolution(brand_category_override, "manufacturer_brand_rule", 300)
+
     category_sources: List[object] = []
     if rule_config.get("category_source") == "section":
         category_sources.extend([section_title, marca_nombre_limpio])
