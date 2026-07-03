@@ -796,6 +796,7 @@ def ansi_truecolor(text: str, rgb: Tuple[int, int, int]) -> str:
 
 
 SCENARIO_AUTO = "AUTO"
+SCENARIO_AUTO_DUAL_AXIS = "AUTO_DOBLE_EJE"
 SCENARIO_PG_GLOBAL_EN = "PG_GLOBAL_EN"
 SCENARIO_NATURA_BR = "NATURA_BR"
 SCENARIO_PG_COLOR = (64, 105, 205)
@@ -2762,6 +2763,8 @@ def clear_and_print_summary():
         scenario_key = normalize_scenario_key(cov)
         if scenario_key == SCENARIO_AUTO:
             cov_disp = "AUTO (usa configuracion predeterminada)"
+        elif scenario_key == SCENARIO_AUTO_DUAL_AXIS:
+            cov_disp = "AUTO (usa configuracion doble eje)"
         elif scenario_key == SCENARIO_PG_GLOBAL_EN:
             cov_disp = "P&G - Global - Ingles"
         elif scenario_key == SCENARIO_NATURA_BR:
@@ -3332,19 +3335,20 @@ def tipo_cobertura():
     else:
         print(Fore.CYAN + "\nPregunta: ¿Qué tipo de cobertura se calculará?")
         print(Fore.WHITE + "Opciones:")
-        print(Fore.WHITE + "1 - Cobertura Absoluta")
-        print(Fore.WHITE + "2 - Cobertura Relativa")
+        print(Fore.WHITE + "1 - Cobertura Absoluta (Personalizable)")
+        print(Fore.WHITE + "2 - Cobertura Relativa (Personalizable)")
         print(Fore.GREEN + "3 - Template AUTO (usar configuración predeterminada)")
+        print(Fore.GREEN + "4 - Template AUTO (usar configuración doble eje)")
         print(
             Fore.WHITE
-            + "4 - Template "
+            + "5 - Template "
             + ansi_truecolor("P&G", SCENARIO_PG_COLOR)
             + Fore.WHITE
             + " - Global - Ingles"
         )
         print(
             Fore.WHITE
-            + "5 - Template "
+            + "6 - Template "
             + ansi_truecolor("Natura", SCENARIO_NATURA_COLOR)
             + Fore.WHITE
             + " - Br"
@@ -3353,10 +3357,11 @@ def tipo_cobertura():
             '1': "Absoluta",
             '2': "relativa",
             '3': SCENARIO_AUTO,
-            '4': SCENARIO_PG_GLOBAL_EN,
-            '5': SCENARIO_NATURA_BR,
+            '4': SCENARIO_AUTO_DUAL_AXIS,
+            '5': SCENARIO_PG_GLOBAL_EN,
+            '6': SCENARIO_NATURA_BR,
         }
-        eleccion = input(Fore.GREEN + "Elija 1, 2, 3, 4 o 5: ")
+        eleccion = input(Fore.GREEN + "Elija 1, 2, 3, 4, 5 o 6: ")
         tipo_seleccionado = tipos.get(eleccion, "Absoluta")  # Default a 'Absoluta'
     SELECTIONS['Cobertura'] = tipo_seleccionado
     clear_and_print_summary()
@@ -4268,9 +4273,22 @@ def normalize_scenario_key(value: object) -> str:
     normalized = re.sub(r"[^a-z0-9]+", "_", normalized).strip("_")
     if normalized in {"auto", "3"}:
         return SCENARIO_AUTO
-    if normalized in {"pg_global_en", "p_g_global_ingles", "p_g_global_english", "pg", "p_g", "4"}:
+    if normalized in {
+        "auto_doble_eje",
+        "auto_doble",
+        "auto_dual_axis",
+        "auto_dual",
+        "auto_2_ejes",
+        "auto_2_eje",
+        "auto_2",
+        "doble_eje",
+        "dual_axis",
+        "4",
+    }:
+        return SCENARIO_AUTO_DUAL_AXIS
+    if normalized in {"pg_global_en", "p_g_global_ingles", "p_g_global_english", "pg", "p_g", "5"}:
         return SCENARIO_PG_GLOBAL_EN
-    if normalized in {"natura_br", "natura_brasil", "natura", "5"}:
+    if normalized in {"natura_br", "natura_brasil", "natura", "6"}:
         return SCENARIO_NATURA_BR
     return str(value or "").strip()
 
@@ -4301,6 +4319,23 @@ class ExecutionOptions:
                 coverage_type="Absoluta",
                 coverage_reason="Actualización periódica por contrato",
                 trend_axis="simple",
+                trend_granularity="monthly",
+                variations_box_style="classic",
+                include_english=False,
+                round_coverage=False,
+                coverage_slide_variant="classic",
+                evolution_slide_variant="classic",
+                summary_extra_months=[],
+                summary_extra_months_mode="recent",
+                variations_include_same_period_last_year=True,
+                variations_compact_period_labels=False,
+                auto_mode=True,
+            )
+        if scenario == SCENARIO_AUTO_DUAL_AXIS:
+            return cls(
+                coverage_type="Absoluta",
+                coverage_reason="Actualización periódica por contrato",
+                trend_axis="doble",
                 trend_granularity="monthly",
                 variations_box_style="classic",
                 include_english=False,
