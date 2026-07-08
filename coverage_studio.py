@@ -26,7 +26,7 @@ from calendar import month_abbr
 import xml.etree.ElementTree as ET
 
 import colorama
-from colorama import Fore, Style
+from colorama import Back, Fore, Style
 from rich.console import Console
 from rich.panel import Panel
 
@@ -797,6 +797,7 @@ def ansi_truecolor(text: str, rgb: Tuple[int, int, int]) -> str:
 
 SCENARIO_AUTO = "AUTO"
 SCENARIO_AUTO_DUAL_AXIS = "AUTO_DOBLE_EJE"
+SCENARIO_AUTO_OPTIMAL_PIPELINE = "AUTO_PIPELINE_OPTIMO"
 SCENARIO_PG_GLOBAL_EN = "PG_GLOBAL_EN"
 SCENARIO_NATURA_BR = "NATURA_BR"
 SCENARIO_PG_COLOR = (64, 105, 205)
@@ -2573,6 +2574,25 @@ def load_categories():
     try:
         categories_file = io.StringIO(CATEGORIES_CSV_DATA)
         df = pd.read_csv(categories_file, dtype={'cod': str}).set_index('cod')
+        profile_rows = []
+        for category_code, row in df.iterrows():
+            profile = resolve_category_pipeline_profile(
+                category_code,
+                row.get("cat", ""),
+                row.get("cest", ""),
+            )
+            profile_rows.append(
+                {
+                    "pipeline_profile": profile.name,
+                    "min_pipeline": profile.min_pipeline,
+                    "max_pipeline": profile.max_pipeline,
+                    "short_pipeline_bias": profile.short_pipeline_bias,
+                    "ultra_fast": profile.ultra_fast,
+                }
+            )
+        if profile_rows:
+            profile_df = pd.DataFrame(profile_rows, index=df.index)
+            df = pd.concat([df, profile_df], axis=1)
         if os.environ.get('SHOW_CAT_MSG', '1') == '1' and df.index.duplicated().any():
             duplicates = df.index[df.index.duplicated()].unique().tolist()
             print(
@@ -2781,6 +2801,8 @@ def clear_and_print_summary():
             cov_disp = "AUTO (usa configuracion predeterminada)"
         elif scenario_key == SCENARIO_AUTO_DUAL_AXIS:
             cov_disp = "AUTO (usa configuracion doble eje)"
+        elif scenario_key == SCENARIO_AUTO_OPTIMAL_PIPELINE:
+            cov_disp = "AUTO (pipeline optimo por correlacion)"
         elif scenario_key == SCENARIO_PG_GLOBAL_EN:
             cov_disp = "P&G - Global - Ingles"
         elif scenario_key == SCENARIO_NATURA_BR:
@@ -2819,6 +2841,8 @@ def clear_and_print_summary():
         _line("Grafico de tendencia", "Eje tendencia", eje_disp)
     if _get("Modo tendencia") is not None:
         _line("Periodicidad tendencia", "Modo tendencia", _as_text(_get("Modo tendencia")))
+    if _get("Pipeline PPT") is not None:
+        _line("Pipeline PPT/Summary", "Pipeline PPT", _as_text(_get("Pipeline PPT")))
 
     # --- Idioma ---
     # Mostrar de forma consistente y evitando depender de que el país esté disponible (a veces se define después).
@@ -3090,7 +3114,14 @@ def print_reference_date_detection_warning(
     console.print()
 
 
-def print_file_summary(ruta_excel: str, ruta_ppt: str, ruta_banco: str, *, elapsed_seconds: Optional[float] = None) -> None:
+def print_file_summary(
+    ruta_excel: str,
+    ruta_ppt: str,
+    ruta_banco: str,
+    ruta_pipeline_report: str = "",
+    *,
+    elapsed_seconds: Optional[float] = None,
+) -> None:
     """Muestra un resumen con las rutas generadas para el archivo."""
     console.print("\n[blue]Resumen de archivos generados:[/blue]")
 
@@ -3098,6 +3129,7 @@ def print_file_summary(ruta_excel: str, ruta_ppt: str, ruta_banco: str, *, elaps
         ("Excel", ruta_excel),
         ("Presentación", ruta_ppt),
         ("Banco", ruta_banco),
+        ("Reporte Pipelines", ruta_pipeline_report),
     ]
     present = [(label, p) for label, p in items if p]
 
@@ -3369,6 +3401,7 @@ def tipo_cobertura():
             + Fore.WHITE
             + " - Br"
         )
+        print(Back.WHITE + Fore.BLUE + Style.BRIGHT + "7 - Template AUTOEXPERIMENTAL (pipeline óptimo por correlación)" + Style.RESET_ALL)
         tipos = {
             '1': "Absoluta",
             '2': "relativa",
@@ -3376,8 +3409,9 @@ def tipo_cobertura():
             '4': SCENARIO_AUTO_DUAL_AXIS,
             '5': SCENARIO_PG_GLOBAL_EN,
             '6': SCENARIO_NATURA_BR,
+            '7': SCENARIO_AUTO_OPTIMAL_PIPELINE,
         }
-        eleccion = input(Fore.GREEN + "Elija 1, 2, 3, 4, 5 o 6: ")
+        eleccion = input(Fore.GREEN + "Elija 1, 2, 3, 4, 5, 6 o 7: ")
         tipo_seleccionado = tipos.get(eleccion, "Absoluta")  # Default a 'Absoluta'
     SELECTIONS['Cobertura'] = tipo_seleccionado
     clear_and_print_summary()
@@ -4302,6 +4336,20 @@ def normalize_scenario_key(value: object) -> str:
         "4",
     }:
         return SCENARIO_AUTO_DUAL_AXIS
+    if normalized in {
+        "auto_pipeline_optimo",
+        "auto_pipeline_optima",
+        "auto_optimal_pipeline",
+        "auto_optimo",
+        "auto_correlacion",
+        "auto_correlation",
+        "pipeline_optimo",
+        "pipeline_optima",
+        "correlacion",
+        "correlation",
+        "7",
+    }:
+        return SCENARIO_AUTO_OPTIMAL_PIPELINE
     if normalized in {"pg_global_en", "p_g_global_ingles", "p_g_global_english", "pg", "p_g", "5"}:
         return SCENARIO_PG_GLOBAL_EN
     if normalized in {"natura_br", "natura_brasil", "natura", "6"}:
@@ -4324,6 +4372,7 @@ class ExecutionOptions:
     summary_extra_months_mode: str = "recent"
     variations_include_same_period_last_year: bool = True
     variations_compact_period_labels: bool = False
+    optimal_pipeline_mode: bool = False
     auto_mode: bool = False
 
     @classmethod
@@ -4362,6 +4411,24 @@ class ExecutionOptions:
                 summary_extra_months_mode="recent",
                 variations_include_same_period_last_year=True,
                 variations_compact_period_labels=False,
+                auto_mode=True,
+            )
+        if scenario == SCENARIO_AUTO_OPTIMAL_PIPELINE:
+            return cls(
+                coverage_type="Absoluta",
+                coverage_reason="Actualización periódica por contrato",
+                trend_axis="simple",
+                trend_granularity="monthly",
+                variations_box_style="classic",
+                include_english=False,
+                round_coverage=False,
+                coverage_slide_variant="classic",
+                evolution_slide_variant="classic",
+                summary_extra_months=[],
+                summary_extra_months_mode="recent",
+                variations_include_same_period_last_year=True,
+                variations_compact_period_labels=False,
+                optimal_pipeline_mode=True,
                 auto_mode=True,
             )
         if scenario == SCENARIO_PG_GLOBAL_EN:
@@ -4461,6 +4528,9 @@ def apply_execution_options_to_selections(options: ExecutionOptions) -> None:
     SELECTIONS['Razón'] = options.coverage_reason
     SELECTIONS['Eje tendencia'] = options.trend_axis
     SELECTIONS['Modo tendencia'] = trend_granularity_label(options.trend_granularity)
+    SELECTIONS['Pipeline PPT'] = (
+        'Óptimo por correlación (P1-P6)' if options.optimal_pipeline_mode else 'Según hoja / todos'
+    )
     SELECTIONS['Idioma PPT'] = 'EN (forzado)' if options.include_english else 'ES (por pais)'
     SELECTIONS['Inglés'] = 'Sí' if options.include_english else 'No'
     SELECTIONS['Redondeo Cobertura'] = 'Sí' if options.round_coverage else 'No'
@@ -8453,12 +8523,16 @@ def compute_averages(df_marca: "pd.DataFrame") -> Dict[str, float]:
     return averages
 
 
-def compute_pipeline_current_year_correlation(df_marca: "pd.DataFrame", pipeline: int) -> Optional[float]:
-    """Calcula la correlación Pearson del Año Actual para un pipeline dado.
+def compute_pipeline_mat_correlation(
+    df_marca: "pd.DataFrame",
+    pipeline: int,
+    window: int = 12,
+    end_offset: int = 0,
+) -> Optional[float]:
+    """Calcula correlación Pearson entre acumulados MAT de WP y Sell-in.
 
-    Replica el criterio del bloque Excel: últimos 12 meses, sell-out vs sell-in
-    desplazado por pipeline, sin NaN y con longitud completa.
-    Retorna el coeficiente en escala 0-1/-1-1, o NaN si no aplica.
+    Replica la pestaña de correlación del Excel: compara la serie MAT de
+    WP by Numerator contra la serie MAT de Sell-in desplazada por pipeline.
     """
     if df_marca is None or df_marca.empty:
         return np.nan
@@ -8468,20 +8542,27 @@ def compute_pipeline_current_year_correlation(df_marca: "pd.DataFrame", pipeline
     except Exception:
         return np.nan
 
-    series_sell_out = pd.to_numeric(df_marca[COL_SELL_OUT], errors="coerce")
-    series_sell_in = pd.to_numeric(df_marca[COL_SELL_IN], errors="coerce")
-    n_data = len(df_marca)
-
-    if n_data < 12 + max(p, 0):
+    try:
+        window_int = int(window)
+        end_offset_int = int(end_offset)
+    except Exception:
+        return np.nan
+    if window_int <= 0 or end_offset_int < 0:
         return np.nan
 
-    sell_out_window = series_sell_out.iloc[n_data - 12:n_data]
-    if p > 0:
-        sell_in_window = series_sell_in.iloc[n_data - 12 - p:n_data - p]
-    else:
-        sell_in_window = series_sell_in.iloc[n_data - 12:n_data]
+    series_sell_out = pd.to_numeric(df_marca[COL_SELL_OUT], errors="coerce")
+    series_sell_in = pd.to_numeric(df_marca[COL_SELL_IN], errors="coerce")
+    acum_sell_out = series_sell_out.rolling(window=12, min_periods=12).sum()
+    acum_sell_in = series_sell_in.shift(max(p, 0)).rolling(window=12, min_periods=12).sum()
 
-    if len(sell_out_window) != 12 or len(sell_in_window) != 12:
+    end_pos = len(df_marca) - end_offset_int
+    start_pos = end_pos - window_int
+    if start_pos < 0 or end_pos > len(df_marca):
+        return np.nan
+    sell_out_window = acum_sell_out.iloc[start_pos:end_pos]
+    sell_in_window = acum_sell_in.iloc[start_pos:end_pos]
+
+    if len(sell_out_window) != window_int or len(sell_in_window) != window_int:
         return np.nan
     if sell_out_window.isna().any() or sell_in_window.isna().any():
         return np.nan
@@ -8496,6 +8577,11 @@ def compute_pipeline_current_year_correlation(df_marca: "pd.DataFrame", pipeline
         return float(corr) if np.isfinite(corr) else np.nan
     except Exception:
         return np.nan
+
+
+def compute_pipeline_current_year_correlation(df_marca: "pd.DataFrame", pipeline: int) -> Optional[float]:
+    """Calcula la correlación MAT del Año Actual para un pipeline dado."""
+    return compute_pipeline_mat_correlation(df_marca, pipeline, window=12, end_offset=0)
 
 
 def compute_previous_year_annual_variation(df_marca: "pd.DataFrame", coluna: str, pipeline: int = 0) -> Optional[float]:
@@ -8530,6 +8616,679 @@ def compute_previous_year_annual_variation(df_marca: "pd.DataFrame", coluna: str
         return (float(current_sum) / float(previous_sum)) - 1.0
     except Exception:
         return np.nan
+
+
+@dataclass(frozen=True)
+class OptimalPipelineCandidate:
+    pipeline: int
+    current_correlation: Optional[float]
+    current_variation: Optional[float]
+    wp_current_variation: Optional[float]
+    variation_distance_points: Optional[float]
+    current_trend_match: bool
+    previous_year_correlation: Optional[float]
+    two_year_correlation: Optional[float]
+    previous_year_variation: Optional[float]
+    wp_previous_year_variation: Optional[float]
+    historical_trend_match: bool
+    recent_shipment_outlier: bool = False
+    forced_by_sheet: bool = False
+
+
+@dataclass(frozen=True)
+class OptimalPipelineSelection:
+    pipeline: int
+    reason: str
+    candidates: Tuple[OptimalPipelineCandidate, ...]
+
+
+@dataclass(frozen=True)
+class CategoryPipelineProfile:
+    name: str = "normal"
+    min_pipeline: int = 1
+    max_pipeline: int = 6
+    short_pipeline_bias: float = 0.0
+    ultra_fast: bool = False
+
+
+OPTIMAL_PIPELINE_CORR_TIE_TOLERANCE = 0.02
+OPTIMAL_PIPELINE_DISTANCE_TOLERANCE_POINTS = 5.0
+OPTIMAL_PIPELINE_STRONG_CORR_MIN = 0.50
+OPTIMAL_PIPELINE_HISTORICAL_CORR_MIN = 0.50
+OPTIMAL_PIPELINE_BALANCED_CORR_MIN = 0.25
+OPTIMAL_PIPELINE_EXACT_VARIATION_DISTANCE_POINTS = 0.10
+OPTIMAL_PIPELINE_VISUAL_VARIATION_DISTANCE_POINTS = 0.50
+OPTIMAL_PIPELINE_VISUAL_MAX_PIPELINE = 4
+OPTIMAL_PIPELINE_VARIATION_DISTANCE_WEIGHT = 30.0
+OPTIMAL_PIPELINE_NORMAL_LENGTH_PENALTY = 2.0
+OPTIMAL_PIPELINE_OUTLIER_PENALTY = 6.0
+HIGH_ROTATION_CATEGORY_CODES: Set[str] = frozenset({
+    "MAYO",
+    "KETC",
+    "TOMA",
+    "BOUI",
+    "SOUP",
+    "SNAC",
+    "BISC",
+    "CRSN",
+    "PORK",
+    "MEAT",
+    "CHCK",
+    "SAUS",
+    "CRBR",
+    "CRDF",
+    "CRFO",
+    "CRCU",
+    "MXEV",
+    "CRSA",
+    "COCP",
+    "PETF",
+})
+ULTRA_FAST_CATEGORY_CODES: Set[str] = frozenset({
+    "PORK",
+    "MEAT",
+    "CHCK",
+    "FISH",
+    "SAUS",
+    "HAMS",
+})
+
+
+def extract_forced_pipeline_from_sheet_name(sheet_name: str) -> Optional[int]:
+    match = re.match(r"(?i)^p([0-6])_", str(sheet_name or ""))
+    if match:
+        try:
+            return int(match.group(1))
+        except Exception:
+            return None
+    return None
+
+
+def _is_finite_number(value: object) -> bool:
+    try:
+        return value is not None and not pd.isna(value) and np.isfinite(float(value))
+    except Exception:
+        return False
+
+
+def _same_variation_direction(left: object, right: object) -> bool:
+    if not _is_finite_number(left) or not _is_finite_number(right):
+        return False
+    left_f = float(left)
+    right_f = float(right)
+    return (left_f * right_f) > 0 or (left_f == 0.0 and right_f == 0.0)
+
+
+def _variation_distance_points(left: object, right: object) -> Optional[float]:
+    if not _is_finite_number(left) or not _is_finite_number(right):
+        return np.nan
+    return abs(float(left) - float(right)) * 100.0
+
+
+def _robust_outlier_score(series: "pd.Series", window: int = 18) -> float:
+    values = pd.to_numeric(series, errors="coerce").dropna()
+    if len(values) < 8:
+        return 0.0
+    tail = values.iloc[-min(int(window), len(values)):]
+    if len(tail) < 8:
+        return 0.0
+
+    def _mad_score(sample: "pd.Series") -> float:
+        sample = pd.to_numeric(sample, errors="coerce").dropna()
+        if len(sample) < 5:
+            return 0.0
+        median = float(sample.median())
+        mad = float((sample - median).abs().median())
+        if mad <= 0:
+            std = float(sample.std())
+            if std <= 0:
+                return 0.0
+            return float((sample - median).abs().max() / std)
+        return float(((sample - median).abs() / mad).max())
+
+    level_score = _mad_score(tail)
+    diff_score = _mad_score(tail.diff())
+    return max(level_score, diff_score)
+
+
+def detect_recent_shipment_outlier(df_marca: "pd.DataFrame", pipeline: int) -> bool:
+    if df_marca is None or df_marca.empty:
+        return False
+    try:
+        p = max(0, int(pipeline))
+    except Exception:
+        p = 0
+    try:
+        sell_in_series = pd.to_numeric(df_marca[COL_SELL_IN], errors="coerce").shift(p)
+        sell_out_series = pd.to_numeric(df_marca[COL_SELL_OUT], errors="coerce")
+        sell_in_score = _robust_outlier_score(sell_in_series, window=18)
+        sell_out_score = _robust_outlier_score(sell_out_series, window=18)
+        return sell_in_score >= 4.0 and sell_in_score >= (sell_out_score + 1.0)
+    except Exception:
+        return False
+
+
+def resolve_category_pipeline_profile(
+    category_code: object = None,
+    category_name: object = None,
+    basket_name: object = None,
+) -> CategoryPipelineProfile:
+    code = _normalize_category_code(category_code)
+    basket_norm = _normalize_metadata_match_text(basket_name)
+    text_norm = _normalize_metadata_match_text(f"{category_name or ''} {category_code or ''}")
+
+    if code in ULTRA_FAST_CATEGORY_CODES or any(
+        term in text_norm
+        for term in {
+            "carne",
+            "carnicos",
+            "porcina",
+            "pollo",
+            "pescado",
+            "cecinas",
+            "yoghurt",
+            "yogurt",
+            "yogur",
+            "leche liquida",
+            "leche fermentada",
+            "queso fresco",
+            "petit suisse",
+            "crema de leche",
+        }
+    ):
+        return CategoryPipelineProfile(
+            name="ultra_alta_rotacion",
+            min_pipeline=1,
+            max_pipeline=2,
+            short_pipeline_bias=12.0,
+            ultra_fast=True,
+        )
+
+    if (
+        "alimento" in basket_norm
+        or "bebida" in basket_norm
+        or "lacteo" in basket_norm
+        or "lacteos" in basket_norm
+        or code in HIGH_ROTATION_CATEGORY_CODES
+        or "diet y light" in text_norm
+    ):
+        return CategoryPipelineProfile(
+            name="alta_rotacion",
+            min_pipeline=1,
+            max_pipeline=3,
+            short_pipeline_bias=8.0,
+            ultra_fast=False,
+        )
+
+    return CategoryPipelineProfile()
+
+
+def build_optimal_pipeline_candidates(
+    df_marca: "pd.DataFrame",
+    df_variations: "pd.DataFrame",
+    forced_pipeline: Optional[int] = None,
+) -> Tuple[OptimalPipelineCandidate, ...]:
+    try:
+        wp_current = df_variations.loc[df_variations["Tipo"] == "Anual", "WP by Numerator"].iloc[0]
+    except Exception:
+        wp_current = np.nan
+    wp_previous = compute_previous_year_annual_variation(df_marca, COL_SELL_OUT, 0)
+
+    candidates: List[OptimalPipelineCandidate] = []
+    for pipeline in range(1, 7):
+        try:
+            current_variation = df_variations.loc[
+                df_variations["Tipo"] == "Anual",
+                f"Cliente P{pipeline}",
+            ].iloc[0]
+        except Exception:
+            current_variation = np.nan
+        previous_variation = compute_previous_year_annual_variation(df_marca, COL_SELL_IN, pipeline)
+        candidates.append(
+            OptimalPipelineCandidate(
+                pipeline=pipeline,
+                current_correlation=compute_pipeline_current_year_correlation(df_marca, pipeline),
+                current_variation=current_variation,
+                wp_current_variation=wp_current,
+                variation_distance_points=_variation_distance_points(current_variation, wp_current),
+                current_trend_match=_same_variation_direction(current_variation, wp_current),
+                previous_year_correlation=compute_pipeline_mat_correlation(df_marca, pipeline, window=12, end_offset=12),
+                two_year_correlation=compute_pipeline_mat_correlation(df_marca, pipeline, window=24, end_offset=0),
+                previous_year_variation=previous_variation,
+                wp_previous_year_variation=wp_previous,
+                historical_trend_match=_same_variation_direction(previous_variation, wp_previous),
+                recent_shipment_outlier=detect_recent_shipment_outlier(df_marca, pipeline),
+                forced_by_sheet=(forced_pipeline == pipeline),
+            )
+        )
+    return tuple(candidates)
+
+
+def _choose_near_top_current_candidate(
+    candidates: Sequence[OptimalPipelineCandidate],
+) -> Optional[OptimalPipelineCandidate]:
+    usable = [
+        candidate for candidate in candidates
+        if _is_finite_number(candidate.current_correlation)
+        and float(candidate.current_correlation) > 0
+        and candidate.current_trend_match
+    ]
+    if not usable:
+        return None
+    top_corr = max(float(candidate.current_correlation) for candidate in usable)
+    near_top = [
+        candidate for candidate in usable
+        if float(candidate.current_correlation) >= top_corr - OPTIMAL_PIPELINE_CORR_TIE_TOLERANCE
+    ]
+    finite_distances = [
+        float(candidate.variation_distance_points)
+        for candidate in near_top
+        if _is_finite_number(candidate.variation_distance_points)
+    ]
+    if finite_distances:
+        best_distance = min(finite_distances)
+        distance_cap = best_distance + OPTIMAL_PIPELINE_DISTANCE_TOLERANCE_POINTS
+        near_top = [
+            candidate for candidate in near_top
+            if not _is_finite_number(candidate.variation_distance_points)
+            or float(candidate.variation_distance_points) <= distance_cap
+        ]
+    forced_near_top = [candidate for candidate in near_top if candidate.forced_by_sheet]
+    if forced_near_top:
+        return sorted(forced_near_top, key=lambda candidate: candidate.pipeline)[0]
+    return sorted(near_top, key=lambda candidate: candidate.pipeline)[0] if near_top else None
+
+
+def _historical_support_score(candidate: OptimalPipelineCandidate) -> float:
+    score = 0.0
+    if _is_finite_number(candidate.previous_year_correlation):
+        score = max(score, float(candidate.previous_year_correlation))
+    if _is_finite_number(candidate.two_year_correlation):
+        score = max(score, float(candidate.two_year_correlation) * 0.85)
+    if candidate.historical_trend_match:
+        score += 0.10
+    return score
+
+
+def _current_fit_score(
+    candidate: OptimalPipelineCandidate,
+    min_pipeline: int = 1,
+    length_penalty: float = OPTIMAL_PIPELINE_NORMAL_LENGTH_PENALTY,
+) -> float:
+    if (
+        not _is_finite_number(candidate.current_correlation)
+        or not _is_finite_number(candidate.variation_distance_points)
+        or not candidate.current_trend_match
+    ):
+        return float("-inf")
+    corr = float(candidate.current_correlation)
+    if corr <= 0:
+        return float("-inf")
+    distance = max(0.0, float(candidate.variation_distance_points))
+    pipeline_penalty = max(0, candidate.pipeline - max(1, int(min_pipeline))) * float(length_penalty)
+    outlier_penalty = OPTIMAL_PIPELINE_OUTLIER_PENALTY if candidate.recent_shipment_outlier else 0.0
+    historical_bonus = 3.0 if candidate.historical_trend_match else 0.0
+    forced_bonus = 1.0 if candidate.forced_by_sheet else 0.0
+    return (
+        corr * 100.0
+        - distance * OPTIMAL_PIPELINE_VARIATION_DISTANCE_WEIGHT
+        - pipeline_penalty
+        - outlier_penalty
+        + historical_bonus
+        + forced_bonus
+    )
+
+
+def _format_pp(value: object) -> str:
+    if not _is_finite_number(value):
+        return "N/D"
+    return f"{float(value):.2f}pp"
+
+
+def _format_corr(value: object) -> str:
+    if not _is_finite_number(value):
+        return "N/D"
+    return f"{float(value):.3f}"
+
+
+def _choose_balanced_current_candidate(
+    candidates: Sequence[OptimalPipelineCandidate],
+    min_pipeline: int = 1,
+    length_penalty: float = OPTIMAL_PIPELINE_NORMAL_LENGTH_PENALTY,
+) -> Optional[OptimalPipelineCandidate]:
+    usable = [
+        candidate for candidate in candidates
+        if candidate.current_trend_match
+        and _is_finite_number(candidate.current_correlation)
+        and float(candidate.current_correlation) >= OPTIMAL_PIPELINE_BALANCED_CORR_MIN
+        and _is_finite_number(candidate.variation_distance_points)
+    ]
+    if not usable:
+        return None
+    exact_variation = [
+        candidate for candidate in usable
+        if float(candidate.variation_distance_points) <= OPTIMAL_PIPELINE_EXACT_VARIATION_DISTANCE_POINTS
+    ]
+    if exact_variation:
+        forced_exact = [candidate for candidate in exact_variation if candidate.forced_by_sheet]
+        if forced_exact:
+            return sorted(forced_exact, key=lambda candidate: candidate.pipeline)[0]
+        return sorted(
+            exact_variation,
+            key=lambda candidate: (
+                candidate.pipeline,
+                -float(candidate.current_correlation),
+            ),
+        )[0]
+
+    visual_variation = [
+        candidate for candidate in usable
+        if float(candidate.variation_distance_points) <= OPTIMAL_PIPELINE_VISUAL_VARIATION_DISTANCE_POINTS
+        and candidate.pipeline <= OPTIMAL_PIPELINE_VISUAL_MAX_PIPELINE
+    ]
+    if visual_variation:
+        best_visual = sorted(
+            visual_variation,
+            key=lambda candidate: (
+                -_current_fit_score(
+                    candidate,
+                    min_pipeline=min_pipeline,
+                    length_penalty=length_penalty,
+                ),
+                candidate.pipeline,
+            ),
+        )[0]
+        return best_visual
+    return None
+
+
+def _balanced_current_reason(
+    chosen: OptimalPipelineCandidate,
+    candidates: Sequence[OptimalPipelineCandidate],
+    min_pipeline: int = 1,
+    length_penalty: float = OPTIMAL_PIPELINE_NORMAL_LENGTH_PENALTY,
+) -> str:
+    chosen_score = _current_fit_score(
+        chosen,
+        min_pipeline=min_pipeline,
+        length_penalty=length_penalty,
+    )
+    reason = (
+        "score balanceado de Año Actual: "
+        f"P{chosen.pipeline} corr={_format_corr(chosen.current_correlation)}, "
+        f"gap variación={_format_pp(chosen.variation_distance_points)}, "
+        f"score={chosen_score:.1f}"
+    )
+    if (
+        _is_finite_number(chosen.variation_distance_points)
+        and float(chosen.variation_distance_points) <= OPTIMAL_PIPELINE_EXACT_VARIATION_DISTANCE_POINTS
+    ):
+        reason = "ajuste casi exacto de variación anual; " + reason
+    elif (
+        _is_finite_number(chosen.variation_distance_points)
+        and float(chosen.variation_distance_points) <= OPTIMAL_PIPELINE_VISUAL_VARIATION_DISTANCE_POINTS
+    ):
+        reason = "alineación visual de variación anual; " + reason
+    top_corr_candidates = [
+        candidate for candidate in candidates
+        if candidate.current_trend_match
+        and _is_finite_number(candidate.current_correlation)
+        and float(candidate.current_correlation) > 0
+    ]
+    if top_corr_candidates:
+        top_corr = max(top_corr_candidates, key=lambda candidate: float(candidate.current_correlation))
+        if top_corr.pipeline != chosen.pipeline:
+            top_score = _current_fit_score(
+                top_corr,
+                min_pipeline=min_pipeline,
+                length_penalty=length_penalty,
+            )
+            reason += (
+                f"; top correlación P{top_corr.pipeline} "
+                f"corr={_format_corr(top_corr.current_correlation)}, "
+                f"gap variación={_format_pp(top_corr.variation_distance_points)}, "
+                f"score={top_score:.1f}"
+            )
+    scored_candidates = [
+        candidate for candidate in top_corr_candidates
+        if _is_finite_number(candidate.variation_distance_points)
+        and np.isfinite(
+            _current_fit_score(
+                candidate,
+                min_pipeline=min_pipeline,
+                length_penalty=length_penalty,
+            )
+        )
+    ]
+    if scored_candidates:
+        top_score_candidate = max(
+            scored_candidates,
+            key=lambda candidate: _current_fit_score(
+                candidate,
+                min_pipeline=min_pipeline,
+                length_penalty=length_penalty,
+            ),
+        )
+        if top_score_candidate.pipeline != chosen.pipeline:
+            reason += (
+                f"; top score P{top_score_candidate.pipeline} "
+                f"corr={_format_corr(top_score_candidate.current_correlation)}, "
+                f"gap variación={_format_pp(top_score_candidate.variation_distance_points)}, "
+                f"score={_current_fit_score(top_score_candidate, min_pipeline=min_pipeline, length_penalty=length_penalty):.1f}"
+            )
+    return reason
+
+
+def _is_fast_consumable_category(
+    category_code: object = None,
+    category_name: object = None,
+    basket_name: object = None,
+) -> bool:
+    return resolve_category_pipeline_profile(category_code, category_name, basket_name).name != "normal"
+
+
+def _current_shipment_delta(candidate: OptimalPipelineCandidate) -> Optional[float]:
+    if not _is_finite_number(candidate.current_variation) or not _is_finite_number(candidate.wp_current_variation):
+        return np.nan
+    return float(candidate.current_variation) - float(candidate.wp_current_variation)
+
+
+def _choose_fast_consumable_candidate(
+    candidates: Sequence[OptimalPipelineCandidate],
+    profile: CategoryPipelineProfile,
+) -> Optional[OptimalPipelineCandidate]:
+    min_pipeline = max(1, int(profile.min_pipeline))
+    max_pipeline = min(6, max(min_pipeline, int(profile.max_pipeline)))
+    short_candidates = [candidate for candidate in candidates if min_pipeline <= candidate.pipeline <= max_pipeline]
+    usable = [
+        candidate for candidate in short_candidates
+        if _is_finite_number(candidate.current_correlation)
+        and float(candidate.current_correlation) > 0
+        and candidate.current_trend_match
+    ]
+    if usable:
+        forced_usable = [candidate for candidate in usable if candidate.forced_by_sheet]
+        if forced_usable:
+            forced = sorted(forced_usable, key=lambda candidate: candidate.pipeline)[0]
+            best_corr = max(float(candidate.current_correlation) for candidate in usable)
+            best_distance = min(
+                float(candidate.variation_distance_points)
+                for candidate in usable
+                if _is_finite_number(candidate.variation_distance_points)
+            )
+            forced_distance = (
+                float(forced.variation_distance_points)
+                if _is_finite_number(forced.variation_distance_points)
+                else best_distance
+            )
+            if (
+                float(forced.current_correlation) >= best_corr - 0.15
+                and forced_distance <= best_distance + 10.0
+            ):
+                return forced
+
+        def _score(candidate: OptimalPipelineCandidate) -> float:
+            corr_score = float(candidate.current_correlation) * 100.0
+            distance_penalty = (
+                float(candidate.variation_distance_points) * 1.2
+                if _is_finite_number(candidate.variation_distance_points)
+                else 15.0
+            )
+            length_penalty = (candidate.pipeline - min_pipeline) * float(profile.short_pipeline_bias)
+            delta = _current_shipment_delta(candidate)
+            shipment_adjustment = 0.0
+            if _is_finite_number(delta):
+                # Si el sell-in crece por encima de WP, permitimos algo más de pipeline.
+                # Si cae más que WP, reforzamos pipelines cortos.
+                shipment_adjustment = min(8.0, max(-8.0, float(delta) * 100.0 * 0.4)) * (candidate.pipeline - 1)
+            forced_bonus = 3.0 if candidate.forced_by_sheet else 0.0
+            return corr_score - distance_penalty - length_penalty + shipment_adjustment + forced_bonus
+
+        return sorted(usable, key=lambda candidate: (-_score(candidate), candidate.pipeline))[0]
+
+    historical = [
+        candidate for candidate in short_candidates
+        if candidate.historical_trend_match
+        and _historical_support_score(candidate) >= OPTIMAL_PIPELINE_HISTORICAL_CORR_MIN
+    ]
+    if historical:
+        forced_historical = [candidate for candidate in historical if candidate.forced_by_sheet]
+        if forced_historical:
+            return sorted(forced_historical, key=lambda candidate: candidate.pipeline)[0]
+        best_score = max(_historical_support_score(candidate) for candidate in historical)
+        near_best = [
+            candidate for candidate in historical
+            if _historical_support_score(candidate) >= best_score - OPTIMAL_PIPELINE_CORR_TIE_TOLERANCE
+        ]
+        return sorted(near_best, key=lambda candidate: candidate.pipeline)[0]
+
+    forced_short = [candidate for candidate in short_candidates if candidate.forced_by_sheet]
+    if forced_short:
+        return sorted(forced_short, key=lambda candidate: candidate.pipeline)[0]
+    return short_candidates[0] if short_candidates else None
+
+
+def _fast_consumable_reason(candidate: OptimalPipelineCandidate) -> str:
+    if (
+        _is_finite_number(candidate.current_correlation)
+        and float(candidate.current_correlation) > 0
+        and candidate.current_trend_match
+    ):
+        suffix = " pese a outlier reciente de shipments" if candidate.recent_shipment_outlier else ""
+        return f"categoría con perfil de pipeline corto: se prioriza pipeline corto con correlación y variación actuales razonables{suffix}"
+    if candidate.historical_trend_match and _historical_support_score(candidate) >= OPTIMAL_PIPELINE_HISTORICAL_CORR_MIN:
+        suffix = " y outlier reciente de shipments" if candidate.recent_shipment_outlier else ""
+        return f"categoría con perfil de pipeline corto: el Año Actual no domina y se conserva pipeline corto con respaldo histórico{suffix}"
+    if candidate.recent_shipment_outlier:
+        return "categoría con perfil de pipeline corto: se conserva pipeline corto porque hay outlier reciente de shipments"
+    if candidate.forced_by_sheet:
+        return "categoría con perfil de pipeline corto: sin señal concluyente, se conserva el pipeline corto indicado en la hoja"
+    return "categoría con perfil de pipeline corto: sin señal concluyente, se usa el pipeline corto disponible"
+
+
+def select_optimal_pipeline(
+    df_marca: "pd.DataFrame",
+    df_variations: "pd.DataFrame",
+    forced_pipeline: Optional[int] = None,
+    category_code: object = None,
+    category_name: object = None,
+    basket_name: object = None,
+) -> OptimalPipelineSelection:
+    """Elige un pipeline P1-P6 para el modo AUTO por correlación."""
+    forced_pipeline = forced_pipeline if forced_pipeline in range(1, 7) else None
+    candidates = build_optimal_pipeline_candidates(df_marca, df_variations, forced_pipeline)
+    category_profile = resolve_category_pipeline_profile(category_code, category_name, basket_name)
+
+    if category_profile.name != "normal":
+        chosen_fast = _choose_fast_consumable_candidate(candidates, category_profile)
+        if chosen_fast is not None:
+            return OptimalPipelineSelection(
+                chosen_fast.pipeline,
+                _fast_consumable_reason(chosen_fast),
+                candidates,
+            )
+
+    chosen_balanced = _choose_balanced_current_candidate(candidates)
+    if chosen_balanced is not None:
+        return OptimalPipelineSelection(
+            chosen_balanced.pipeline,
+            _balanced_current_reason(chosen_balanced, candidates),
+            candidates,
+        )
+
+    strong_candidates = [
+        candidate for candidate in candidates
+        if _is_finite_number(candidate.current_correlation)
+        and float(candidate.current_correlation) >= OPTIMAL_PIPELINE_STRONG_CORR_MIN
+        and candidate.current_trend_match
+    ]
+    chosen = _choose_near_top_current_candidate(strong_candidates)
+    if chosen is not None:
+        return OptimalPipelineSelection(
+            chosen.pipeline,
+            "correlación MAT de Año Actual positiva y variación anual alineada",
+            candidates,
+        )
+
+    chosen = _choose_near_top_current_candidate(candidates)
+    if chosen is not None:
+        return OptimalPipelineSelection(
+            chosen.pipeline,
+            "correlación MAT de Año Actual positiva, aunque débil, y variación anual alineada",
+            candidates,
+        )
+
+    historical_candidates = [
+        candidate for candidate in candidates
+        if candidate.historical_trend_match
+        and _historical_support_score(candidate) >= OPTIMAL_PIPELINE_HISTORICAL_CORR_MIN
+    ]
+    if historical_candidates:
+        forced_historical = [candidate for candidate in historical_candidates if candidate.forced_by_sheet]
+        if forced_historical:
+            chosen = sorted(forced_historical, key=lambda candidate: candidate.pipeline)[0]
+            reason = "respaldo histórico: el Año Actual se rompe, pero la hoja y la historia sostienen el pipeline"
+            if chosen.recent_shipment_outlier:
+                reason = "respaldo histórico con outlier reciente de shipments: se conserva el pipeline indicado"
+            return OptimalPipelineSelection(
+                chosen.pipeline,
+                reason,
+                candidates,
+            )
+        best_score = max(_historical_support_score(candidate) for candidate in historical_candidates)
+        near_best = [
+            candidate for candidate in historical_candidates
+            if _historical_support_score(candidate) >= best_score - OPTIMAL_PIPELINE_CORR_TIE_TOLERANCE
+        ]
+        chosen = sorted(near_best, key=lambda candidate: candidate.pipeline)[0]
+        reason = "respaldo histórico por correlación y tendencia anual previa"
+        if chosen.recent_shipment_outlier:
+            reason = "respaldo histórico con outlier reciente de shipments"
+        return OptimalPipelineSelection(
+            chosen.pipeline,
+            reason,
+            candidates,
+        )
+
+    if forced_pipeline is not None:
+        forced_candidates = [candidate for candidate in candidates if candidate.pipeline == forced_pipeline]
+        if forced_candidates and forced_candidates[0].recent_shipment_outlier:
+            return OptimalPipelineSelection(
+                forced_pipeline,
+                "outlier reciente de shipments rompe la señal; se conserva el pipeline indicado en la hoja",
+                candidates,
+            )
+        return OptimalPipelineSelection(
+            forced_pipeline,
+            "sin señal concluyente; se conserva el pipeline indicado en la hoja",
+            candidates,
+        )
+
+    return OptimalPipelineSelection(
+        1,
+        "sin señal concluyente; se usa P1 como fallback operativo",
+        candidates,
+    )
 
 
 def compute_trend_plot_df(df_marca: "pd.DataFrame") -> "pd.DataFrame":
@@ -8792,6 +9551,229 @@ COVERAGE_BANK_COLUMNS = [
     'Cobertura Año Mov Anterior', '%VAR Cliente', '% VAR WP by Numerator', 'Misma Tendencia', 'Estabilidad'
 ]
 
+
+PIPELINE_REPORT_BASE_COLUMNS = [
+    'Fabricante/Marca',
+    'Cesta',
+    'Penet Media Ano Mov Atual',
+    'Raw Buyers Media Ano Mov Atual',
+    'Frecuencia Media Mensual',
+    'Pipeline',
+    '%VAR Cliente',
+    '% VAR WP by Numerator',
+    'Estabilidad',
+]
+PIPELINE_REPORT_VARIATION_COLUMNS = [f'Variación Cliente P{p}' for p in range(1, 7)]
+PIPELINE_REPORT_CORRELATION_COLUMNS = [f'Correlación P{p}' for p in range(1, 7)]
+PIPELINE_REPORT_DIAGNOSTIC_COLUMNS = [
+    'Confianza selección',
+    'Gap variación seleccionado',
+    'Correlación seleccionada',
+    'Misma dirección selección',
+    'Pipeline top correlación',
+    'Correlación top',
+    'Gap variación top correlación',
+    'Pipeline top variación',
+    'Gap variación top',
+    'Correlación top variación',
+]
+PIPELINE_REPORT_REASON_COLUMN = 'Motivo de selección de pipeline'
+
+
+def build_pipeline_report_columns(ref_month_year: str) -> List[str]:
+    try:
+        ref_dt = dt.strptime(ref_month_year, '%m-%y')
+        prev_dt = ref_dt.replace(year=ref_dt.year - 1)
+        prev_coverage_col = f"Cobertura {prev_dt.strftime('%m-%y')}"
+        curr_coverage_col = f"Cobertura {ref_dt.strftime('%m-%y')}"
+    except Exception:
+        prev_coverage_col = 'Cobertura Año Mov Anterior'
+        curr_coverage_col = 'Cobertura Año Mov Actual'
+    return (
+        PIPELINE_REPORT_BASE_COLUMNS[:8]
+        + [prev_coverage_col, curr_coverage_col]
+        + PIPELINE_REPORT_BASE_COLUMNS[8:]
+        + PIPELINE_REPORT_VARIATION_COLUMNS
+        + PIPELINE_REPORT_CORRELATION_COLUMNS
+        + PIPELINE_REPORT_DIAGNOSTIC_COLUMNS
+        + [PIPELINE_REPORT_REASON_COLUMN]
+    )
+
+
+def _round_report_number(value: object, digits: int = 1) -> object:
+    return round(float(value), digits) if _is_finite_number(value) else np.nan
+
+
+def _pipeline_selection_confidence(
+    selected_candidate: Optional[OptimalPipelineCandidate],
+    selection_reason: str,
+) -> str:
+    reason_norm = _normalize_metadata_match_text(selection_reason)
+    if selected_candidate is None:
+        return "Baja"
+    corr = selected_candidate.current_correlation
+    gap = selected_candidate.variation_distance_points
+    if (
+        selected_candidate.current_trend_match
+        and _is_finite_number(corr)
+        and _is_finite_number(gap)
+        and float(corr) >= OPTIMAL_PIPELINE_BALANCED_CORR_MIN
+        and float(gap) <= OPTIMAL_PIPELINE_VISUAL_VARIATION_DISTANCE_POINTS
+    ):
+        return "Alta"
+    if "ajuste casi exacto" in reason_norm or "alineacion visual" in reason_norm:
+        return "Alta"
+    if selected_candidate.recent_shipment_outlier and "outlier" in reason_norm:
+        return "Media"
+    if (
+        selected_candidate.current_trend_match
+        and _is_finite_number(corr)
+        and float(corr) >= OPTIMAL_PIPELINE_STRONG_CORR_MIN
+    ):
+        return "Media"
+    if (
+        selected_candidate.historical_trend_match
+        and _historical_support_score(selected_candidate) >= OPTIMAL_PIPELINE_HISTORICAL_CORR_MIN
+    ):
+        return "Media"
+    return "Baja"
+
+
+def build_pipeline_selection_diagnostics(
+    selected_pipeline: object,
+    candidates: Sequence[OptimalPipelineCandidate],
+    selection_reason: str,
+) -> Dict[str, object]:
+    try:
+        selected_pipeline_int = int(selected_pipeline)
+    except Exception:
+        selected_pipeline_int = None
+
+    candidate_by_pipeline = {candidate.pipeline: candidate for candidate in candidates}
+    selected_candidate = (
+        candidate_by_pipeline.get(selected_pipeline_int)
+        if selected_pipeline_int is not None
+        else None
+    )
+    trend_candidates = [
+        candidate for candidate in candidates
+        if candidate.current_trend_match
+        and _is_finite_number(candidate.current_correlation)
+        and float(candidate.current_correlation) > 0
+    ]
+    variation_candidates = [
+        candidate for candidate in trend_candidates
+        if _is_finite_number(candidate.variation_distance_points)
+    ]
+    top_corr = (
+        max(trend_candidates, key=lambda candidate: float(candidate.current_correlation))
+        if trend_candidates
+        else None
+    )
+    top_variation = (
+        sorted(
+            variation_candidates,
+            key=lambda candidate: (
+                float(candidate.variation_distance_points),
+                candidate.pipeline,
+            ),
+        )[0]
+        if variation_candidates
+        else None
+    )
+
+    diagnostics = {
+        'Confianza selección': _pipeline_selection_confidence(selected_candidate, selection_reason),
+        'Gap variación seleccionado': _round_report_number(
+            selected_candidate.variation_distance_points if selected_candidate is not None else np.nan,
+            2,
+        ),
+        'Correlación seleccionada': _round_report_number(
+            selected_candidate.current_correlation if selected_candidate is not None else np.nan,
+            3,
+        ),
+        'Misma dirección selección': (
+            "SI" if selected_candidate is not None and selected_candidate.current_trend_match else "NO"
+        ),
+        'Pipeline top correlación': top_corr.pipeline if top_corr is not None else "",
+        'Correlación top': _round_report_number(
+            top_corr.current_correlation if top_corr is not None else np.nan,
+            3,
+        ),
+        'Gap variación top correlación': _round_report_number(
+            top_corr.variation_distance_points if top_corr is not None else np.nan,
+            2,
+        ),
+        'Pipeline top variación': top_variation.pipeline if top_variation is not None else "",
+        'Gap variación top': _round_report_number(
+            top_variation.variation_distance_points if top_variation is not None else np.nan,
+            2,
+        ),
+        'Correlación top variación': _round_report_number(
+            top_variation.current_correlation if top_variation is not None else np.nan,
+            3,
+        ),
+    }
+    return diagnostics
+
+
+def build_pipeline_report_row(
+    bank_row: Dict[str, object],
+    df_variations: "pd.DataFrame",
+    candidates: Sequence[OptimalPipelineCandidate],
+    selection_reason: str,
+    ref_month_year: str,
+) -> Dict[str, object]:
+    report_columns = build_pipeline_report_columns(ref_month_year)
+    try:
+        ref_dt = dt.strptime(ref_month_year, '%m-%y')
+        prev_dt = ref_dt.replace(year=ref_dt.year - 1)
+        prev_coverage_col = f"Cobertura {prev_dt.strftime('%m-%y')}"
+        curr_coverage_col = f"Cobertura {ref_dt.strftime('%m-%y')}"
+    except Exception:
+        prev_coverage_col = 'Cobertura Año Mov Anterior'
+        curr_coverage_col = 'Cobertura Año Mov Actual'
+
+    row: Dict[str, object] = {col: "" for col in report_columns}
+    for col in [
+        'Fabricante/Marca',
+        'Cesta',
+        'Penet Media Ano Mov Atual',
+        'Raw Buyers Media Ano Mov Atual',
+        'Frecuencia Media Mensual',
+        'Pipeline',
+        '%VAR Cliente',
+        '% VAR WP by Numerator',
+        'Estabilidad',
+    ]:
+        row[col] = bank_row.get(col, "")
+    row[prev_coverage_col] = bank_row.get('Cobertura Año Mov Anterior', "")
+    row[curr_coverage_col] = bank_row.get('Cobertura Año Mov Actual', "")
+
+    try:
+        annual_row = df_variations.loc[df_variations['Tipo'] == 'Anual'].iloc[0]
+    except Exception:
+        annual_row = {}
+    for p in range(1, 7):
+        value = annual_row.get(f'Cliente P{p}', np.nan) if hasattr(annual_row, "get") else np.nan
+        row[f'Variación Cliente P{p}'] = round(float(value) * 100, 1) if pd.notna(value) else np.nan
+
+    candidate_by_pipeline = {candidate.pipeline: candidate for candidate in candidates}
+    for p in range(1, 7):
+        candidate = candidate_by_pipeline.get(p)
+        corr = candidate.current_correlation if candidate is not None else np.nan
+        row[f'Correlación P{p}'] = round(float(corr), 3) if _is_finite_number(corr) else np.nan
+    row.update(
+        build_pipeline_selection_diagnostics(
+            bank_row.get('Pipeline', ""),
+            candidates,
+            selection_reason,
+        )
+    )
+    row[PIPELINE_REPORT_REASON_COLUMN] = selection_reason or ""
+    return row
+
+
 def generate_presentation_and_bank(
     root_dir: str,
     excel_file_obj: "pd.ExcelFile",
@@ -8820,8 +9802,9 @@ def generate_presentation_and_bank(
     summary_extra_months_mode: str,
     variations_include_same_period_last_year: bool = True,
     variations_compact_period_labels: bool = False,
+    optimal_pipeline_mode: bool = False,
     elapsed_seconds_fn: Optional[Callable[[], Optional[float]]] = None,
-) -> Tuple[str, "pd.DataFrame", "pd.DataFrame"]:
+) -> Tuple[str, "pd.DataFrame", "pd.DataFrame", "pd.DataFrame"]:
     chosen_lang, lang_index = determine_language(include_english, pais_nombre)
     ppt, tmp_ppt_path = copy_and_prune_template(root_dir, chosen_lang)
     labels = build_labels(lang_index, fabricante, ref_month_year, summary_extra_months, summary_extra_months_mode)
@@ -8846,6 +9829,7 @@ def generate_presentation_and_bank(
     summary_rows: List[Dict[str, str]] = []
     summary_rows_by_period: "OrderedDict[str, List[Dict[str, str]]]" = OrderedDict()
     bank_rows: List[Dict[str, object]] = []
+    pipeline_report_rows: List[Dict[str, object]] = []
     low_penetration_brands: List[str] = []
     brand_section_map: Dict[str, List[int]] = {}
     current_section_title: Optional[str] = None
@@ -8862,8 +9846,11 @@ def generate_presentation_and_bank(
         )
         if df_marca_ppt is None:
             continue
-        match = re.match(r"(?i)^p([0-6])_", marca_sheet_name)
-        pipelines_to_run = [int(match.group(1))] if match else list(range(7))
+        forced_pipeline = extract_forced_pipeline_from_sheet_name(marca_sheet_name)
+        if optimal_pipeline_mode:
+            pipelines_to_run = [1]
+        else:
+            pipelines_to_run = [int(forced_pipeline)] if forced_pipeline is not None else list(range(7))
         n_slides_marca = len(pipelines_to_run) * (2 + (1 if len(df_marca_ppt) >= 24 else 0))
         total_slides_to_generate += n_slides_marca
 
@@ -8890,8 +9877,7 @@ def generate_presentation_and_bank(
                 continue
             marca_nombre_limpio = re.sub(r"(?i)^p[0-6]_", "", marca_sheet_name)
             subcategoria_nombre = extract_sheet_subcategory(marca_sheet_name)
-            match = re.match(r"(?i)^p([0-6])_", marca_sheet_name)
-            pipelines_to_run = [int(match.group(1))] if match else list(range(7))
+            forced_pipeline = extract_forced_pipeline_from_sheet_name(marca_sheet_name)
             metadata_group_title, next_metadata_group = build_metadata_group_for_sheet(
                 marca_sheet_name,
                 current_metadata_group,
@@ -8937,6 +9923,37 @@ def generate_presentation_and_bank(
                 marca_nombre=marca_nombre_limpio,
             )
             df_variations = compute_variations_dataframe(df_marca_ppt)
+            optimal_selection: Optional[OptimalPipelineSelection] = None
+            selection_reason_by_pipeline: Dict[int, str] = {}
+            pipeline_candidates = build_optimal_pipeline_candidates(
+                df_marca_ppt,
+                df_variations,
+                forced_pipeline,
+            )
+            if optimal_pipeline_mode:
+                optimal_selection = select_optimal_pipeline(
+                    df_marca_ppt,
+                    df_variations,
+                    forced_pipeline=forced_pipeline,
+                    category_code=sheet_bank_metadata.categoria_codigo,
+                    category_name=sheet_bank_metadata.categoria_nombre,
+                    basket_name=sheet_bank_metadata.cesta_nombre,
+                )
+                pipelines_to_run = [optimal_selection.pipeline]
+                pipeline_candidates = optimal_selection.candidates
+                selection_reason_by_pipeline[optimal_selection.pipeline] = optimal_selection.reason
+                print(
+                    Fore.CYAN
+                    + f"Pipeline óptimo para {marca_nombre_limpio}: P{optimal_selection.pipeline} "
+                    + f"({optimal_selection.reason})."
+                )
+            else:
+                pipelines_to_run = [int(forced_pipeline)] if forced_pipeline is not None else list(range(7))
+                for pipeline_option in pipelines_to_run:
+                    if forced_pipeline is not None:
+                        selection_reason_by_pipeline[int(pipeline_option)] = "Pipeline indicado en el nombre de la hoja"
+                    else:
+                        selection_reason_by_pipeline[int(pipeline_option)] = "Pipeline generado por configuración no automática"
             averages = compute_averages(df_marca_ppt)
             sheet_ref_value = pd.to_datetime(df_marca_ppt[COL_DATA].iloc[-1], errors="coerce")
             sheet_ref_month_year = (
@@ -9046,6 +10063,18 @@ def generate_presentation_and_bank(
                 summary_rows.append(summary_row)
                 summary_rows_by_period.setdefault(sheet_ref_month_year, []).append(summary_row)
                 bank_rows.append(bank_row)
+                pipeline_report_rows.append(
+                    build_pipeline_report_row(
+                        bank_row=bank_row,
+                        df_variations=df_variations,
+                        candidates=pipeline_candidates,
+                        selection_reason=selection_reason_by_pipeline.get(
+                            int(pipeline),
+                            "Pipeline generado por configuración actual",
+                        ),
+                        ref_month_year=sheet_ref_month_year,
+                    )
+                )
         progress.update(task_id, advance=1)
 
     summary_groups: List[Tuple[str, "pd.DataFrame"]] = []
@@ -9073,6 +10102,9 @@ def generate_presentation_and_bank(
         if not df_summary.empty:
             df_summary = df_summary.reindex(columns=labels[(lang_index, 'Summary')])
     df_bank = pd.DataFrame(bank_rows, columns=COVERAGE_BANK_COLUMNS)
+    df_pipeline_report = pd.DataFrame(pipeline_report_rows)
+    if not df_pipeline_report.empty:
+        df_pipeline_report = df_pipeline_report.reindex(columns=build_pipeline_report_columns(ref_month_year))
 
     builder.add_summary_slide(
         df_summary,
@@ -9137,7 +10169,7 @@ def generate_presentation_and_bank(
         elapsed_seconds_fn=elapsed_seconds_fn,
     )
 
-    return ruta_ppt_final, df_summary, df_bank
+    return ruta_ppt_final, df_summary, df_bank, df_pipeline_report
 
 
 def save_coverage_bank(
@@ -9370,6 +10402,202 @@ def save_coverage_bank(
     return ruta_banco_final
 
 
+def save_pipeline_report(
+    df_pipeline_report: "pd.DataFrame",
+    carpeta_salida: str,
+    fabricante: str,
+    categoria_nombre: str,
+    categoria_nombre_corto: str,
+    pais_nombre: str,
+    ref_month_year: str,
+    coverage_label: str,
+    output_descriptor: str = "",
+    elapsed_seconds_fn: Optional[Callable[[], Optional[float]]] = None,
+) -> str:
+    categoria_para_reporte = build_output_category_segment(categoria_nombre_corto or categoria_nombre, output_descriptor)
+    nombre_reporte_final = build_bounded_output_filename(
+        carpeta_salida,
+        f"Reporte de Pipelines {fabricante}_{categoria_para_reporte}_{pais_nombre}_{ref_month_year}_{coverage_label}.xlsx",
+    )
+    ruta_reporte_final = os.path.join(carpeta_salida, nombre_reporte_final)
+
+    def write_report_file() -> None:
+        report_df = df_pipeline_report.copy()
+        report_df.to_excel(ruta_reporte_final, index=False, sheet_name="Reporte Pipelines")
+
+        from openpyxl import load_workbook as _wb_load
+        from openpyxl.formatting.rule import ColorScaleRule as _ColorScaleRule
+        from openpyxl.formatting.rule import Rule as _Rule
+        from openpyxl.styles import PatternFill as _PatternFill, Font as _Font, Alignment as _Alignment, Border as _Border, Side as _Side
+        from openpyxl.styles.differential import DifferentialStyle as _Diff
+        from openpyxl.utils import get_column_letter as _get_col_letter
+
+        wb_report = _wb_load(ruta_reporte_final)
+        ws = wb_report.active
+        ws.title = "Reporte Pipelines"
+
+        header_fill = _PatternFill(fill_type="solid", fgColor="404040")
+        soft_header_fill = _PatternFill(fill_type="solid", fgColor="D9EAF7")
+        header_font = _Font(color="FFFFFF", bold=True)
+        soft_header_font = _Font(color="1F4E78", bold=True)
+        header_alignment = _Alignment(horizontal="center", vertical="center", wrap_text=True)
+        body_alignment = _Alignment(horizontal="center", vertical="center", wrap_text=True)
+        thin_side = _Side(style="thin", color="D9D9D9")
+        thin_border = _Border(left=thin_side, right=thin_side, top=thin_side, bottom=thin_side)
+        selected_side = _Side(style="thick", color="000000")
+        selected_border = _Border(
+            left=selected_side,
+            right=selected_side,
+            top=selected_side,
+            bottom=selected_side,
+        )
+        soft_red_fill = _PatternFill(fill_type="solid", fgColor="FFEBEB")
+        dxf_red = _Diff(
+            fill=_PatternFill(start_color='FFC7CE', end_color='FFC7CE', fill_type='solid'),
+            font=_Font(color='9C0006'),
+        )
+        dxf_green = _Diff(
+            fill=_PatternFill(start_color='C6EFCE', end_color='C6EFCE', fill_type='solid'),
+            font=_Font(color='006100'),
+        )
+        rule_red = _Rule(type='cellIs', operator='lessThan', formula=['0'], dxf=dxf_red)
+        rule_green = _Rule(type='cellIs', operator='greaterThan', formula=['0'], dxf=dxf_green)
+        critical_headers = {
+            'Fabricante/Marca',
+            'Cesta',
+            'Pipeline',
+            '%VAR Cliente',
+            '% VAR WP by Numerator',
+            PIPELINE_REPORT_REASON_COLUMN,
+            *PIPELINE_REPORT_VARIATION_COLUMNS,
+            *PIPELINE_REPORT_CORRELATION_COLUMNS,
+            *PIPELINE_REPORT_DIAGNOSTIC_COLUMNS,
+        }
+
+        header_map: Dict[str, int] = {}
+        for cell in ws[1]:
+            if cell.value is None:
+                continue
+            header = str(cell.value).strip()
+            header_map[header] = cell.column
+            if header in critical_headers:
+                cell.fill = header_fill
+                cell.font = header_font
+            else:
+                cell.fill = soft_header_fill
+                cell.font = soft_header_font
+            cell.alignment = header_alignment
+            cell.border = selected_border
+
+        percent_columns = {
+            '%VAR Cliente',
+            '% VAR WP by Numerator',
+            *PIPELINE_REPORT_VARIATION_COLUMNS,
+        }
+        decimal_columns = {
+            'Penet Media Ano Mov Atual',
+            'Raw Buyers Media Ano Mov Atual',
+            'Frecuencia Media Mensual',
+            'Estabilidad',
+            'Gap variación seleccionado',
+            'Gap variación top correlación',
+            'Gap variación top',
+        }
+        correlation_columns = {
+            *PIPELINE_REPORT_CORRELATION_COLUMNS,
+            'Correlación seleccionada',
+            'Correlación top',
+            'Correlación top variación',
+        }
+
+        buyers_col = header_map.get('Raw Buyers Media Ano Mov Atual')
+        for row_idx in range(2, ws.max_row + 1):
+            row_is_low_buyers = False
+            if buyers_col is not None:
+                try:
+                    buyers_value = ws.cell(row=row_idx, column=buyers_col).value
+                    row_is_low_buyers = pd.notna(buyers_value) and float(buyers_value) < 200
+                except Exception:
+                    row_is_low_buyers = False
+            for col_idx in range(1, ws.max_column + 1):
+                cell = ws.cell(row=row_idx, column=col_idx)
+                cell.alignment = body_alignment
+                cell.border = thin_border
+                if row_is_low_buyers:
+                    cell.fill = soft_red_fill
+                header = ws.cell(row=1, column=col_idx).value
+                if header in percent_columns:
+                    cell.number_format = '0.0'
+                elif header in decimal_columns:
+                    cell.number_format = '0.0'
+                elif header in correlation_columns:
+                    cell.number_format = '0.000'
+
+            pipeline_col = header_map.get('Pipeline')
+            if pipeline_col is None:
+                continue
+            try:
+                selected_pipeline = int(ws.cell(row=row_idx, column=pipeline_col).value)
+            except Exception:
+                selected_pipeline = None
+            if selected_pipeline is None:
+                continue
+
+            ws.cell(row=row_idx, column=pipeline_col).border = selected_border
+            for selected_header in (
+                f'Variación Cliente P{selected_pipeline}',
+                f'Correlación P{selected_pipeline}',
+            ):
+                selected_col = header_map.get(selected_header)
+                if selected_col is not None:
+                    ws.cell(row=row_idx, column=selected_col).border = selected_border
+
+        for col_name in ['%VAR Cliente', '% VAR WP by Numerator', *PIPELINE_REPORT_VARIATION_COLUMNS, 'Estabilidad']:
+            col_idx = header_map.get(col_name)
+            if col_idx is None or ws.max_row < 2:
+                continue
+            data_range = f"{_get_col_letter(col_idx)}2:{_get_col_letter(col_idx)}{ws.max_row}"
+            ws.conditional_formatting.add(data_range, rule_red)
+            ws.conditional_formatting.add(data_range, rule_green)
+
+        corr_cols = [header_map.get(col_name) for col_name in PIPELINE_REPORT_CORRELATION_COLUMNS]
+        corr_cols = [col_idx for col_idx in corr_cols if col_idx is not None]
+        if corr_cols and ws.max_row >= 2:
+            first_corr_col = min(corr_cols)
+            last_corr_col = max(corr_cols)
+            corr_range = f"{_get_col_letter(first_corr_col)}2:{_get_col_letter(last_corr_col)}{ws.max_row}"
+            ws.conditional_formatting.add(
+                corr_range,
+                _ColorScaleRule(
+                    start_type='min', start_color='F8696B',
+                    mid_type='percentile', mid_value=50, mid_color='FFEB84',
+                    end_type='max', end_color='63BE7B',
+                ),
+            )
+
+        ws.freeze_panes = "A2"
+        ws.auto_filter.ref = ws.dimensions
+        autofit_worksheet_columns(ws, min_width=11.0, max_width=44.0, padding=2.0)
+        reason_col = header_map.get(PIPELINE_REPORT_REASON_COLUMN)
+        if reason_col is not None:
+            ws.column_dimensions[ws.cell(row=1, column=reason_col).column_letter].width = 72
+        wb_report.save(ruta_reporte_final)
+
+    try:
+        run_file_write_with_retry(
+            ruta_reporte_final,
+            action_label="guardar el reporte de pipelines",
+            operation=write_report_file,
+            elapsed_seconds_fn=elapsed_seconds_fn,
+        )
+    except FileSaveCancelled:
+        raise
+    except Exception as exc:
+        print(f"{Fore.YELLOW}Advertencia: No se pudo guardar el reporte de pipelines: {exc}")
+    print(Fore.MAGENTA + "-> Reporte de pipelines guardado")
+    return ruta_reporte_final
+
+
 def cleanup_temp_dir(root_dir: str) -> None:
     tmp_dir = os.path.join(root_dir, 'tmp')
     if os.path.isdir(tmp_dir):
@@ -9564,7 +10792,7 @@ class CoverageStudioUltraApp:
                 output_descriptor=output_descriptor,
                 elapsed_seconds_fn=get_elapsed,
             )
-            ruta_ppt_final, df_summary, df_bank = generate_presentation_and_bank(
+            ruta_ppt_final, df_summary, df_bank, df_pipeline_report = generate_presentation_and_bank(
                 root_dir=self.root_dir,
                 excel_file_obj=excel_file_obj,
                 marcas=marcas,
@@ -9592,6 +10820,7 @@ class CoverageStudioUltraApp:
                 summary_extra_months_mode=options.summary_extra_months_mode,
                 variations_include_same_period_last_year=options.variations_include_same_period_last_year,
                 variations_compact_period_labels=options.variations_compact_period_labels,
+                optimal_pipeline_mode=options.optimal_pipeline_mode,
                 elapsed_seconds_fn=get_elapsed,
             )
             ruta_banco_final = save_coverage_bank(
@@ -9609,7 +10838,25 @@ class CoverageStudioUltraApp:
                 output_descriptor=output_descriptor,
                 elapsed_seconds_fn=get_elapsed,
             )
-            print_file_summary(ruta_template_final, ruta_ppt_final, ruta_banco_final, elapsed_seconds=elapsed)
+            ruta_pipeline_report_final = save_pipeline_report(
+                df_pipeline_report=df_pipeline_report,
+                carpeta_salida=carpeta_salida,
+                fabricante=fabricante,
+                categoria_nombre=categoria_nombre,
+                categoria_nombre_corto=categoria_nombre_corto,
+                pais_nombre=pais_nombre,
+                ref_month_year=ref_month_year,
+                coverage_label=coverage_label,
+                output_descriptor=output_descriptor,
+                elapsed_seconds_fn=get_elapsed,
+            )
+            print_file_summary(
+                ruta_template_final,
+                ruta_ppt_final,
+                ruta_banco_final,
+                ruta_pipeline_report_final,
+                elapsed_seconds=elapsed,
+            )
             report_zero_months_exceptions()
         except FileSaveCancelled:
             print(Fore.YELLOW + "Guardado cancelado por el usuario.")
