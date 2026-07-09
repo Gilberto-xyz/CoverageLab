@@ -10063,18 +10063,19 @@ def generate_presentation_and_bank(
                 summary_rows.append(summary_row)
                 summary_rows_by_period.setdefault(sheet_ref_month_year, []).append(summary_row)
                 bank_rows.append(bank_row)
-                pipeline_report_rows.append(
-                    build_pipeline_report_row(
-                        bank_row=bank_row,
-                        df_variations=df_variations,
-                        candidates=pipeline_candidates,
-                        selection_reason=selection_reason_by_pipeline.get(
-                            int(pipeline),
-                            "Pipeline generado por configuración actual",
-                        ),
-                        ref_month_year=sheet_ref_month_year,
+                if optimal_pipeline_mode:
+                    pipeline_report_rows.append(
+                        build_pipeline_report_row(
+                            bank_row=bank_row,
+                            df_variations=df_variations,
+                            candidates=pipeline_candidates,
+                            selection_reason=selection_reason_by_pipeline.get(
+                                int(pipeline),
+                                "Pipeline generado por configuración actual",
+                            ),
+                            ref_month_year=sheet_ref_month_year,
+                        )
                     )
-                )
         progress.update(task_id, advance=1)
 
     summary_groups: List[Tuple[str, "pd.DataFrame"]] = []
@@ -10838,18 +10839,20 @@ class CoverageStudioUltraApp:
                 output_descriptor=output_descriptor,
                 elapsed_seconds_fn=get_elapsed,
             )
-            ruta_pipeline_report_final = save_pipeline_report(
-                df_pipeline_report=df_pipeline_report,
-                carpeta_salida=carpeta_salida,
-                fabricante=fabricante,
-                categoria_nombre=categoria_nombre,
-                categoria_nombre_corto=categoria_nombre_corto,
-                pais_nombre=pais_nombre,
-                ref_month_year=ref_month_year,
-                coverage_label=coverage_label,
-                output_descriptor=output_descriptor,
-                elapsed_seconds_fn=get_elapsed,
-            )
+            ruta_pipeline_report_final = ""
+            if options.optimal_pipeline_mode:
+                ruta_pipeline_report_final = save_pipeline_report(
+                    df_pipeline_report=df_pipeline_report,
+                    carpeta_salida=carpeta_salida,
+                    fabricante=fabricante,
+                    categoria_nombre=categoria_nombre,
+                    categoria_nombre_corto=categoria_nombre_corto,
+                    pais_nombre=pais_nombre,
+                    ref_month_year=ref_month_year,
+                    coverage_label=coverage_label,
+                    output_descriptor=output_descriptor,
+                    elapsed_seconds_fn=get_elapsed,
+                )
             print_file_summary(
                 ruta_template_final,
                 ruta_ppt_final,
