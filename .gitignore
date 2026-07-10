@@ -17,6 +17,7 @@
 !coverage_studio.py
 !archivos_studio.py
 !scorecards_studio.py
+!tests/test_auto_pipeline_comparison.py
 
 # Activos base necesarios (presentes en el repo)
 !Modelo_PPT.pptx

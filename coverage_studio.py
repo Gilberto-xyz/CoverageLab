@@ -3401,7 +3401,16 @@ def tipo_cobertura():
             + Fore.WHITE
             + " - Br"
         )
-        print(Back.WHITE + Fore.BLUE + Style.BRIGHT + "7 - Template AUTOEXPERIMENTAL (pipeline óptimo por correlación)" + Style.RESET_ALL)
+        print(
+            Fore.LIGHTCYAN_EX
+            + Style.BRIGHT
+            + ">> 7 - Template "
+            + Fore.LIGHTMAGENTA_EX
+            + "AUTOEXPERIMENTAL"
+            + Fore.LIGHTCYAN_EX
+            + " (pipeline recomendado por ajuste integral)"
+            + Style.RESET_ALL
+        )
         tipos = {
             '1': "Absoluta",
             '2': "relativa",
@@ -4529,7 +4538,7 @@ def apply_execution_options_to_selections(options: ExecutionOptions) -> None:
     SELECTIONS['Eje tendencia'] = options.trend_axis
     SELECTIONS['Modo tendencia'] = trend_granularity_label(options.trend_granularity)
     SELECTIONS['Pipeline PPT'] = (
-        'Óptimo por correlación (P1-P6)' if options.optimal_pipeline_mode else 'Según hoja / todos'
+        'Recomendado por ajuste integral (P1-P6)' if options.optimal_pipeline_mode else 'Según hoja / todos'
     )
     SELECTIONS['Idioma PPT'] = 'EN (forzado)' if options.include_english else 'ES (por pais)'
     SELECTIONS['Inglés'] = 'Sí' if options.include_english else 'No'
@@ -8643,6 +8652,19 @@ class OptimalPipelineSelection:
 
 
 @dataclass(frozen=True)
+class AutoPipelineComparison:
+    """Resultados paralelos del modo experimental.
+
+    ``correlation`` conserva el candidato con mayor correlación MAT de Año
+    Actual. ``balanced`` es la recomendación operativa que también considera
+    variación, categoría, longitud, historia y outliers.
+    """
+
+    correlation: OptimalPipelineSelection
+    balanced: OptimalPipelineSelection
+
+
+@dataclass(frozen=True)
 class CategoryPipelineProfile:
     name: str = "normal"
     min_pipeline: int = 1
@@ -8662,6 +8684,8 @@ OPTIMAL_PIPELINE_VISUAL_MAX_PIPELINE = 4
 OPTIMAL_PIPELINE_VARIATION_DISTANCE_WEIGHT = 30.0
 OPTIMAL_PIPELINE_NORMAL_LENGTH_PENALTY = 2.0
 OPTIMAL_PIPELINE_OUTLIER_PENALTY = 6.0
+AUTO_PIPELINE_CONFLICT_MEDIUM_CORR_LOSS = 0.10
+AUTO_PIPELINE_CONFLICT_HIGH_CORR_LOSS = 0.25
 HIGH_ROTATION_CATEGORY_CODES: Set[str] = frozenset({
     "MAYO",
     "KETC",
@@ -8862,6 +8886,48 @@ def build_optimal_pipeline_candidates(
             )
         )
     return tuple(candidates)
+
+
+def select_correlation_pipeline(
+    candidates: Sequence[OptimalPipelineCandidate],
+    forced_pipeline: Optional[int] = None,
+) -> OptimalPipelineSelection:
+    """Selecciona el candidato AUTO Correlación sin reglas de balanceo.
+
+    El prefijo de hoja no altera el ranking cuando hay correlaciones finitas;
+    solo sirve como fallback cuando no existe evidencia calculable. Esto hace
+    que el resultado sea un contrafactual limpio frente a AUTO Balanceado.
+    """
+
+    candidates_tuple = tuple(candidates)
+    finite = [
+        candidate for candidate in candidates_tuple
+        if _is_finite_number(candidate.current_correlation)
+    ]
+    if finite:
+        chosen = max(
+            finite,
+            key=lambda candidate: (
+                float(candidate.current_correlation),
+                -candidate.pipeline,
+            ),
+        )
+        corr = float(chosen.current_correlation)
+        reason = (
+            "máxima correlación MAT de Año Actual entre P1-P6"
+            if corr > 0
+            else "mejor correlación MAT disponible, pero la señal no es positiva; requiere revisión"
+        )
+        return OptimalPipelineSelection(chosen.pipeline, reason, candidates_tuple)
+
+    forced_pipeline = forced_pipeline if forced_pipeline in range(1, 7) else None
+    fallback_pipeline = forced_pipeline or 1
+    reason = (
+        "sin correlaciones calculables; se muestra el pipeline indicado en la hoja como fallback"
+        if forced_pipeline is not None
+        else "sin correlaciones calculables; se muestra P1 como fallback informativo"
+    )
+    return OptimalPipelineSelection(fallback_pipeline, reason, candidates_tuple)
 
 
 def _choose_near_top_current_candidate(
@@ -9194,7 +9260,12 @@ def select_optimal_pipeline(
     category_name: object = None,
     basket_name: object = None,
 ) -> OptimalPipelineSelection:
-    """Elige un pipeline P1-P6 para el modo AUTO por correlación."""
+    """Elige la recomendación AUTO Balanceado para P1-P6.
+
+    Esta decisión combina correlación, variación, perfil de categoría,
+    longitud, historia y outliers. El contrafactual puro de correlación se
+    obtiene por separado con :func:`select_correlation_pipeline`.
+    """
     forced_pipeline = forced_pipeline if forced_pipeline in range(1, 7) else None
     candidates = build_optimal_pipeline_candidates(df_marca, df_variations, forced_pipeline)
     category_profile = resolve_category_pipeline_profile(category_code, category_name, basket_name)
@@ -9577,6 +9648,21 @@ PIPELINE_REPORT_DIAGNOSTIC_COLUMNS = [
     'Gap variación top',
     'Correlación top variación',
 ]
+PIPELINE_REPORT_AUTO_MODE_COLUMNS = [
+    'Pipeline AUTO Correlación',
+    'Correlación AUTO Correlación',
+    'Gap variación AUTO Correlación',
+    'Motivo AUTO Correlación',
+    'Pipeline AUTO Balanceado',
+    'Correlación AUTO Balanceado',
+    'Gap variación AUTO Balanceado',
+    'Motivo AUTO Balanceado',
+    'Tipo de decisión AUTO Balanceado',
+    'Conflicto AUTO Correlación vs Balanceado',
+    'Pérdida de correlación Balanceado',
+    'Mejora gap de variación Balanceado',
+    'Revisión requerida',
+]
 PIPELINE_REPORT_REASON_COLUMN = 'Motivo de selección de pipeline'
 
 
@@ -9596,6 +9682,7 @@ def build_pipeline_report_columns(ref_month_year: str) -> List[str]:
         + PIPELINE_REPORT_VARIATION_COLUMNS
         + PIPELINE_REPORT_CORRELATION_COLUMNS
         + PIPELINE_REPORT_DIAGNOSTIC_COLUMNS
+        + PIPELINE_REPORT_AUTO_MODE_COLUMNS
         + [PIPELINE_REPORT_REASON_COLUMN]
     )
 
@@ -9607,28 +9694,43 @@ def _round_report_number(value: object, digits: int = 1) -> object:
 def _pipeline_selection_confidence(
     selected_candidate: Optional[OptimalPipelineCandidate],
     selection_reason: str,
+    candidates: Sequence[OptimalPipelineCandidate] = (),
 ) -> str:
     reason_norm = _normalize_metadata_match_text(selection_reason)
     if selected_candidate is None:
         return "Baja"
     corr = selected_candidate.current_correlation
     gap = selected_candidate.variation_distance_points
+    top_current_corr = max(
+        (
+            float(candidate.current_correlation)
+            for candidate in candidates
+            if _is_finite_number(candidate.current_correlation)
+            and float(candidate.current_correlation) > 0
+        ),
+        default=np.nan,
+    )
+    corr_loss = (
+        float(top_current_corr) - float(corr)
+        if _is_finite_number(top_current_corr) and _is_finite_number(corr)
+        else np.nan
+    )
     if (
         selected_candidate.current_trend_match
         and _is_finite_number(corr)
         and _is_finite_number(gap)
-        and float(corr) >= OPTIMAL_PIPELINE_BALANCED_CORR_MIN
+        and float(corr) >= OPTIMAL_PIPELINE_STRONG_CORR_MIN
         and float(gap) <= OPTIMAL_PIPELINE_VISUAL_VARIATION_DISTANCE_POINTS
+        and (not _is_finite_number(corr_loss) or float(corr_loss) <= 0.05)
     ):
-        return "Alta"
-    if "ajuste casi exacto" in reason_norm or "alineacion visual" in reason_norm:
         return "Alta"
     if selected_candidate.recent_shipment_outlier and "outlier" in reason_norm:
         return "Media"
     if (
         selected_candidate.current_trend_match
         and _is_finite_number(corr)
-        and float(corr) >= OPTIMAL_PIPELINE_STRONG_CORR_MIN
+        and float(corr) >= OPTIMAL_PIPELINE_BALANCED_CORR_MIN
+        and (not _is_finite_number(corr_loss) or float(corr_loss) <= AUTO_PIPELINE_CONFLICT_HIGH_CORR_LOSS)
     ):
         return "Media"
     if (
@@ -9655,6 +9757,10 @@ def build_pipeline_selection_diagnostics(
         if selected_pipeline_int is not None
         else None
     )
+    correlation_candidates = [
+        candidate for candidate in candidates
+        if _is_finite_number(candidate.current_correlation)
+    ]
     trend_candidates = [
         candidate for candidate in candidates
         if candidate.current_trend_match
@@ -9666,8 +9772,8 @@ def build_pipeline_selection_diagnostics(
         if _is_finite_number(candidate.variation_distance_points)
     ]
     top_corr = (
-        max(trend_candidates, key=lambda candidate: float(candidate.current_correlation))
-        if trend_candidates
+        max(correlation_candidates, key=lambda candidate: float(candidate.current_correlation))
+        if correlation_candidates
         else None
     )
     top_variation = (
@@ -9683,7 +9789,7 @@ def build_pipeline_selection_diagnostics(
     )
 
     diagnostics = {
-        'Confianza selección': _pipeline_selection_confidence(selected_candidate, selection_reason),
+        'Confianza selección': _pipeline_selection_confidence(selected_candidate, selection_reason, candidates),
         'Gap variación seleccionado': _round_report_number(
             selected_candidate.variation_distance_points if selected_candidate is not None else np.nan,
             2,
@@ -9717,12 +9823,98 @@ def build_pipeline_selection_diagnostics(
     return diagnostics
 
 
+def _pipeline_decision_type(selection_reason: str) -> str:
+    reason_norm = _normalize_metadata_match_text(selection_reason)
+    if "categoria con perfil" in reason_norm:
+        return "Restricción/prior de categoría"
+    if "ajuste casi exacto" in reason_norm or "alineacion visual" in reason_norm:
+        return "Override por alineación de variación"
+    if "respaldo historico" in reason_norm:
+        return "Respaldo histórico"
+    if "outlier" in reason_norm:
+        return "Fallback por outlier"
+    if "indicado en la hoja" in reason_norm or "pipeline indicado" in reason_norm:
+        return "Prefijo de hoja"
+    if "sin senal concluyente" in reason_norm or "fallback" in reason_norm:
+        return "Fallback operativo"
+    return "Correlación y variación actuales"
+
+
+def build_auto_pipeline_comparison_diagnostics(
+    comparison: AutoPipelineComparison,
+) -> Dict[str, object]:
+    candidates = comparison.balanced.candidates or comparison.correlation.candidates
+    candidate_by_pipeline = {candidate.pipeline: candidate for candidate in candidates}
+    correlation_candidate = candidate_by_pipeline.get(comparison.correlation.pipeline)
+    balanced_candidate = candidate_by_pipeline.get(comparison.balanced.pipeline)
+
+    correlation_corr = (
+        correlation_candidate.current_correlation if correlation_candidate is not None else np.nan
+    )
+    balanced_corr = balanced_candidate.current_correlation if balanced_candidate is not None else np.nan
+    correlation_gap = (
+        correlation_candidate.variation_distance_points if correlation_candidate is not None else np.nan
+    )
+    balanced_gap = balanced_candidate.variation_distance_points if balanced_candidate is not None else np.nan
+    corr_loss = (
+        max(0.0, float(correlation_corr) - float(balanced_corr))
+        if _is_finite_number(correlation_corr) and _is_finite_number(balanced_corr)
+        else np.nan
+    )
+    gap_improvement = (
+        float(correlation_gap) - float(balanced_gap)
+        if _is_finite_number(correlation_gap) and _is_finite_number(balanced_gap)
+        else np.nan
+    )
+
+    if comparison.correlation.pipeline == comparison.balanced.pipeline:
+        conflict = "Sin conflicto"
+    elif not _is_finite_number(corr_loss):
+        conflict = "No evaluable"
+    elif float(corr_loss) >= AUTO_PIPELINE_CONFLICT_HIGH_CORR_LOSS:
+        conflict = "Alto"
+    elif float(corr_loss) >= AUTO_PIPELINE_CONFLICT_MEDIUM_CORR_LOSS:
+        conflict = "Medio"
+    else:
+        conflict = "Bajo"
+
+    confidence = _pipeline_selection_confidence(
+        balanced_candidate,
+        comparison.balanced.reason,
+        candidates,
+    )
+    correlation_reason_norm = _normalize_metadata_match_text(comparison.correlation.reason)
+    review_required = (
+        conflict in {"Alto", "No evaluable"}
+        or confidence == "Baja"
+        or "requiere revision" in correlation_reason_norm
+        or "sin correlaciones calculables" in correlation_reason_norm
+    )
+
+    return {
+        'Pipeline AUTO Correlación': comparison.correlation.pipeline,
+        'Correlación AUTO Correlación': _round_report_number(correlation_corr, 3),
+        'Gap variación AUTO Correlación': _round_report_number(correlation_gap, 2),
+        'Motivo AUTO Correlación': comparison.correlation.reason,
+        'Pipeline AUTO Balanceado': comparison.balanced.pipeline,
+        'Correlación AUTO Balanceado': _round_report_number(balanced_corr, 3),
+        'Gap variación AUTO Balanceado': _round_report_number(balanced_gap, 2),
+        'Motivo AUTO Balanceado': comparison.balanced.reason,
+        'Tipo de decisión AUTO Balanceado': _pipeline_decision_type(comparison.balanced.reason),
+        'Conflicto AUTO Correlación vs Balanceado': conflict,
+        'Pérdida de correlación Balanceado': _round_report_number(corr_loss, 3),
+        'Mejora gap de variación Balanceado': _round_report_number(gap_improvement, 2),
+        'Revisión requerida': "SI" if review_required else "NO",
+    }
+
+
 def build_pipeline_report_row(
     bank_row: Dict[str, object],
     df_variations: "pd.DataFrame",
     candidates: Sequence[OptimalPipelineCandidate],
     selection_reason: str,
     ref_month_year: str,
+    auto_comparison: Optional[AutoPipelineComparison] = None,
 ) -> Dict[str, object]:
     report_columns = build_pipeline_report_columns(ref_month_year)
     try:
@@ -9770,6 +9962,21 @@ def build_pipeline_report_row(
             selection_reason,
         )
     )
+    if auto_comparison is None:
+        try:
+            balanced_pipeline = int(bank_row.get('Pipeline', 1))
+        except Exception:
+            balanced_pipeline = 1
+        balanced_selection = OptimalPipelineSelection(
+            balanced_pipeline,
+            selection_reason,
+            tuple(candidates),
+        )
+        auto_comparison = AutoPipelineComparison(
+            correlation=select_correlation_pipeline(candidates),
+            balanced=balanced_selection,
+        )
+    row.update(build_auto_pipeline_comparison_diagnostics(auto_comparison))
     row[PIPELINE_REPORT_REASON_COLUMN] = selection_reason or ""
     return row
 
@@ -9924,6 +10131,7 @@ def generate_presentation_and_bank(
             )
             df_variations = compute_variations_dataframe(df_marca_ppt)
             optimal_selection: Optional[OptimalPipelineSelection] = None
+            auto_comparison: Optional[AutoPipelineComparison] = None
             selection_reason_by_pipeline: Dict[int, str] = {}
             pipeline_candidates = build_optimal_pipeline_candidates(
                 df_marca_ppt,
@@ -9941,11 +10149,19 @@ def generate_presentation_and_bank(
                 )
                 pipelines_to_run = [optimal_selection.pipeline]
                 pipeline_candidates = optimal_selection.candidates
+                auto_comparison = AutoPipelineComparison(
+                    correlation=select_correlation_pipeline(
+                        pipeline_candidates,
+                        forced_pipeline=forced_pipeline,
+                    ),
+                    balanced=optimal_selection,
+                )
                 selection_reason_by_pipeline[optimal_selection.pipeline] = optimal_selection.reason
                 print(
                     Fore.CYAN
-                    + f"Pipeline óptimo para {marca_nombre_limpio}: P{optimal_selection.pipeline} "
-                    + f"({optimal_selection.reason})."
+                    + f"Pipeline AUTO Balanceado para {marca_nombre_limpio}: P{optimal_selection.pipeline} "
+                    + f"({optimal_selection.reason}). "
+                    + f"AUTO Correlación: P{auto_comparison.correlation.pipeline}."
                 )
             else:
                 pipelines_to_run = [int(forced_pipeline)] if forced_pipeline is not None else list(range(7))
@@ -10074,6 +10290,7 @@ def generate_presentation_and_bank(
                                 "Pipeline generado por configuración actual",
                             ),
                             ref_month_year=sheet_ref_month_year,
+                            auto_comparison=auto_comparison,
                         )
                     )
         progress.update(task_id, advance=1)
@@ -10439,6 +10656,10 @@ def save_pipeline_report(
 
         header_fill = _PatternFill(fill_type="solid", fgColor="404040")
         soft_header_fill = _PatternFill(fill_type="solid", fgColor="D9EAF7")
+        correlation_header_fill = _PatternFill(fill_type="solid", fgColor="1F4E78")
+        balanced_header_fill = _PatternFill(fill_type="solid", fgColor="548235")
+        comparison_header_fill = _PatternFill(fill_type="solid", fgColor="BF9000")
+        review_header_fill = _PatternFill(fill_type="solid", fgColor="C00000")
         header_font = _Font(color="FFFFFF", bold=True)
         soft_header_font = _Font(color="1F4E78", bold=True)
         header_alignment = _Alignment(horizontal="center", vertical="center", wrap_text=True)
@@ -10453,6 +10674,8 @@ def save_pipeline_report(
             bottom=selected_side,
         )
         soft_red_fill = _PatternFill(fill_type="solid", fgColor="FFEBEB")
+        soft_yellow_fill = _PatternFill(fill_type="solid", fgColor="FFF2CC")
+        soft_green_fill = _PatternFill(fill_type="solid", fgColor="E2F0D9")
         dxf_red = _Diff(
             fill=_PatternFill(start_color='FFC7CE', end_color='FFC7CE', fill_type='solid'),
             font=_Font(color='9C0006'),
@@ -10473,6 +10696,7 @@ def save_pipeline_report(
             *PIPELINE_REPORT_VARIATION_COLUMNS,
             *PIPELINE_REPORT_CORRELATION_COLUMNS,
             *PIPELINE_REPORT_DIAGNOSTIC_COLUMNS,
+            *PIPELINE_REPORT_AUTO_MODE_COLUMNS,
         }
 
         header_map: Dict[str, int] = {}
@@ -10481,7 +10705,23 @@ def save_pipeline_report(
                 continue
             header = str(cell.value).strip()
             header_map[header] = cell.column
-            if header in critical_headers:
+            if header == 'Revisión requerida':
+                cell.fill = review_header_fill
+                cell.font = header_font
+            elif header in {
+                'Conflicto AUTO Correlación vs Balanceado',
+                'Pérdida de correlación Balanceado',
+                'Mejora gap de variación Balanceado',
+            }:
+                cell.fill = comparison_header_fill
+                cell.font = header_font
+            elif 'AUTO Correlación' in header and 'Balanceado' not in header:
+                cell.fill = correlation_header_fill
+                cell.font = header_font
+            elif 'AUTO Balanceado' in header:
+                cell.fill = balanced_header_fill
+                cell.font = header_font
+            elif header in critical_headers:
                 cell.fill = header_fill
                 cell.font = header_font
             else:
@@ -10503,12 +10743,18 @@ def save_pipeline_report(
             'Gap variación seleccionado',
             'Gap variación top correlación',
             'Gap variación top',
+            'Gap variación AUTO Correlación',
+            'Gap variación AUTO Balanceado',
+            'Mejora gap de variación Balanceado',
         }
         correlation_columns = {
             *PIPELINE_REPORT_CORRELATION_COLUMNS,
             'Correlación seleccionada',
             'Correlación top',
             'Correlación top variación',
+            'Correlación AUTO Correlación',
+            'Correlación AUTO Balanceado',
+            'Pérdida de correlación Balanceado',
         }
 
         buyers_col = header_map.get('Raw Buyers Media Ano Mov Atual')
@@ -10548,10 +10794,26 @@ def save_pipeline_report(
             for selected_header in (
                 f'Variación Cliente P{selected_pipeline}',
                 f'Correlación P{selected_pipeline}',
+                'Pipeline AUTO Balanceado',
             ):
                 selected_col = header_map.get(selected_header)
                 if selected_col is not None:
                     ws.cell(row=row_idx, column=selected_col).border = selected_border
+
+            review_col = header_map.get('Revisión requerida')
+            if review_col is not None:
+                review_cell = ws.cell(row=row_idx, column=review_col)
+                review_cell.fill = soft_red_fill if str(review_cell.value).strip().upper() == "SI" else soft_green_fill
+            conflict_col = header_map.get('Conflicto AUTO Correlación vs Balanceado')
+            if conflict_col is not None:
+                conflict_cell = ws.cell(row=row_idx, column=conflict_col)
+                conflict_value = str(conflict_cell.value or "").strip().lower()
+                if conflict_value in {"alto", "no evaluable"}:
+                    conflict_cell.fill = soft_red_fill
+                elif conflict_value in {"medio", "bajo"}:
+                    conflict_cell.fill = soft_yellow_fill
+                elif conflict_value == "sin conflicto":
+                    conflict_cell.fill = soft_green_fill
 
         for col_name in ['%VAR Cliente', '% VAR WP by Numerator', *PIPELINE_REPORT_VARIATION_COLUMNS, 'Estabilidad']:
             col_idx = header_map.get(col_name)
@@ -10579,9 +10841,14 @@ def save_pipeline_report(
         ws.freeze_panes = "A2"
         ws.auto_filter.ref = ws.dimensions
         autofit_worksheet_columns(ws, min_width=11.0, max_width=44.0, padding=2.0)
-        reason_col = header_map.get(PIPELINE_REPORT_REASON_COLUMN)
-        if reason_col is not None:
-            ws.column_dimensions[ws.cell(row=1, column=reason_col).column_letter].width = 72
+        for reason_header in (
+            PIPELINE_REPORT_REASON_COLUMN,
+            'Motivo AUTO Correlación',
+            'Motivo AUTO Balanceado',
+        ):
+            reason_col = header_map.get(reason_header)
+            if reason_col is not None:
+                ws.column_dimensions[ws.cell(row=1, column=reason_col).column_letter].width = 72
         wb_report.save(ruta_reporte_final)
 
     try:

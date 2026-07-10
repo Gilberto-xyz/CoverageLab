@@ -187,7 +187,7 @@ Si defines `AUTO_FILE`, `coverage_studio.py` corre sin preguntas interactivas.
 Variables principales:
 
 - `AUTO_FILE`: archivo `.xlsx` a procesar
-- `AUTO_COV_TYPE`: `Absoluta`, `Relativa` o `AUTO`
+- `AUTO_COV_TYPE`: `Absoluta`, `Relativa`, `AUTO` o `7` para AUTOEXPERIMENTAL
 - `AUTO_RAZON`: razón del análisis
 - `AUTO_EJE`: `simple` o `doble`
 - `AUTO_TREND_MODE` o `AUTO_TREND_GRANULARITY`: `monthly` o `quarterly`
@@ -212,6 +212,26 @@ $env:AUTO_ROUND_COV = "0"
 python coverage_studio.py
 ```
 
+### AUTOEXPERIMENTAL: recomendación y comparación
+
+La opción `7 - Template AUTOEXPERIMENTAL` genera PPT, summary y banco con el
+pipeline `AUTO Balanceado`. Esta recomendación combina correlación, dirección e
+intensidad de variación, perfil de categoría, longitud, historia y outliers.
+
+No agrega dos opciones nuevas al menú. En su lugar, el `Reporte de Pipelines`
+incluye como diagnóstico paralelo:
+
+- `AUTO Correlación`: candidato con máxima correlación MAT del Año Actual
+- `AUTO Balanceado`: recomendación utilizada en los entregables
+- tipo de decisión balanceada
+- conflicto entre ambos modos y pérdida de correlación
+- mejora del gap de variación
+- indicador de revisión requerida
+
+En este modo el prefijo `P1_` a `P6_` se usa como evidencia/fallback, no como
+restricción obligatoria. Fuera de AUTOEXPERIMENTAL conserva el comportamiento
+documentado en [Prefijos de pipeline](#prefijos-de-pipeline).
+
 ## Salidas generadas
 
 Por cada archivo procesado se crea una carpeta con esta estructura general:
@@ -225,6 +245,7 @@ Dentro se generan:
 1. `Template_<Pais>-<CategoriaCorta>-<Fabricante>-<Ref>_<CoverageLabel>.xlsx`
 2. `<Pais>-<CategoriaCorta>-<Fabricante>-<Ref>_<CoverageLabel>.pptx`
 3. `Banco_<Fabricante>_<Categoria>_<Pais>_<Ref>_<CoverageLabel>.xlsx`
+4. En modo AUTOEXPERIMENTAL: `Reporte de Pipelines ...xlsx`
 
 ### Banco de coberturas
 
