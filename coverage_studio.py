@@ -7,6 +7,7 @@ organiza la generacion de reportes en componentes reutilizables
 from __future__ import annotations
 
 import io
+import math
 import os
 import posixpath
 import re
@@ -1431,6 +1432,80 @@ def visible_accum_sell_in_label(lang_idx: int) -> str:
 
 def evolution_mat_axis_label(lang_idx: int) -> str:
     return "MAT Volume" if lang_idx == 3 else "Volumen MAT"
+
+
+def format_trend_axis_tick(value: object, _position: object = None) -> str:
+    """Formatea marcas sin escala cientifica usando separadores de miles."""
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return str(value)
+    if abs(number) < 0.0005:
+        number = 0.0
+    if number.is_integer():
+        return f"{number:,.0f}"
+    decimals = 3 if abs(number) < 1 else 2
+    return f"{number:,.{decimals}f}".rstrip("0").rstrip(".")
+
+
+def trend_axis_magnitude_exponent(values: Iterable[object]) -> int:
+    """Devuelve una escala cientifica de ingenieria desde millones."""
+    finite_values: List[float] = []
+    for value in values:
+        try:
+            number = float(value)
+        except (TypeError, ValueError):
+            continue
+        if math.isfinite(number):
+            finite_values.append(abs(number))
+    max_abs = max(finite_values, default=0.0)
+    if max_abs < 1_000_000:
+        return 0
+    return int(math.floor(math.log10(max_abs)) // 3 * 3)
+
+
+def trend_axis_magnitude_label(exponent: int, lang_idx: int) -> str:
+    labels = {
+        1: {3: "milhares", 6: "milhões", 9: "bilhões", 12: "trilhões"},
+        2: {3: "miles", 6: "millones", 9: "miles de millones", 12: "billones"},
+        3: {3: "thousands", 6: "millions", 9: "billions", 12: "trillions"},
+    }
+    return labels.get(lang_idx, labels[2]).get(exponent, f"10^{exponent}")
+
+
+def trend_axis_scale_text(exponent: int, lang_idx: int) -> str:
+    if not exponent:
+        return ""
+    return f"1e{exponent} ({trend_axis_magnitude_label(exponent, lang_idx)})"
+
+
+def build_trend_axis_formatter(lang_idx: int):
+    """Crea un formatter con comas o escala explicada, segun la magnitud."""
+
+    class _TrendAxisFormatter(mtick.ScalarFormatter):
+        def _set_order_of_magnitude(self) -> None:
+            super()._set_order_of_magnitude()
+            exponent = self._orderOfMagnitude
+            self._orderOfMagnitude = (exponent // 3 * 3) if exponent >= 6 else 0
+
+        def __call__(self, value, position=None) -> str:
+            if not self._orderOfMagnitude:
+                if len(self._locs) == 0:
+                    return ""
+                return format_trend_axis_tick(value, position)
+            return super().__call__(value, position)
+
+        def get_offset(self) -> str:
+            offset = super().get_offset()
+            if not offset or not self._orderOfMagnitude:
+                return offset
+            magnitude = trend_axis_magnitude_label(self._orderOfMagnitude, lang_idx)
+            return f"{offset} ({magnitude})"
+
+    formatter = _TrendAxisFormatter(useOffset=False, useMathText=False)
+    formatter.set_scientific(True)
+    formatter.set_powerlimits((-5, 6))
+    return formatter
 
 def _load_heavy_modules() -> None:
     """Carga en segundo plano las bibliotecas pesadas y datos estaticos."""
@@ -4238,6 +4313,10 @@ def generar_grafico_tendencia(
         lns = lns1 + lns2
         labs = [l.get_label() for l in lns]
         ax_trend.legend(lns, labs, loc='lower center', bbox_to_anchor=(0.5, legend_y), frameon=False, prop={'size': 11}, ncol=2)
+
+    ax_trend.yaxis.set_major_formatter(build_trend_axis_formatter(lang_idx))
+    if doble_eje:
+        ax2.yaxis.set_major_formatter(build_trend_axis_formatter(lang_idx))
 
     # Divisores de ciclo anual: cada 12 meses hacia atrás desde el último dato.
     if len(x_labels) > divider_step:
@@ -7174,6 +7253,7 @@ def add_native_excel_charts(
         Reference as _Reference,
     )
     from openpyxl.chart.label import DataLabelList as _DataLabelList
+    from openpyxl.chart.axis import DisplayUnitsLabelList as _DisplayUnitsLabelList
     from openpyxl.chart.series import SeriesLabel as _SeriesLabel
     from openpyxl.chart.shapes import GraphicalProperties as _GraphicalProperties
     from openpyxl.utils import get_column_letter as _get_col_letter
@@ -7182,6 +7262,26 @@ def add_native_excel_charts(
     lang_index = {"PT": 1, "ES": 2, "EN": 3}[lang_code]
     trend_axis_norm = str(trend_axis or "").strip().lower()
     evolution_variant_norm = normalize_evolution_slide_variant(evolution_slide_variant)
+
+    def _numeric_column_values(ws, col: int, start_row: int, end_row: int) -> List[object]:
+        values: List[object] = []
+        for row in range(start_row, end_row + 1):
+            value = ws.cell(row=row, column=col).value
+            if isinstance(value, str) and re.fullmatch(r"=[A-Z]{1,3}[1-9][0-9]*", value.strip(), re.IGNORECASE):
+                value = ws[value.strip()[1:]].value
+            values.append(value)
+        return values
+
+    def _format_trend_excel_axis(axis, title: str, values: Iterable[object]) -> None:
+        exponent = trend_axis_magnitude_exponent(values)
+        scale_text = trend_axis_scale_text(exponent, lang_index)
+        axis.title = f"{title} | {scale_text}" if scale_text else title
+        if exponent:
+            axis.dispUnits = _DisplayUnitsLabelList(custUnit=float(10 ** exponent))
+            axis.numFmt = "0.0"
+        else:
+            axis.numFmt = "#,##0.##"
+
     chart_titles = {
         "ES": {
             "coverage_title": "Cobertura en Año Móvil",
@@ -7380,7 +7480,8 @@ def add_native_excel_charts(
             trend_chart.y_axis.scaling.min = 0
 
             if trend_axis_norm == "doble":
-                trend_chart.y_axis.title = visible_sell_in_label()
+                sell_in_values = _numeric_column_values(ws, sell_in_sim_col, sell_in_start, sell_in_end)
+                _format_trend_excel_axis(trend_chart.y_axis, visible_sell_in_label(), sell_in_values)
                 trend_chart.add_data(
                     _Reference(ws, min_col=sell_in_sim_col, min_row=sell_in_start, max_row=sell_in_end),
                     titles_from_data=False,
@@ -7391,7 +7492,12 @@ def add_native_excel_charts(
                 trend_chart2 = _LineChart()
                 trend_chart2.y_axis.axId = 200
                 trend_chart2.y_axis.crosses = "max"
-                trend_chart2.y_axis.title = visible_sell_out_label(lang_index)
+                sell_out_values = _numeric_column_values(ws, sell_out_col, trend_start, trend_end)
+                _format_trend_excel_axis(
+                    trend_chart2.y_axis,
+                    visible_sell_out_label(lang_index),
+                    sell_out_values,
+                )
                 trend_chart2.add_data(
                     _Reference(ws, min_col=sell_out_col, min_row=trend_start, max_row=trend_end),
                     titles_from_data=False,
@@ -7399,7 +7505,13 @@ def add_native_excel_charts(
                 trend_chart2.series[-1].title = _SeriesLabel(v=visible_sell_out_label(lang_index))
                 trend_chart += trend_chart2
             else:
-                trend_chart.y_axis.title = f"{visible_sell_in_label()} / {visible_sell_out_label(lang_index)}"
+                sell_in_values = _numeric_column_values(ws, sell_in_sim_col, sell_in_start, sell_in_end)
+                sell_out_values = _numeric_column_values(ws, sell_out_col, trend_start, trend_end)
+                _format_trend_excel_axis(
+                    trend_chart.y_axis,
+                    f"{visible_sell_in_label()} / {visible_sell_out_label(lang_index)}",
+                    [*sell_in_values, *sell_out_values],
+                )
                 trend_chart.add_data(
                     _Reference(ws, min_col=sell_in_sim_col, min_row=sell_in_start, max_row=sell_in_end),
                     titles_from_data=False,
