@@ -451,25 +451,53 @@ def _calc_pipeline(df_brand):
     ]
 
 
+def _skipped_sheet(sheet_name, stage, exc):
+    error = (re.sub(r"\s+", " ", str(exc)).strip() or type(exc).__name__).rstrip(".")
+    return {"sheet": str(sheet_name), "stage": stage, "error": error}
+
+
+def _notify_skipped_sheet(skipped):
+    print(
+        f"{Colors.WARNING}Aviso: se omitió la hoja '{skipped['sheet']}' "
+        f"durante {skipped['stage']}: {skipped['error']}. "
+        f"El proceso continuará con las demás hojas.{Colors.ENDC}"
+    )
+
+
+def _print_skipped_sheets_summary(source_file, skipped_sheets):
+    if not skipped_sheets:
+        return
+
+    print(f"\n{Colors.WARNING}Resumen de hojas omitidas en '{source_file}':{Colors.ENDC}")
+    for skipped in skipped_sheets:
+        print(f"- {skipped['sheet']} ({skipped['stage']}): {skipped['error']}")
+
+
 def _load_source_data(source_file):
     category_name = Path(source_file).stem
-    xls = pd.ExcelFile(source_file)
-    sheet_names = xls.sheet_names
-
     pipeline_by_brand = {}
     all_pipelines = []
-    for sheet_name in sheet_names:
-        brand_name = _clean_brand_name_from_sheet(sheet_name)
-        raw_df = pd.read_excel(source_file, header=None, sheet_name=sheet_name)
-        normalized = _normalize_brand_sheet(raw_df, brand_name, category_name)
-        pipe = _calc_pipeline(normalized)
-        if len(pipe) < 13:
-            raise ValueError(f"La marca '{brand_name}' no tiene suficientes periodos para scorecard (minimo 13).")
-        pipeline_by_brand[sheet_name] = pipe
-        all_pipelines.append(pipe)
+    valid_sheet_names = []
+    skipped_sheets = []
+    with pd.ExcelFile(source_file) as xls:
+        for sheet_name in xls.sheet_names:
+            try:
+                brand_name = _clean_brand_name_from_sheet(sheet_name)
+                raw_df = pd.read_excel(xls, header=None, sheet_name=sheet_name)
+                normalized = _normalize_brand_sheet(raw_df, brand_name, category_name)
+                pipe = _calc_pipeline(normalized)
+                if len(pipe) < 13:
+                    raise ValueError(f"La marca '{brand_name}' no tiene suficientes periodos para scorecard (mínimo 13).")
+                pipeline_by_brand[sheet_name] = pipe
+                all_pipelines.append(pipe)
+                valid_sheet_names.append(sheet_name)
+            except Exception as exc:
+                skipped = _skipped_sheet(sheet_name, "la carga", exc)
+                skipped_sheets.append(skipped)
+                _notify_skipped_sheet(skipped)
 
-    total_pipeline = pd.concat(all_pipelines, ignore_index=True)
-    return category_name, sheet_names, total_pipeline, pipeline_by_brand
+    total_pipeline = pd.concat(all_pipelines, ignore_index=True) if all_pipelines else pd.DataFrame()
+    return category_name, valid_sheet_names, total_pipeline, pipeline_by_brand, skipped_sheets
 
 
 def _extract_preassigned_pipeline(sheet_name):
@@ -621,6 +649,7 @@ def _compute_scorecard(brand_df, brand, pipeline, pais, criterio):
 
 def _build_scorecards(pais, criterio, sheet_names, pipeline_by_brand):
     entries = []
+    skipped_sheets = []
     total = sum(len(_pipelines_to_run_for_sheet(sheet_name)) for sheet_name in sheet_names)
 
     print(f"\n{Colors.OKCYAN}Calculando scorecards...{Colors.ENDC}")
@@ -628,19 +657,30 @@ def _build_scorecards(pais, criterio, sheet_names, pipeline_by_brand):
     progress = 0
 
     for sheet_name in sheet_names:
-        brand_df = pipeline_by_brand[sheet_name]
         brand_name = _clean_brand_name_from_sheet(sheet_name)
         pipelines = _pipelines_to_run_for_sheet(sheet_name)
+        sheet_entries = []
+        attempted = 0
 
-        for pipeline in pipelines:
-            progress += 1
-            print(f"{Colors.OKBLUE}[{progress}/{total}]{Colors.ENDC} Marca: {brand_name} | Pipeline: {pipeline}")
-            entry = _compute_scorecard(brand_df, brand_name, pipeline, pais, criterio)
-            entries.append(entry)
+        try:
+            brand_df = pipeline_by_brand[sheet_name]
+            for attempted, pipeline in enumerate(pipelines, 1):
+                progress += 1
+                print(f"{Colors.OKBLUE}[{progress}/{total}]{Colors.ENDC} Marca: {brand_name} | Pipeline: {pipeline}")
+                entry = _compute_scorecard(brand_df, brand_name, pipeline, pais, criterio)
+                sheet_entries.append(entry)
+        except Exception as exc:
+            progress += len(pipelines) - attempted
+            skipped = _skipped_sheet(sheet_name, "el cálculo", exc)
+            skipped_sheets.append(skipped)
+            _notify_skipped_sheet(skipped)
+            continue
+
+        entries.extend(sheet_entries)
 
     elapsed = time.perf_counter() - start
     print(f"{Colors.OKGREEN}Scorecards calculados en {elapsed:.1f}s.{Colors.ENDC}")
-    return entries
+    return entries, skipped_sheets
 
 
 def export_scorecards_single_sheet(scorecards, output_dir, output_file, sheet_name="Scorecards"):
@@ -768,7 +808,12 @@ def main():
     for idx, source_file in enumerate(source_files, 1):
         print(f"\n{Colors.OKCYAN}=== Archivo {idx}/{total_files}: {source_file} ==={Colors.ENDC}")
         try:
-            category_name, sheet_names, _, pipeline_by_brand = _load_source_data(source_file)
+            category_name, sheet_names, _, pipeline_by_brand, skipped_sheets = _load_source_data(source_file)
+            if not sheet_names:
+                print(f"{Colors.FAIL}No se encontraron hojas válidas en '{source_file}'. Se omitirá el archivo.{Colors.ENDC}")
+                _print_skipped_sheets_summary(source_file, skipped_sheets)
+                continue
+
             pais = _select_country_for_source(source_file)
             if _normalize_text(pais) == "brasil":
                 _print_brazil_benchmark_notification()
@@ -781,14 +826,21 @@ def main():
 
             output_name = _select_output_name(default_output_name)
 
-            scorecards = _build_scorecards(
+            scorecards, calculation_skips = _build_scorecards(
                 pais=pais,
                 criterio=criterio,
                 sheet_names=sheet_names,
                 pipeline_by_brand=pipeline_by_brand,
             )
+            skipped_sheets.extend(calculation_skips)
+
+            if not scorecards:
+                print(f"{Colors.FAIL}No se pudo calcular ningún scorecard válido para '{source_file}'.{Colors.ENDC}")
+                _print_skipped_sheets_summary(source_file, skipped_sheets)
+                continue
 
             export_scorecards_single_sheet(scorecards, output_dir, output_name)
+            _print_skipped_sheets_summary(source_file, skipped_sheets)
         except Exception as exc:
             print(f"{Colors.FAIL}Error procesando '{source_file}': {exc}{Colors.ENDC}")
             continue
