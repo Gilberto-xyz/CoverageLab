@@ -16,6 +16,7 @@
 # Scripts base del proyecto
 !coverage_studio.py
 !archivos_studio.py
+!migrar_filtros_power_view.py
 !scorecards_studio.py
 !tests/test_auto_pipeline_comparison.py
 !tests/test_scorecard_output_name.py
