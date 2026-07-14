@@ -533,7 +533,7 @@ def _infer_reference_month_year(sheet_names, pipeline_by_brand):
     return datetime.now().strftime("%m-%y")
 
 
-def _resolve_output_target(source_file, sheet_names, pipeline_by_brand):
+def _resolve_output_target(source_file, sheet_names, pipeline_by_brand, criterio):
     metadata = _parse_input_metadata(source_file)
     ref_month_year = _infer_reference_month_year(sheet_names, pipeline_by_brand)
     base_name = (
@@ -541,7 +541,8 @@ def _resolve_output_target(source_file, sheet_names, pipeline_by_brand):
         f"{metadata['manufacturer']}-{ref_month_year}_{DEFAULT_COVERAGE_LABEL}"
     )
     output_dir = Path(__file__).resolve().parent / base_name
-    default_output_name = f"Scorecard_{base_name}.xlsx"
+    criterio_suffix = "unilever" if _normalize_text(criterio) in {"si", "unilever"} else "personalizado"
+    default_output_name = f"Scorecard_{base_name}_{criterio_suffix}.xlsx"
     return output_dir, default_output_name
 
 
@@ -775,6 +776,7 @@ def main():
                 source_file=source_file,
                 sheet_names=sheet_names,
                 pipeline_by_brand=pipeline_by_brand,
+                criterio=criterio,
             )
 
             output_name = _select_output_name(default_output_name)

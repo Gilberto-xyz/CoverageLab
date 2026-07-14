@@ -18,6 +18,7 @@
 !archivos_studio.py
 !scorecards_studio.py
 !tests/test_auto_pipeline_comparison.py
+!tests/test_scorecard_output_name.py
 !tests/test_trend_axis_formatting.py
 
 # Activos base necesarios (presentes en el repo)
