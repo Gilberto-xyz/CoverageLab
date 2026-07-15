@@ -76,6 +76,34 @@ class TrendAxisFormattingTests(unittest.TestCase):
         self.assertEqual(studio.short_visible_sell_out_axis_label(2), "Compras WP")
         self.assertEqual(studio.short_visible_sell_out_axis_label(3), "WP Purchases")
 
+    def test_monthly_grid_is_soft_and_behind_the_series(self) -> None:
+        fig, axis = studio.plt.subplots()
+        try:
+            axis.set_xticks([0, 1, 2])
+            studio.apply_trend_grid_style(axis, "monthly")
+            fig.canvas.draw()
+
+            monthly_lines = axis.get_xgridlines()
+            self.assertTrue(monthly_lines)
+            self.assertTrue(all(line.get_visible() for line in monthly_lines))
+            self.assertTrue(all(line.get_color() == "#AEB4BA" for line in monthly_lines))
+            self.assertTrue(all(line.get_linewidth() == 0.45 for line in monthly_lines))
+            self.assertTrue(all(line.get_alpha() == 0.12 for line in monthly_lines))
+            self.assertTrue(axis.get_axisbelow())
+        finally:
+            studio.plt.close(fig)
+
+    def test_quarterly_grid_does_not_add_monthly_guides(self) -> None:
+        fig, axis = studio.plt.subplots()
+        try:
+            axis.set_xticks([0, 1, 2])
+            studio.apply_trend_grid_style(axis, "quarterly")
+            fig.canvas.draw()
+
+            self.assertTrue(all(not line.get_visible() for line in axis.get_xgridlines()))
+        finally:
+            studio.plt.close(fig)
+
 
 if __name__ == "__main__":
     unittest.main()

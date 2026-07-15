@@ -1534,6 +1534,22 @@ def build_trend_axis_formatter(_lang_idx: int, exponent: int = 0):
 
     return mtick.FuncFormatter(_format)
 
+
+def apply_trend_grid_style(axis: object, granularity: str) -> None:
+    """Jerarquiza el grid horizontal y las guias mensuales de tendencia."""
+    axis.set_axisbelow(True)
+    axis.grid(axis="y", linestyle="--", linewidth=0.8, alpha=0.55)
+    axis.grid(axis="x", visible=False)
+    if normalize_trend_granularity(granularity) == "monthly":
+        axis.grid(
+            axis="x",
+            visible=True,
+            color="#AEB4BA",
+            linestyle="-",
+            linewidth=0.45,
+            alpha=0.12,
+        )
+
 def _load_heavy_modules() -> None:
     """Carga en segundo plano las bibliotecas pesadas y datos estaticos."""
     try:
@@ -4371,7 +4387,7 @@ def generar_grafico_tendencia(
                 linestyle="--",
                 linewidth=1.1,
                 alpha=0.35,
-                zorder=0,
+                zorder=1,
             )
 
     x_tick_rotation = 30 if granularity_norm == "quarterly" else 30
@@ -4382,7 +4398,7 @@ def generar_grafico_tendencia(
             label.set_ha('right')
         else:
             label.set_ha('right')
-    ax_trend.grid(axis='y', linestyle='--', alpha=0.6)
+    apply_trend_grid_style(ax_trend, granularity_norm)
     ax_trend.spines['top'].set_visible(False)
     ax_trend.spines['right'].set_visible(False)
     granularity_suffix = {
