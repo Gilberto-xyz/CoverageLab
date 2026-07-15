@@ -1434,6 +1434,10 @@ def evolution_mat_axis_label(lang_idx: int) -> str:
     return "MAT Volume" if lang_idx == 3 else "Volumen MAT"
 
 
+def short_visible_sell_out_axis_label(lang_idx: int) -> str:
+    return "WP Purchases" if lang_idx == 3 else "Compras WP"
+
+
 def format_trend_axis_tick(value: object, _position: object = None) -> str:
     """Formatea marcas sin escala cientifica usando separadores de miles."""
     try:
@@ -1449,7 +1453,7 @@ def format_trend_axis_tick(value: object, _position: object = None) -> str:
 
 
 def trend_axis_magnitude_exponent(values: Iterable[object]) -> int:
-    """Devuelve una escala cientifica de ingenieria desde millones."""
+    """Devuelve una escala compacta de ingenieria desde miles."""
     finite_values: List[float] = []
     for value in values:
         try:
@@ -1459,53 +1463,76 @@ def trend_axis_magnitude_exponent(values: Iterable[object]) -> int:
         if math.isfinite(number):
             finite_values.append(abs(number))
     max_abs = max(finite_values, default=0.0)
-    if max_abs < 1_000_000:
+    if max_abs < 1_000:
         return 0
     return int(math.floor(math.log10(max_abs)) // 3 * 3)
 
 
 def trend_axis_magnitude_label(exponent: int, lang_idx: int) -> str:
     labels = {
-        1: {3: "milhares", 6: "milhões", 9: "bilhões", 12: "trilhões"},
-        2: {3: "miles", 6: "millones", 9: "miles de millones", 12: "billones"},
-        3: {3: "thousands", 6: "millions", 9: "billions", 12: "trillions"},
+        1: {
+            3: "milhares", 6: "milhões", 9: "bilhões", 12: "trilhões",
+            15: "quadrilhões", 18: "quintilhões", 21: "sextilhões", 24: "septilhões",
+        },
+        2: {
+            3: "miles", 6: "millones", 9: "miles de millones", 12: "billones",
+            15: "miles de billones", 18: "trillones", 21: "miles de trillones", 24: "cuatrillones",
+        },
+        3: {
+            3: "thousands", 6: "millions", 9: "billions", 12: "trillions",
+            15: "quadrillions", 18: "quintillions", 21: "sextillions", 24: "septillions",
+        },
     }
     return labels.get(lang_idx, labels[2]).get(exponent, f"10^{exponent}")
+
+
+def trend_axis_magnitude_abbreviation(exponent: int) -> str:
+    abbreviations = {
+        3: "K",
+        6: "M",
+        9: "B",
+        12: "T",
+        15: "Q",
+        18: "Qi",
+        21: "Sx",
+        24: "Sp",
+    }
+    return abbreviations.get(exponent, f"E{exponent}" if exponent else "")
 
 
 def trend_axis_scale_text(exponent: int, lang_idx: int) -> str:
     if not exponent:
         return ""
-    return f"1e{exponent} ({trend_axis_magnitude_label(exponent, lang_idx)})"
+    abbreviation = trend_axis_magnitude_abbreviation(exponent)
+    return f"{abbreviation} ({trend_axis_magnitude_label(exponent, lang_idx)})"
 
 
-def build_trend_axis_formatter(lang_idx: int):
-    """Crea un formatter con comas o escala explicada, segun la magnitud."""
+def trend_axis_unit_text(exponent: int, lang_idx: int) -> str:
+    if not exponent:
+        return ""
+    magnitude = trend_axis_magnitude_label(exponent, lang_idx)
+    abbreviation = trend_axis_magnitude_abbreviation(exponent)
+    return f"{abbreviation} = {magnitude}"
 
-    class _TrendAxisFormatter(mtick.ScalarFormatter):
-        def _set_order_of_magnitude(self) -> None:
-            super()._set_order_of_magnitude()
-            exponent = self._orderOfMagnitude
-            self._orderOfMagnitude = (exponent // 3 * 3) if exponent >= 6 else 0
 
-        def __call__(self, value, position=None) -> str:
-            if not self._orderOfMagnitude:
-                if len(self._locs) == 0:
-                    return ""
-                return format_trend_axis_tick(value, position)
-            return super().__call__(value, position)
+def trend_axis_title(metric_label: str, exponent: int, lang_idx: int) -> str:
+    unit_text = trend_axis_unit_text(exponent, lang_idx)
+    return f"{metric_label} ({unit_text})" if unit_text else metric_label
 
-        def get_offset(self) -> str:
-            offset = super().get_offset()
-            if not offset or not self._orderOfMagnitude:
-                return offset
-            magnitude = trend_axis_magnitude_label(self._orderOfMagnitude, lang_idx)
-            return f"{offset} ({magnitude})"
 
-    formatter = _TrendAxisFormatter(useOffset=False, useMathText=False)
-    formatter.set_scientific(True)
-    formatter.set_powerlimits((-5, 6))
-    return formatter
+def build_trend_axis_formatter(_lang_idx: int, exponent: int = 0):
+    """Acorta todas las magnitudes con su letra y las explica en el titulo."""
+    divisor = float(10 ** exponent) if exponent else 1.0
+    suffix = trend_axis_magnitude_abbreviation(exponent)
+
+    def _format(value: object, position: object = None) -> str:
+        try:
+            scaled_value = float(value) / divisor
+        except (TypeError, ValueError):
+            return str(value)
+        return f"{format_trend_axis_tick(scaled_value, position)}{suffix}"
+
+    return mtick.FuncFormatter(_format)
 
 def _load_heavy_modules() -> None:
     """Carga en segundo plano las bibliotecas pesadas y datos estaticos."""
@@ -4265,6 +4292,11 @@ def generar_grafico_tendencia(
         sell_out_data = sell_out_series.to_numpy(dtype=float)
         divider_step = 12
 
+    sell_in_exponent = trend_axis_magnitude_exponent(sell_in_data)
+    sell_out_exponent = trend_axis_magnitude_exponent(sell_out_data)
+    sell_in_axis_label = visible_sell_in_label()
+    sell_out_axis_label = short_visible_sell_out_axis_label(lang_idx)
+
     if doble_eje:
         ax2 = ax_trend.twinx()
         lns1 = ax_trend.plot(
@@ -4281,8 +4313,18 @@ def generar_grafico_tendencia(
             linewidth=4,
             label=visible_sell_out_label(lang_idx),
         )
-        ax_trend.set_ylabel(visible_sell_in_label(), color=COLOR_SELLIN_TREND_LINE, fontsize=11)
-        ax2.set_ylabel(visible_sell_out_label(lang_idx), color=COLOR_SELLOUT_TREND_LINE, fontsize=11)
+        ax_trend.set_ylabel(
+            trend_axis_title(sell_in_axis_label, sell_in_exponent, lang_idx),
+            color=COLOR_SELLIN_TREND_LINE,
+            fontsize=10,
+        )
+        ax2.set_ylabel(
+            trend_axis_title(sell_out_axis_label, sell_out_exponent, lang_idx),
+            color=COLOR_SELLOUT_TREND_LINE,
+            fontsize=10,
+        )
+        ax_trend.yaxis.set_major_formatter(build_trend_axis_formatter(lang_idx, sell_in_exponent))
+        ax2.yaxis.set_major_formatter(build_trend_axis_formatter(lang_idx, sell_out_exponent))
         # --- CORRECCIÓN: Configurar ambos ejes para empezar desde 0 ---
         ax_trend.set_ylim(bottom=0)
         ax2.set_ylim(bottom=0)
@@ -4290,6 +4332,7 @@ def generar_grafico_tendencia(
         labs = [l.get_label() for l in lns]
         ax2.legend(lns, labs, loc='lower center', bbox_to_anchor=(0.5, legend_y), frameon=False, prop={'size': 11}, ncol=2)
     else:
+        shared_exponent = trend_axis_magnitude_exponent([*sell_in_data, *sell_out_data])
         lns1 = ax_trend.plot(
             x_labels,
             sell_in_data,
@@ -4305,18 +4348,19 @@ def generar_grafico_tendencia(
             label=visible_sell_out_label(lang_idx),
         )
         ax_trend.set_ylabel(
-            f'{visible_sell_in_label()} / {visible_sell_out_label(lang_idx)}',
+            trend_axis_title(
+                f"{sell_in_axis_label} / {sell_out_axis_label}",
+                shared_exponent,
+                lang_idx,
+            ),
             color='black',
-            fontsize=11,
+            fontsize=10,
         )
+        ax_trend.yaxis.set_major_formatter(build_trend_axis_formatter(lang_idx, shared_exponent))
         ax_trend.set_ylim(bottom=0)
         lns = lns1 + lns2
         labs = [l.get_label() for l in lns]
         ax_trend.legend(lns, labs, loc='lower center', bbox_to_anchor=(0.5, legend_y), frameon=False, prop={'size': 11}, ncol=2)
-
-    ax_trend.yaxis.set_major_formatter(build_trend_axis_formatter(lang_idx))
-    if doble_eje:
-        ax2.yaxis.set_major_formatter(build_trend_axis_formatter(lang_idx))
 
     # Divisores de ciclo anual: cada 12 meses hacia atrás desde el último dato.
     if len(x_labels) > divider_step:
@@ -7274,11 +7318,11 @@ def add_native_excel_charts(
 
     def _format_trend_excel_axis(axis, title: str, values: Iterable[object]) -> None:
         exponent = trend_axis_magnitude_exponent(values)
-        scale_text = trend_axis_scale_text(exponent, lang_index)
-        axis.title = f"{title} | {scale_text}" if scale_text else title
+        axis.title = trend_axis_title(title, exponent, lang_index)
         if exponent:
             axis.dispUnits = _DisplayUnitsLabelList(custUnit=float(10 ** exponent))
-            axis.numFmt = "0.0"
+            abbreviation = trend_axis_magnitude_abbreviation(exponent)
+            axis.numFmt = f'0.##"{abbreviation}"'
         else:
             axis.numFmt = "#,##0.##"
 
@@ -7495,7 +7539,7 @@ def add_native_excel_charts(
                 sell_out_values = _numeric_column_values(ws, sell_out_col, trend_start, trend_end)
                 _format_trend_excel_axis(
                     trend_chart2.y_axis,
-                    visible_sell_out_label(lang_index),
+                    short_visible_sell_out_axis_label(lang_index),
                     sell_out_values,
                 )
                 trend_chart2.add_data(
@@ -7509,7 +7553,7 @@ def add_native_excel_charts(
                 sell_out_values = _numeric_column_values(ws, sell_out_col, trend_start, trend_end)
                 _format_trend_excel_axis(
                     trend_chart.y_axis,
-                    f"{visible_sell_in_label()} / {visible_sell_out_label(lang_index)}",
+                    f"{visible_sell_in_label()} / {short_visible_sell_out_axis_label(lang_index)}",
                     [*sell_in_values, *sell_out_values],
                 )
                 trend_chart.add_data(
