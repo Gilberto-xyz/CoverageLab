@@ -8793,6 +8793,10 @@ OPTIMAL_PIPELINE_BALANCED_CORR_MIN = 0.25
 OPTIMAL_PIPELINE_EXACT_VARIATION_DISTANCE_POINTS = 0.10
 OPTIMAL_PIPELINE_VISUAL_VARIATION_DISTANCE_POINTS = 0.50
 OPTIMAL_PIPELINE_VISUAL_MAX_PIPELINE = 4
+OPTIMAL_PIPELINE_MATERIAL_VARIATION_IMPROVEMENT_POINTS = 1.00
+OPTIMAL_PIPELINE_MATERIAL_VARIATION_RATIO_MAX = 0.85
+OPTIMAL_PIPELINE_MATERIAL_CORR_SACRIFICE_MAX = 0.15
+OPTIMAL_PIPELINE_MATERIAL_CORR_MIN = 0.50
 OPTIMAL_PIPELINE_VARIATION_DISTANCE_WEIGHT = 30.0
 OPTIMAL_PIPELINE_NORMAL_LENGTH_PENALTY = 2.0
 OPTIMAL_PIPELINE_OUTLIER_PENALTY = 6.0
@@ -9180,6 +9184,97 @@ def _choose_balanced_current_candidate(
     return None
 
 
+def _choose_material_variation_candidate(
+    candidates: Sequence[OptimalPipelineCandidate],
+    min_pipeline: int = 1,
+    length_penalty: float = OPTIMAL_PIPELINE_NORMAL_LENGTH_PENALTY,
+) -> Optional[OptimalPipelineCandidate]:
+    """Permite un balance intermedio cuando mejora materialmente la variación.
+
+    Esta banda solo compite contra el candidato de máxima correlación actual y
+    exige conservar una correlación sólida, reducir el gap tanto en términos
+    absolutos como relativos y usar un pipeline más corto.
+    """
+    usable = [
+        candidate for candidate in candidates
+        if candidate.current_trend_match
+        and _is_finite_number(candidate.current_correlation)
+        and float(candidate.current_correlation) >= OPTIMAL_PIPELINE_MATERIAL_CORR_MIN
+        and _is_finite_number(candidate.variation_distance_points)
+    ]
+    if not usable:
+        return None
+
+    top_corr = max(usable, key=lambda candidate: float(candidate.current_correlation))
+    top_gap = float(top_corr.variation_distance_points)
+    if top_gap <= 0:
+        return None
+
+    material_candidates = []
+    for candidate in usable:
+        if candidate.pipeline >= top_corr.pipeline:
+            continue
+        corr_sacrifice = float(top_corr.current_correlation) - float(candidate.current_correlation)
+        candidate_gap = float(candidate.variation_distance_points)
+        gap_improvement = top_gap - candidate_gap
+        gap_ratio = candidate_gap / top_gap
+        if (
+            corr_sacrifice <= OPTIMAL_PIPELINE_MATERIAL_CORR_SACRIFICE_MAX
+            and gap_improvement >= OPTIMAL_PIPELINE_MATERIAL_VARIATION_IMPROVEMENT_POINTS
+            and gap_ratio <= OPTIMAL_PIPELINE_MATERIAL_VARIATION_RATIO_MAX
+        ):
+            material_candidates.append(candidate)
+
+    if not material_candidates:
+        return None
+    return sorted(
+        material_candidates,
+        key=lambda candidate: (
+            -_current_fit_score(
+                candidate,
+                min_pipeline=min_pipeline,
+                length_penalty=length_penalty,
+            ),
+            candidate.pipeline,
+        ),
+    )[0]
+
+
+def _material_variation_reason(
+    chosen: OptimalPipelineCandidate,
+    candidates: Sequence[OptimalPipelineCandidate],
+) -> str:
+    top_corr = max(
+        (
+            candidate for candidate in candidates
+            if candidate.current_trend_match
+            and _is_finite_number(candidate.current_correlation)
+            and _is_finite_number(candidate.variation_distance_points)
+        ),
+        key=lambda candidate: float(candidate.current_correlation),
+    )
+    gap_improvement = (
+        float(top_corr.variation_distance_points)
+        - float(chosen.variation_distance_points)
+    )
+    corr_sacrifice = (
+        float(top_corr.current_correlation)
+        - float(chosen.current_correlation)
+    )
+    months_shorter = top_corr.pipeline - chosen.pipeline
+    month_label = "mes" if months_shorter == 1 else "meses"
+    return (
+        "ajuste balanceado material de variación anual: "
+        f"P{chosen.pipeline} corr={_format_corr(chosen.current_correlation)}, "
+        f"gap={_format_pp(chosen.variation_distance_points)}; "
+        f"top correlación P{top_corr.pipeline} corr={_format_corr(top_corr.current_correlation)}, "
+        f"gap={_format_pp(top_corr.variation_distance_points)}; "
+        f"mejora gap={_format_pp(gap_improvement)}, "
+        f"sacrificio correlación={corr_sacrifice:.3f} y "
+        f"pipeline {months_shorter} {month_label} más corto"
+    )
+
+
 def _balanced_current_reason(
     chosen: OptimalPipelineCandidate,
     candidates: Sequence[OptimalPipelineCandidate],
@@ -9396,6 +9491,14 @@ def select_optimal_pipeline(
         return OptimalPipelineSelection(
             chosen_balanced.pipeline,
             _balanced_current_reason(chosen_balanced, candidates),
+            candidates,
+        )
+
+    chosen_material = _choose_material_variation_candidate(candidates)
+    if chosen_material is not None:
+        return OptimalPipelineSelection(
+            chosen_material.pipeline,
+            _material_variation_reason(chosen_material, candidates),
             candidates,
         )
 
@@ -9941,6 +10044,8 @@ def _pipeline_decision_type(selection_reason: str) -> str:
         return "Restricción/prior de categoría"
     if "ajuste casi exacto" in reason_norm or "alineacion visual" in reason_norm:
         return "Override por alineación de variación"
+    if "ajuste balanceado material" in reason_norm:
+        return "Balance material de variación"
     if "respaldo historico" in reason_norm:
         return "Respaldo histórico"
     if "outlier" in reason_norm:

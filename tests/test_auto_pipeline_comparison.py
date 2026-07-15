@@ -31,6 +31,57 @@ def candidate(
 
 
 class AutoPipelineComparisonTests(unittest.TestCase):
+    def test_material_variation_balance_prefers_shorter_p2_for_nosotras(self) -> None:
+        candidates = (
+            candidate(1, 0.869, 6.00),
+            candidate(2, 0.855, 5.36),
+            candidate(3, 0.886, 6.60),
+            candidate(4, 0.916, 5.80),
+            candidate(5, 0.965, 7.20),
+            candidate(6, 0.937, 6.90),
+        )
+
+        chosen = studio._choose_material_variation_candidate(candidates)
+
+        self.assertIsNotNone(chosen)
+        self.assertEqual(chosen.pipeline, 2)
+        reason = studio._material_variation_reason(chosen, candidates)
+        self.assertIn("mejora gap=1.84pp", reason)
+        self.assertEqual(
+            studio._pipeline_decision_type(reason),
+            "Balance material de variación",
+        )
+        diagnostics = studio.build_auto_pipeline_comparison_diagnostics(
+            studio.AutoPipelineComparison(
+                correlation=studio.select_correlation_pipeline(candidates),
+                balanced=studio.OptimalPipelineSelection(
+                    chosen.pipeline,
+                    reason,
+                    candidates,
+                ),
+            )
+        )
+        self.assertEqual(diagnostics["Pipeline AUTO Correlación"], 5)
+        self.assertEqual(diagnostics["Pipeline AUTO Balanceado"], 2)
+        self.assertEqual(diagnostics["Conflicto AUTO Correlación vs Balanceado"], "Medio")
+        self.assertEqual(diagnostics["Mejora gap de variación Balanceado"], 1.84)
+
+    def test_small_variation_improvement_does_not_override_correlation(self) -> None:
+        candidates = (
+            candidate(2, 0.676, 3.25),
+            candidate(5, 0.750, 4.06),
+        )
+
+        self.assertIsNone(studio._choose_material_variation_candidate(candidates))
+
+    def test_longer_pipeline_does_not_enter_material_balance(self) -> None:
+        candidates = (
+            candidate(2, 0.995, 2.04),
+            candidate(6, 0.930, 0.78),
+        )
+
+        self.assertIsNone(studio._choose_material_variation_candidate(candidates))
+
     def test_auto_correlation_uses_the_highest_current_mat_correlation(self) -> None:
         candidates = (
             candidate(1, 0.80, 0.10),
