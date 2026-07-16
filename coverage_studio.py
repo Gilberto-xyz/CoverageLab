@@ -5981,7 +5981,13 @@ class SlideBuilder:
         if df_variations is None or df_variations.empty:
             return
 
+        compare_lags = (
+            pd.to_numeric(df_variations["_CompareLagMonths"], errors="coerce").reset_index(drop=True)
+            if "_CompareLagMonths" in df_variations.columns
+            else pd.Series(np.nan, index=range(len(df_variations)), dtype=float)
+        )
         table_df = df_variations[[col for col in df_variations.columns if not str(col).startswith('_')]].copy()
+        table_df.reset_index(drop=True, inplace=True)
         if table_df.empty:
             return
 
@@ -6054,6 +6060,7 @@ class SlideBuilder:
             table.rows[r].height = body_h
 
         white_bg = RGBColor(255, 255, 255)
+        year_ago_bg = RGBColor(230, 254, 248)  # #E6FEF8, turquesa muy suave
         black = RGBColor(0, 0, 0)
 
         header_font_size = 8
@@ -6072,6 +6079,8 @@ class SlideBuilder:
             )
 
         for r, row_values in enumerate(table_df.itertuples(index=False), start=1):
+            compare_lag = compare_lags.iloc[r - 1] if (r - 1) < len(compare_lags) else np.nan
+            is_year_ago_comparison = pd.notna(compare_lag) and int(compare_lag) == 12
             for c, col_name in enumerate(table_df.columns):
                 raw_val = row_values[c]
                 if col_name in value_columns:
@@ -6082,6 +6091,8 @@ class SlideBuilder:
                     cell_text = self._normalize_summary_table_value(raw_val)
                     fill_color, font_color = white_bg, black
                     align = 1
+                if is_year_ago_comparison and col_name in text_columns:
+                    fill_color = year_ago_bg
                 self._set_table_cell_text(
                     table.cell(r, c),
                     cell_text,
