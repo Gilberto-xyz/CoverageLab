@@ -1,4 +1,7 @@
 import unittest
+import os
+
+from openpyxl import load_workbook
 
 import coverage_studio as studio
 
@@ -31,6 +34,92 @@ def candidate(
 
 
 class AutoPipelineComparisonTests(unittest.TestCase):
+    def test_pipeline_report_headers_are_localized_for_each_language(self) -> None:
+        self.assertEqual(
+            studio.localize_pipeline_report_header("Correlación P2", "ES"),
+            "Correlación P2",
+        )
+        self.assertEqual(
+            studio.localize_pipeline_report_header("Correlación P2", "PT"),
+            "Correlação P2",
+        )
+        self.assertEqual(
+            studio.localize_pipeline_report_header("Correlación P2", "EN"),
+            "Correlation P2",
+        )
+        self.assertEqual(
+            studio.localize_pipeline_report_header("Cobertura 05-26", "EN"),
+            "Coverage 05-26",
+        )
+
+    def test_saved_pipeline_report_uses_percent_correlations_and_uniform_rows(self) -> None:
+        columns = studio.build_pipeline_report_columns("05-26")
+        row = {column: "" for column in columns}
+        row.update(
+            {
+                "Fabricante/Marca": "Marca teste",
+                "Pipeline": 2,
+                "Correlación P1": 0.965,
+                "Correlación P2": 0.855,
+                "Correlación seleccionada": 0.855,
+                "Correlación top": 0.965,
+                "Pipeline AUTO Correlación": 1,
+                "Correlación AUTO Correlación": 0.965,
+                "Pipeline AUTO Balanceado": 2,
+                "Correlación AUTO Balanceado": 0.855,
+                "Pérdida de correlación Balanceado": 0.110,
+            }
+        )
+        report_df = studio.pd.DataFrame([row, row], columns=columns)
+
+        temp_dir = os.path.join(
+            os.path.dirname(studio.__file__),
+            f".test_pipeline_report_{os.getpid()}",
+        )
+        os.makedirs(temp_dir, exist_ok=True)
+        path = ""
+        try:
+            path = studio.save_pipeline_report(
+                df_pipeline_report=report_df,
+                carpeta_salida=temp_dir,
+                fabricante="Marca",
+                categoria_nombre="Categoria",
+                categoria_nombre_corto="Categoria",
+                pais_nombre="Brasil",
+                ref_month_year="05-26",
+                coverage_label="Cobertura Absoluta",
+                language_code="PT",
+            )
+            workbook = load_workbook(path)
+            worksheet = workbook["Relatório Pipelines"]
+            headers = {
+                str(cell.value): cell.column
+                for cell in worksheet[1]
+                if cell.value is not None
+            }
+
+            correlation_col = headers["Correlação P1"]
+            self.assertEqual(worksheet.cell(2, correlation_col).value, 0.965)
+            self.assertEqual(worksheet.cell(2, correlation_col).number_format, "0.0%")
+            self.assertEqual(
+                worksheet.row_dimensions[1].height,
+                studio.PIPELINE_REPORT_HEADER_ROW_HEIGHT,
+            )
+            self.assertEqual(
+                worksheet.row_dimensions[2].height,
+                studio.PIPELINE_REPORT_DATA_ROW_HEIGHT,
+            )
+            self.assertEqual(
+                worksheet.row_dimensions[3].height,
+                studio.PIPELINE_REPORT_DATA_ROW_HEIGHT,
+            )
+            workbook.close()
+        finally:
+            if path and os.path.isfile(path):
+                os.remove(path)
+            if os.path.isdir(temp_dir):
+                os.rmdir(temp_dir)
+
     def test_material_variation_balance_prefers_shorter_p2_for_nosotras(self) -> None:
         candidates = (
             candidate(1, 0.869, 6.00),

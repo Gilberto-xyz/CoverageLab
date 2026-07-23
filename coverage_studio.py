@@ -9950,6 +9950,153 @@ PIPELINE_REPORT_AUTO_MODE_COLUMNS = [
     'Revisión requerida',
 ]
 PIPELINE_REPORT_REASON_COLUMN = 'Motivo de selección de pipeline'
+PIPELINE_REPORT_HEADER_ROW_HEIGHT = 72.0
+PIPELINE_REPORT_DATA_ROW_HEIGHT = 48.0
+PIPELINE_REPORT_REASON_COLUMN_WIDTH = 72.0
+
+PIPELINE_REPORT_HEADER_TRANSLATIONS: Dict[str, Dict[str, str]] = {
+    "ES": {
+        'Fabricante/Marca': 'Fabricante/Marca',
+        'Cesta': 'Cesta',
+        'Penet Media Ano Mov Atual': 'Penetración media año móvil actual',
+        'Raw Buyers Media Ano Mov Atual': 'Raw Buyers medios año móvil actual',
+        'Frecuencia Media Mensual': 'Frecuencia media mensual',
+        'Pipeline': 'Pipeline',
+        '%VAR Cliente': '% VAR cliente',
+        '% VAR WP by Numerator': '% VAR WP de Numerator',
+        'Estabilidad': 'Estabilidad',
+        'Confianza selección': 'Confianza de la selección',
+        'Gap variación seleccionado': 'Gap de variación seleccionado',
+        'Correlación seleccionada': 'Correlación seleccionada',
+        'Misma dirección selección': 'Misma dirección en la selección',
+        'Pipeline top correlación': 'Pipeline con mayor correlación',
+        'Correlación top': 'Correlación máxima',
+        'Gap variación top correlación': 'Gap de variación de la mayor correlación',
+        'Pipeline top variación': 'Pipeline con mejor variación',
+        'Gap variación top': 'Mejor gap de variación',
+        'Correlación top variación': 'Correlación de la mejor variación',
+        'Pipeline AUTO Correlación': 'Pipeline AUTO Correlación',
+        'Correlación AUTO Correlación': 'AUTO Correlación: correlación',
+        'Gap variación AUTO Correlación': 'AUTO Correlación: gap de variación',
+        'Motivo AUTO Correlación': 'AUTO Correlación: motivo',
+        'Pipeline AUTO Balanceado': 'Pipeline AUTO Balanceado',
+        'Correlación AUTO Balanceado': 'AUTO Balanceado: correlación',
+        'Gap variación AUTO Balanceado': 'AUTO Balanceado: gap de variación',
+        'Motivo AUTO Balanceado': 'AUTO Balanceado: motivo',
+        'Tipo de decisión AUTO Balanceado': 'AUTO Balanceado: tipo de decisión',
+        'Conflicto AUTO Correlación vs Balanceado': 'Conflicto AUTO Correlación vs. Balanceado',
+        'Pérdida de correlación Balanceado': 'Pérdida de correlación del Balanceado',
+        'Mejora gap de variación Balanceado': 'Mejora del gap de variación del Balanceado',
+        'Revisión requerida': 'Revisión requerida',
+        PIPELINE_REPORT_REASON_COLUMN: 'Motivo de selección del pipeline',
+    },
+    "PT": {
+        'Fabricante/Marca': 'Fabricante/Marca',
+        'Cesta': 'Cesta',
+        'Penet Media Ano Mov Atual': 'Penetração média do ano móvel atual',
+        'Raw Buyers Media Ano Mov Atual': 'Raw Buyers médios do ano móvel atual',
+        'Frecuencia Media Mensual': 'Frequência média mensal',
+        'Pipeline': 'Pipeline',
+        '%VAR Cliente': '% VAR cliente',
+        '% VAR WP by Numerator': '% VAR WP pela Numerator',
+        'Estabilidad': 'Estabilidade',
+        'Confianza selección': 'Confiança da seleção',
+        'Gap variación seleccionado': 'Gap da variação selecionada',
+        'Correlación seleccionada': 'Correlação selecionada',
+        'Misma dirección selección': 'Mesma direção na seleção',
+        'Pipeline top correlación': 'Pipeline com maior correlação',
+        'Correlación top': 'Correlação máxima',
+        'Gap variación top correlación': 'Gap da variação da maior correlação',
+        'Pipeline top variación': 'Pipeline com melhor variação',
+        'Gap variación top': 'Melhor gap de variação',
+        'Correlación top variación': 'Correlação da melhor variação',
+        'Pipeline AUTO Correlación': 'Pipeline AUTO Correlação',
+        'Correlación AUTO Correlación': 'AUTO Correlação: correlação',
+        'Gap variación AUTO Correlación': 'AUTO Correlação: gap de variação',
+        'Motivo AUTO Correlación': 'AUTO Correlação: motivo',
+        'Pipeline AUTO Balanceado': 'Pipeline AUTO Balanceado',
+        'Correlación AUTO Balanceado': 'AUTO Balanceado: correlação',
+        'Gap variación AUTO Balanceado': 'AUTO Balanceado: gap de variação',
+        'Motivo AUTO Balanceado': 'AUTO Balanceado: motivo',
+        'Tipo de decisión AUTO Balanceado': 'AUTO Balanceado: tipo de decisão',
+        'Conflicto AUTO Correlación vs Balanceado': 'Conflito AUTO Correlação vs. Balanceado',
+        'Pérdida de correlación Balanceado': 'Perda de correlação do Balanceado',
+        'Mejora gap de variación Balanceado': 'Melhora do gap de variação do Balanceado',
+        'Revisión requerida': 'Revisão necessária',
+        PIPELINE_REPORT_REASON_COLUMN: 'Motivo da seleção do pipeline',
+    },
+    "EN": {
+        'Fabricante/Marca': 'Manufacturer/Brand',
+        'Cesta': 'Basket',
+        'Penet Media Ano Mov Atual': 'Average penetration – current moving year',
+        'Raw Buyers Media Ano Mov Atual': 'Average raw buyers – current moving year',
+        'Frecuencia Media Mensual': 'Average monthly frequency',
+        'Pipeline': 'Pipeline',
+        '%VAR Cliente': 'Client % change',
+        '% VAR WP by Numerator': 'WP % change by Numerator',
+        'Estabilidad': 'Stability',
+        'Confianza selección': 'Selection confidence',
+        'Gap variación seleccionado': 'Selected variation gap',
+        'Correlación seleccionada': 'Selected correlation',
+        'Misma dirección selección': 'Same direction in selection',
+        'Pipeline top correlación': 'Highest-correlation pipeline',
+        'Correlación top': 'Highest correlation',
+        'Gap variación top correlación': 'Highest-correlation variation gap',
+        'Pipeline top variación': 'Best-variation pipeline',
+        'Gap variación top': 'Best variation gap',
+        'Correlación top variación': 'Best-variation correlation',
+        'Pipeline AUTO Correlación': 'AUTO Correlation pipeline',
+        'Correlación AUTO Correlación': 'AUTO Correlation: correlation',
+        'Gap variación AUTO Correlación': 'AUTO Correlation: variation gap',
+        'Motivo AUTO Correlación': 'AUTO Correlation: reason',
+        'Pipeline AUTO Balanceado': 'AUTO Balanced pipeline',
+        'Correlación AUTO Balanceado': 'AUTO Balanced: correlation',
+        'Gap variación AUTO Balanceado': 'AUTO Balanced: variation gap',
+        'Motivo AUTO Balanceado': 'AUTO Balanced: reason',
+        'Tipo de decisión AUTO Balanceado': 'AUTO Balanced: decision type',
+        'Conflicto AUTO Correlación vs Balanceado': 'AUTO Correlation vs. Balanced conflict',
+        'Pérdida de correlación Balanceado': 'Balanced correlation loss',
+        'Mejora gap de variación Balanceado': 'Balanced variation-gap improvement',
+        'Revisión requerida': 'Review required',
+        PIPELINE_REPORT_REASON_COLUMN: 'Pipeline selection reason',
+    },
+}
+
+
+def normalize_pipeline_report_language(language_code: object, pais_nombre: str = "") -> str:
+    normalized = str(language_code or "").strip().upper()
+    if normalized in PIPELINE_REPORT_HEADER_TRANSLATIONS:
+        return normalized
+    return determine_language(False, pais_nombre)[0]
+
+
+def localize_pipeline_report_header(header: object, language_code: str) -> str:
+    canonical = str(header or "")
+    language = normalize_pipeline_report_language(language_code)
+    translated = PIPELINE_REPORT_HEADER_TRANSLATIONS[language].get(canonical)
+    if translated is not None:
+        return translated
+    if canonical.startswith("Variación Cliente P"):
+        pipeline_suffix = canonical.removeprefix("Variación Cliente ")
+        prefix = {"ES": "Variación cliente", "PT": "Variação cliente", "EN": "Client variation"}[language]
+        return f"{prefix} {pipeline_suffix}"
+    if canonical.startswith("Correlación P"):
+        pipeline_suffix = canonical.removeprefix("Correlación ")
+        prefix = {"ES": "Correlación", "PT": "Correlação", "EN": "Correlation"}[language]
+        return f"{prefix} {pipeline_suffix}"
+    if canonical.startswith("Cobertura "):
+        coverage_prefix = "Coverage" if language == "EN" else "Cobertura"
+        return f"{coverage_prefix} {canonical.removeprefix('Cobertura ')}"
+    return canonical
+
+
+def pipeline_report_sheet_title(language_code: str) -> str:
+    language = normalize_pipeline_report_language(language_code)
+    return {
+        "ES": "Reporte Pipelines",
+        "PT": "Relatório Pipelines",
+        "EN": "Pipeline Report",
+    }[language]
 
 
 def build_pipeline_report_columns(ref_month_year: str) -> List[str]:
@@ -10919,7 +11066,9 @@ def save_pipeline_report(
     coverage_label: str,
     output_descriptor: str = "",
     elapsed_seconds_fn: Optional[Callable[[], Optional[float]]] = None,
+    language_code: Optional[str] = None,
 ) -> str:
+    report_language = normalize_pipeline_report_language(language_code, pais_nombre)
     categoria_para_reporte = build_output_category_segment(categoria_nombre_corto or categoria_nombre, output_descriptor)
     nombre_reporte_final = build_bounded_output_filename(
         carpeta_salida,
@@ -10940,7 +11089,7 @@ def save_pipeline_report(
 
         wb_report = _wb_load(ruta_reporte_final)
         ws = wb_report.active
-        ws.title = "Reporte Pipelines"
+        ws.title = pipeline_report_sheet_title(report_language)
 
         header_fill = _PatternFill(fill_type="solid", fgColor="404040")
         soft_header_fill = _PatternFill(fill_type="solid", fgColor="D9EAF7")
@@ -11066,7 +11215,7 @@ def save_pipeline_report(
                 elif header in decimal_columns:
                     cell.number_format = '0.0'
                 elif header in correlation_columns:
-                    cell.number_format = '0.000'
+                    cell.number_format = '0.0%'
 
             pipeline_col = header_map.get('Pipeline')
             if pipeline_col is None:
@@ -11126,9 +11275,13 @@ def save_pipeline_report(
                 ),
             )
 
+        for cell in ws[1]:
+            if cell.value is not None:
+                cell.value = localize_pipeline_report_header(cell.value, report_language)
+
         ws.freeze_panes = "A2"
         ws.auto_filter.ref = ws.dimensions
-        autofit_worksheet_columns(ws, min_width=11.0, max_width=44.0, padding=2.0)
+        autofit_worksheet_columns(ws, min_width=11.0, max_width=48.0, padding=2.0)
         for reason_header in (
             PIPELINE_REPORT_REASON_COLUMN,
             'Motivo AUTO Correlación',
@@ -11136,7 +11289,12 @@ def save_pipeline_report(
         ):
             reason_col = header_map.get(reason_header)
             if reason_col is not None:
-                ws.column_dimensions[ws.cell(row=1, column=reason_col).column_letter].width = 72
+                ws.column_dimensions[ws.cell(row=1, column=reason_col).column_letter].width = (
+                    PIPELINE_REPORT_REASON_COLUMN_WIDTH
+                )
+        ws.row_dimensions[1].height = PIPELINE_REPORT_HEADER_ROW_HEIGHT
+        for row_idx in range(2, ws.max_row + 1):
+            ws.row_dimensions[row_idx].height = PIPELINE_REPORT_DATA_ROW_HEIGHT
         wb_report.save(ruta_reporte_final)
 
     try:
@@ -11407,6 +11565,7 @@ class CoverageStudioUltraApp:
                     coverage_label=coverage_label,
                     output_descriptor=output_descriptor,
                     elapsed_seconds_fn=get_elapsed,
+                    language_code=determine_language(options.include_english, pais_nombre)[0],
                 )
             print_file_summary(
                 ruta_template_final,
