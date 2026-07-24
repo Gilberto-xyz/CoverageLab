@@ -21,6 +21,7 @@
 !tests/test_auto_pipeline_comparison.py
 !tests/test_scorecard_output_name.py
 !tests/test_scorecard_skipped_sheets.py
+!tests/test_presentation_sections.py
 !tests/test_trend_axis_formatting.py
 !tests/test_trend_variation_table_highlight.py
 

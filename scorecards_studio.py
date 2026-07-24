@@ -204,8 +204,32 @@ def _select_country():
 
 
 def _select_criterio():
-    _, selected = _select_from_list("Criterio Scorecard Unilever:", ["Si", "No"])
+    _, selected = _select_from_list(
+        "Formato de Scorecard:",
+        [
+            "Unilever",
+            "Personalizado",
+            "Ambos (Unilever y Personalizado)",
+        ],
+    )
     return selected
+
+
+def _scorecard_criteria_to_generate(criterio):
+    """Devuelve los criterios internos que deben exportarse para la selección."""
+    normalized = _normalize_text(criterio)
+    if normalized in {"si", "unilever"}:
+        return ["Si"]
+    if normalized in {"no", "personalizado", "personalizada"}:
+        return ["No"]
+    if normalized in {
+        "ambos",
+        "los dos",
+        "unilever y personalizado",
+        "ambos (unilever y personalizado)",
+    }:
+        return ["Si", "No"]
+    raise ValueError(f"Formato de scorecard no reconocido: {criterio}")
 
 
 def _select_output_name(default_name):
@@ -569,7 +593,10 @@ def _resolve_output_target(source_file, sheet_names, pipeline_by_brand, criterio
         f"{metadata['manufacturer']}-{ref_month_year}_{DEFAULT_COVERAGE_LABEL}"
     )
     output_dir = Path(__file__).resolve().parent / base_name
-    criterio_suffix = "unilever" if _normalize_text(criterio) in {"si", "unilever"} else "personalizado"
+    criterio_normalizado = _scorecard_criteria_to_generate(criterio)
+    if len(criterio_normalizado) != 1:
+        raise ValueError("El nombre de salida debe resolverse por separado para cada formato.")
+    criterio_suffix = "unilever" if criterio_normalizado[0] == "Si" else "personalizado"
     default_output_name = f"Scorecard_{base_name}_{criterio_suffix}.xlsx"
     return output_dir, default_output_name
 
@@ -596,7 +623,11 @@ def _compute_scorecard(brand_df, brand, pipeline, pais, criterio):
 
     cobertura_poblacional = _get_population_coverage(pais, penet1)
 
-    if criterio == "No":
+    criterio_normalizado = _scorecard_criteria_to_generate(criterio)
+    if len(criterio_normalizado) != 1:
+        raise ValueError("El scorecard debe calcularse con un solo criterio a la vez.")
+
+    if criterio_normalizado[0] == "No":
         limit_inferior_verde = int(round((cobertura_poblacional - (cobertura_poblacional * error_relativo1)), 2))
         limit_superior_verde = int(round((100 + (cobertura_poblacional * error_relativo1)), 2))
         diff = cobertura_poblacional - limit_inferior_verde
@@ -803,6 +834,7 @@ def main():
         source_files = _select_excel_files()
 
     criterio = _select_criterio()
+    criterios_a_generar = _scorecard_criteria_to_generate(criterio)
     total_files = len(source_files)
 
     for idx, source_file in enumerate(source_files, 1):
@@ -817,29 +849,34 @@ def main():
             pais = _select_country_for_source(source_file)
             if _normalize_text(pais) == "brasil":
                 _print_brazil_benchmark_notification()
-            output_dir, default_output_name = _resolve_output_target(
-                source_file=source_file,
-                sheet_names=sheet_names,
-                pipeline_by_brand=pipeline_by_brand,
-                criterio=criterio,
-            )
 
-            output_name = _select_output_name(default_output_name)
+            for criterio_actual in criterios_a_generar:
+                formato_label = "Unilever" if criterio_actual == "Si" else "Personalizado"
+                print(f"\n{Colors.OKCYAN}Generando formato {formato_label}...{Colors.ENDC}")
+                output_dir, default_output_name = _resolve_output_target(
+                    source_file=source_file,
+                    sheet_names=sheet_names,
+                    pipeline_by_brand=pipeline_by_brand,
+                    criterio=criterio_actual,
+                )
+                output_name = _select_output_name(default_output_name)
 
-            scorecards, calculation_skips = _build_scorecards(
-                pais=pais,
-                criterio=criterio,
-                sheet_names=sheet_names,
-                pipeline_by_brand=pipeline_by_brand,
-            )
-            skipped_sheets.extend(calculation_skips)
+                scorecards, calculation_skips = _build_scorecards(
+                    pais=pais,
+                    criterio=criterio_actual,
+                    sheet_names=sheet_names,
+                    pipeline_by_brand=pipeline_by_brand,
+                )
+                skipped_sheets.extend(calculation_skips)
 
-            if not scorecards:
-                print(f"{Colors.FAIL}No se pudo calcular ningún scorecard válido para '{source_file}'.{Colors.ENDC}")
-                _print_skipped_sheets_summary(source_file, skipped_sheets)
-                continue
+                if not scorecards:
+                    print(
+                        f"{Colors.FAIL}No se pudo calcular ningún scorecard {formato_label} "
+                        f"válido para '{source_file}'.{Colors.ENDC}"
+                    )
+                    continue
 
-            export_scorecards_single_sheet(scorecards, output_dir, output_name)
+                export_scorecards_single_sheet(scorecards, output_dir, output_name)
             _print_skipped_sheets_summary(source_file, skipped_sheets)
         except Exception as exc:
             print(f"{Colors.FAIL}Error procesando '{source_file}': {exc}{Colors.ENDC}")

@@ -104,6 +104,15 @@ python coverage_studio.py
 python scorecards_studio.py
 ```
 
+El menú de formato permite generar:
+
+1. `Unilever`
+2. `Personalizado`
+3. `Ambos (Unilever y Personalizado)`
+
+La opción 3 exporta dos archivos independientes en la misma carpeta de salida,
+uno con sufijo `_unilever.xlsx` y otro con sufijo `_personalizado.xlsx`.
+
 ## Formato del archivo de entrada
 
 ### Nombre del archivo
@@ -130,6 +139,18 @@ Consideraciones:
 ## Convenciones por hoja
 
 Cada hoja representa una marca, variante o agrupación.
+
+### Secciones de la presentación
+
+Cada hoja válida genera su propia sección de PowerPoint. El nombre de la
+sección es el nombre visible de la hoja sin el prefijo `P0_` a `P6_`, y contiene
+los slides consecutivos generados para esa hoja/pipeline (normalmente cobertura,
+tendencia y evolución).
+
+Las hojas no heredan la sección de una categoría o total anterior. Por ejemplo,
+`P5_T.UL Sabonetes`, `P5_T.UL Sabonetes Barra` y `P2_T.UL FabClean` producen
+secciones independientes llamadas `T.UL Sabonetes`, `T.UL Sabonetes Barra` y
+`T.UL FabClean`.
 
 ### Prefijos de pipeline
 

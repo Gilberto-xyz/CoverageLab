@@ -166,6 +166,14 @@ def normalize_section_title(value: str) -> str:
     return SECTION_LABEL_ALIASES.get(lower_key, normalized)
 
 
+def format_powerpoint_section_title(value: str) -> str:
+    """Limpia un titulo de seccion conservando el nombre visible de la hoja."""
+    normalized = unicodedata.normalize("NFC", str(value or ""))
+    normalized = normalized.replace("_", " ")
+    normalized = re.sub(r"[\x00-\x1f]+", " ", normalized)
+    return re.sub(r"\s+", " ", normalized).strip()
+
+
 def is_total_group_sheet(sheet_name: str) -> bool:
     """Detecta hojas que representan un total/subgrupo y sirven como ancla de seccion."""
     cleaned = _clean_brand_name_from_sheet(sheet_name)
@@ -267,21 +275,9 @@ def sheet_belongs_to_section(sheet_name: str, section_title: Optional[str]) -> b
 
 
 def build_section_title_for_sheet(sheet_name: str, current_group: Optional[str]) -> Tuple[str, Optional[str]]:
-    """Resuelve la seccion aplicable a una hoja y actualiza el grupo actual si corresponde."""
-    if is_total_group_sheet(sheet_name):
-        primary_group_title = derive_primary_section_title_from_total_sheet(sheet_name)
-        if primary_group_title:
-            return primary_group_title, primary_group_title
-        group_title = derive_section_title_from_total_sheet(sheet_name)
-        if current_group and (
-            should_inherit_current_section(sheet_name, current_group)
-            or "(" not in str(sheet_name or "")
-        ):
-            return current_group, current_group
-        return group_title, group_title
-    brand_title = normalize_section_title(_clean_brand_name_from_sheet(sheet_name))
-    if current_group and should_inherit_current_section(sheet_name, current_group):
-        return current_group, current_group
+    """Usa cada hoja como una seccion independiente, sin heredar la anterior."""
+    del current_group
+    brand_title = format_powerpoint_section_title(_clean_brand_name_from_sheet(sheet_name))
     return brand_title, brand_title
 
 
@@ -315,7 +311,7 @@ def register_section_slide_range(
     """Agrega un rango de slides a una seccion conservando el orden."""
     if count <= 0:
         return
-    title = normalize_section_title(section_title)
+    title = format_powerpoint_section_title(section_title)
     if not title:
         return
     bucket = section_slide_map.setdefault(title, [])
