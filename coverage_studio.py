@@ -30,9 +30,13 @@ import colorama
 from colorama import Back, Fore, Style
 from rich.console import Console
 from rich.panel import Panel
+from rich.table import Table
+from rich.text import Text
 
 colorama.init(autoreset=True)
 console = Console()
+
+LOW_PENETRATION_BUYERS_THRESHOLD = 200.0
 
 BRAND_EXCEPTION_REASONS: Dict[str, Set[str]] = {}
 
@@ -274,10 +278,66 @@ def sheet_belongs_to_section(sheet_name: str, section_title: Optional[str]) -> b
     return bool(sheet_key and sheet_key == current_key)
 
 
-def build_section_title_for_sheet(sheet_name: str, current_group: Optional[str]) -> Tuple[str, Optional[str]]:
-    """Usa cada hoja como una seccion independiente, sin heredar la anterior."""
-    del current_group
+def build_presentation_brand_category_label(
+    sheet_name: str,
+    category_code: object = "",
+    category_name: object = "",
+) -> str:
+    """Combina marca y categoria solo cuando la hoja declara una nomenclatura explicita."""
     brand_title = format_powerpoint_section_title(_clean_brand_name_from_sheet(sheet_name))
+    identity = parse_sheet_name_identity(sheet_name)
+    if not identity.category_code:
+        return brand_title
+
+    resolved_code = _normalize_category_code(category_code or identity.category_code)
+    resolved_name = (
+        build_category_short_name(category_name)
+        or build_category_short_name(CATEGORY_MAP.get(resolved_code, ""))
+    )
+    cross_category_match = re.fullmatch(
+        r"(?i)cross\s+category\s*\(([^)]+)\)",
+        resolved_name,
+    )
+    if cross_category_match:
+        resolved_name = cross_category_match.group(1).strip()
+
+    if resolved_name:
+        return f"{brand_title} — {resolved_name}"
+    return brand_title
+
+
+def build_pipeline_presentation_title(
+    presentation_label: str,
+    pipeline: int,
+    *,
+    slide_kind: str = "pipeline",
+    lang_index: int = 2,
+) -> str:
+    """Crea titulos compactos y consistentes para los slides de cada pipeline."""
+    base_title = f"{str(presentation_label or '').strip()} | P{pipeline}"
+    if slide_kind != "evolution":
+        return base_title
+    suffix = {
+        1: "Evolução e variação",
+        2: "Evolución y variación",
+        3: "Evolution and YoY change",
+    }.get(lang_index, "Evolución y variación")
+    return f"{base_title} | {suffix}"
+
+
+def build_section_title_for_sheet(
+    sheet_name: str,
+    current_group: Optional[str],
+    category_code: object = "",
+    category_name: object = "",
+) -> Tuple[str, Optional[str]]:
+    """Usa cada hoja como una seccion independiente, con categoria si fue declarada."""
+    del current_group
+    brand_title = build_presentation_brand_category_label(
+        sheet_name,
+        category_code=category_code,
+        category_name=category_name,
+    )
     return brand_title, brand_title
 
 
@@ -945,7 +1005,11 @@ def notify_negative_values_exception(marca_label: Optional[str]) -> None:
     _register_brand_exception(marca_label, "negative")
 
 
-def notify_buyers_threshold(marca_label: Optional[str], buyers_value: Optional[float], threshold: float = 200) -> None:
+def notify_buyers_threshold(
+    marca_label: Optional[str],
+    buyers_value: Optional[float],
+    threshold: float = LOW_PENETRATION_BUYERS_THRESHOLD,
+) -> None:
     if buyers_value is None:
         return
     try:
@@ -960,6 +1024,53 @@ def notify_buyers_threshold(marca_label: Optional[str], buyers_value: Optional[f
         print(Fore.RED + f"{normalized} cuenta con {buyers_display} compradores promedio, tener precaución")
     else:
         print(Fore.GREEN + f"{normalized} si cuenta con al menos {int(threshold)} compradores")
+
+
+def report_buyers_threshold_table(
+    buyers_rows: Sequence[Tuple[str, str, float]],
+    threshold: float = LOW_PENETRATION_BUYERS_THRESHOLD,
+    *,
+    output_console: Optional[Console] = None,
+) -> None:
+    """Muestra una validacion consolidada de compradores promedio por categoria y marca."""
+    if not buyers_rows:
+        return
+
+    target_console = output_console or console
+    table = Table(
+        title=f"Validación de compradores promedio (umbral: {threshold:,.0f})",
+        header_style="bold cyan",
+        border_style="bright_black",
+        show_lines=False,
+    )
+    table.add_column("#", justify="right", style="dim", no_wrap=True)
+    table.add_column("Categoría", overflow="fold")
+    table.add_column("Marca", style="bold", overflow="fold")
+    table.add_column("Compradores promedio", justify="right", no_wrap=True)
+    table.add_column("Estado", justify="center", no_wrap=True)
+
+    low_count = 0
+    for row_number, (category, brand, buyers_value) in enumerate(buyers_rows, start=1):
+        buyers_num = float(buyers_value)
+        is_low = buyers_num < threshold
+        if is_low:
+            low_count += 1
+        value_style = "bold red" if is_low else "green"
+        status = Text("PRECAUCIÓN" if is_low else "OK", style=value_style)
+        table.add_row(
+            str(row_number),
+            Text(str(category or "Sin categoría")),
+            Text(str(brand or "N/D")),
+            Text(f"{buyers_num:,.0f}", style=value_style),
+            status,
+        )
+
+    table.caption = (
+        f"{low_count} de {len(buyers_rows)} líneas por debajo de "
+        f"{threshold:,.0f} compradores promedio."
+    )
+    table.caption_style = "bold red" if low_count else "green"
+    target_console.print(table)
 
 
 def report_zero_months_exceptions() -> None:
@@ -1112,6 +1223,7 @@ MAYO,Alimentos,Mayonesa
 MEAT,Alimentos,Carnicos
 SNAG,Alimentos,Salchichas
 MLKM,Alimentos,Modificadores de Leche-Saborizadores p-leche
+MOLE,Alimentos,Mole
 MXCO,Alimentos,Mixta Cereales Infantiles+Avenas
 MXBS,Alimentos,Mixta Caldos + Saborizantes
 MXSB,Alimentos,Mixta Caldos + Sopas
@@ -1395,6 +1507,23 @@ COLOR_NEG_LABEL_ALT = '#C0392B'
 COLOR_SELLIN_TREND_LINE = "#D4AC0D"
 COLOR_SELLOUT_TREND_LINE = "#2C3E50"
 EXCEL_TREND_INITIAL_GAP_MONTHS = 6
+DEFAULT_TREND_CHART_HEIGHT_INCHES = 4.5
+AUTO_TREND_CHART_HEIGHT_INCHES = 5.05
+AUTO_TREND_CHART_TOP_INCHES = 1.8
+DEFAULT_TREND_LEGEND_Y = -0.28
+AUTO_TREND_LEGEND_Y = -0.23
+TREND_ANIMATION_TRANSITION_FRAMES = 7
+TREND_ANIMATION_INITIAL_DURATION_MS = 1800
+TREND_ANIMATION_STEP_DURATION_MS = 135
+TREND_ANIMATION_FINAL_DURATION_MS = 2600
+TREND_ANIMATION_DPI = 174
+TREND_ANIMATION_PALETTE_COLORS = 144
+TREND_DUAL_AXIS_PALETTE_COLORS = 128
+TREND_DUAL_AXIS_MIN_CANVAS_HEIGHT_INCHES = 5.2
+TREND_COMPACT_TOP_MARGIN = 0.89
+TREND_COMPACT_BOTTOM_MARGIN = 0.18
+TREND_DEFAULT_TOP_MARGIN = 0.85
+TREND_DEFAULT_BOTTOM_MARGIN = 0.23
 
 
 def visible_sell_in_label() -> str:
@@ -1627,6 +1756,26 @@ def _normalize_lookup_text(value: object) -> str:
     text = "".join(ch for ch in normalized if not unicodedata.combining(ch))
     return re.sub(r"\s+", " ", text).strip()
 
+
+LOW_PENETRATION_KEY_SEPARATOR = "\x1f"
+
+
+def build_low_penetration_key(
+    brand: object,
+    category: object = "",
+    *,
+    include_category: bool = False,
+) -> str:
+    """Identifica una linea de baja penetracion sin mezclar categorias de la misma marca."""
+    brand_key = normalize_brand_key(str(brand or ""))
+    if not brand_key:
+        return ""
+    if include_category:
+        category_key = _normalize_lookup_text(category)
+        if category_key:
+            return f"{category_key}{LOW_PENETRATION_KEY_SEPARATOR}{brand_key}"
+    return brand_key
+
 def _parse_percent_value(raw_value: object, fallback: float) -> float:
     try:
         return float(str(raw_value).replace("%", "").strip())
@@ -1743,6 +1892,68 @@ class SheetBankMetadata:
     categoria_codigo: str = ""
 
 
+@dataclass(frozen=True)
+class SheetNameIdentity:
+    pipeline: Optional[int]
+    category_code: str
+    brand_name: str
+
+
+def parse_sheet_name_identity(sheet_name: str) -> SheetNameIdentity:
+    """Separa pipeline, categoria explicita y marca sin romper nombres historicos."""
+    raw_name = str(sheet_name or "").strip()
+    pipeline: Optional[int] = None
+    pipeline_match = re.match(r"(?i)^p([0-6])_", raw_name)
+    if pipeline_match:
+        pipeline = int(pipeline_match.group(1))
+        visible_name = raw_name[pipeline_match.end():].strip()
+    else:
+        visible_name = raw_name
+
+    parts = visible_name.split("_")
+    if len(parts) >= 2:
+        candidate_code = _normalize_category_code(parts[0])
+        candidate_brand = "_".join(parts[1:]).strip()
+        if (
+            candidate_code in CATEGORY_CODE_SET
+            and not _requires_metadata_category_resolution(candidate_code)
+            and candidate_brand
+        ):
+            return SheetNameIdentity(
+                pipeline=pipeline,
+                category_code=candidate_code,
+                brand_name=candidate_brand,
+            )
+
+    return SheetNameIdentity(
+        pipeline=pipeline,
+        category_code="",
+        brand_name=visible_name or raw_name or "N/D",
+    )
+
+
+def format_sheet_log_label(
+    sheet_name: str,
+    category_code: object = "",
+    category_name: object = "",
+) -> str:
+    """Identifica la hoja en el log con su marca y categoria resuelta."""
+    identity = parse_sheet_name_identity(sheet_name)
+    brand_label = identity.brand_name
+    resolved_code = _normalize_category_code(category_code or identity.category_code)
+    resolved_name = build_category_short_name(category_name) or str(category_name or "").strip()
+    if resolved_code and resolved_name:
+        return f"{brand_label} [{resolved_code} - {resolved_name}]"
+    if resolved_name:
+        return f"{brand_label} [{resolved_name}]"
+    if resolved_code:
+        return f"{brand_label} [{resolved_code}]"
+
+    raw_name = str(sheet_name or "").strip()
+    visible_name = re.sub(r"(?i)^p[0-6]_", "", raw_name).strip()
+    return visible_name or raw_name or "N/D"
+
+
 def _normalize_metadata_match_text(value: object) -> str:
     normalized = _normalize_lookup_text(value)
     return re.sub(r"[^a-z0-9]+", " ", normalized).strip()
@@ -1754,6 +1965,7 @@ class MultSheetMetadataHints:
     semantic_segments: Tuple[str, ...] = ()
     exact_category_codes: Tuple[str, ...] = ()
     opaque_tokens: Tuple[str, ...] = ()
+    explicit_sheet_category_code: str = ""
 
 
 @dataclass(frozen=True)
@@ -2186,6 +2398,7 @@ def _extract_sheet_metadata_hints(raw_sheet: "pd.DataFrame", sheet_name: str = "
                     opaque_tokens.append(opaque_token)
                     seen_opaque_tokens.add(opaque_token)
 
+    sheet_identity = parse_sheet_name_identity(sheet_name)
     if sheet_name:
         extra_segments = [sheet_name, _clean_brand_name_from_sheet(sheet_name)]
         sheet_subcategory = extract_sheet_subcategory(sheet_name)
@@ -2207,6 +2420,7 @@ def _extract_sheet_metadata_hints(raw_sheet: "pd.DataFrame", sheet_name: str = "
         semantic_segments=tuple(semantic_segments),
         exact_category_codes=tuple(exact_category_codes),
         opaque_tokens=tuple(opaque_tokens),
+        explicit_sheet_category_code=sheet_identity.category_code,
     )
 
 
@@ -2604,11 +2818,30 @@ def resolve_sheet_bank_metadata(
         categoria_nombre_corto=default_categoria_nombre_corto,
         categoria_codigo=normalized_category_code,
     )
+    sheet_metadata_hints = sheet_metadata_hints or MultSheetMetadataHints()
+    explicit_sheet_category_code = _normalize_category_code(
+        sheet_metadata_hints.explicit_sheet_category_code
+    )
+    has_explicit_sheet_category = (
+        explicit_sheet_category_code in CATEGORY_CODE_SET
+        and not _requires_metadata_category_resolution(explicit_sheet_category_code)
+    )
+    if has_explicit_sheet_category:
+        cesta_nombre, categoria_nombre, categoria_nombre_corto = _lookup_category_metadata(
+            explicit_sheet_category_code,
+            categories_df,
+        )
+        metadata = SheetBankMetadata(
+            pais_nombre=metadata.pais_nombre,
+            cesta_nombre=cesta_nombre,
+            categoria_nombre=categoria_nombre,
+            categoria_nombre_corto=categoria_nombre_corto,
+            categoria_codigo=explicit_sheet_category_code,
+        )
     if not _requires_metadata_category_resolution(normalized_category_code):
         return metadata
 
     manufacturer_key = _resolve_mult_manufacturer_key(fabricante)
-    sheet_metadata_hints = sheet_metadata_hints or MultSheetMetadataHints()
     semantic_segments: List[str] = list(dict.fromkeys(sheet_metadata_hints.semantic_segments))
     if section_title:
         semantic_segments.append(section_title)
@@ -2617,7 +2850,14 @@ def resolve_sheet_bank_metadata(
     semantic_segments = list(dict.fromkeys(segment for segment in semantic_segments if str(segment or "").strip()))
 
     exact_resolution = _resolve_mult_exact_category(sheet_metadata_hints.exact_category_codes)
-    selected_resolution = _resolve_mult_opaque_category(sheet_metadata_hints.opaque_tokens)
+    if has_explicit_sheet_category:
+        selected_resolution = MultCategoryResolution(
+            explicit_sheet_category_code,
+            "explicit_sheet_name",
+            1000,
+        )
+    else:
+        selected_resolution = _resolve_mult_opaque_category(sheet_metadata_hints.opaque_tokens)
     rule_resolution = _resolve_rule_based_mult_category(manufacturer_key, marca_nombre_limpio, section_title)
 
     if selected_resolution is None:
@@ -4217,6 +4457,407 @@ def generar_grafico_cobertura(
     )
     plt.close(fig_cov)
 
+
+def trend_month_quantity_text(lang_idx: int, months: int) -> str:
+    """Formatea una cantidad de meses con singular/plural localizado."""
+    value = int(months)
+    units = {
+        1: ("mês", "meses"),
+        2: ("mes", "meses"),
+        3: ("month", "months"),
+    }
+    singular, plural = units.get(lang_idx, units[2])
+    return f"{value} {singular if abs(value) == 1 else plural}"
+
+
+def trend_animation_phase_text(lang_idx: int, pipeline: int, phase: str) -> str:
+    """Texto minimo que acompana las tres fases de la animacion de tendencia."""
+    pipeline_text = trend_month_quantity_text(lang_idx, pipeline)
+    labels = {
+        1: {
+            "original": "Datas originais",
+            "moving": f"Mover vendas {pipeline_text} →",
+            "aligned": f"Datas alinhadas · {pipeline_text}",
+        },
+        2: {
+            "original": "Fechas originales",
+            "moving": f"Mover ventas {pipeline_text} →",
+            "aligned": f"Fechas alineadas · {pipeline_text}",
+        },
+        3: {
+            "original": "Original dates",
+            "moving": f"Move sales {pipeline_text} →",
+            "aligned": f"Aligned dates · {pipeline_text}",
+        },
+    }
+    return labels.get(lang_idx, labels[2]).get(phase, labels[2]["aligned"])
+
+
+def _trend_animation_anchor_index(sell_in_data: "np.ndarray", pipeline: int) -> int:
+    """Elige un pico visible cuyo origen y destino quepan dentro del grafico."""
+    length = len(sell_in_data)
+    start = max(0, int(pipeline))
+    stop = max(start + 1, length - max(0, int(pipeline)))
+    candidates = [
+        idx
+        for idx in range(start, min(stop, length))
+        if np.isfinite(sell_in_data[idx])
+    ]
+    if not candidates:
+        candidates = [idx for idx in range(length) if np.isfinite(sell_in_data[idx])]
+    if not candidates:
+        return 0
+    return max(candidates, key=lambda idx: float(sell_in_data[idx]))
+
+
+def _figure_to_rgb_frame(fig: object) -> "Image.Image":
+    """Rasteriza un frame en alta resolucion sin alterar el aspect ratio."""
+    buffer = io.BytesIO()
+    fig.savefig(buffer, format="png", facecolor="white", dpi=fig.dpi)
+    buffer.seek(0)
+    with Image.open(buffer) as rendered:
+        return rendered.convert("RGB")
+
+
+def _trend_subplot_layout(legend_y: float, doble_eje: bool) -> Dict[str, float]:
+    """Distribuye el canvas sin aire excesivo y preserva etiquetas y leyenda."""
+    compact_layout = float(legend_y) >= -0.23
+    return {
+        "left": 0.075,
+        "right": 0.925 if doble_eje else 0.985,
+        "bottom": (
+            TREND_COMPACT_BOTTOM_MARGIN
+            if compact_layout
+            else TREND_DEFAULT_BOTTOM_MARGIN
+        ),
+        "top": TREND_COMPACT_TOP_MARGIN if compact_layout else TREND_DEFAULT_TOP_MARGIN,
+    }
+
+
+def _build_animated_trend_gif(
+    *,
+    marca_clean: str,
+    pipeline: int,
+    df_plot: "pd.DataFrame",
+    lang_idx: int,
+    labels_dict: Dict[Tuple[int, str], List[str] | str],
+    doble_eje: bool,
+    figsize: Tuple[float, float],
+    legend_y: float,
+) -> io.BytesIO:
+    """Anima Sell-in desde sus fechas reales hasta las fechas comparables del hogar."""
+    period_tokens = df_plot[COL_DATA].reset_index(drop=True)
+    sell_in_data = pd.to_numeric(df_plot[COL_SELL_IN], errors="coerce").to_numpy(dtype=float)
+    sell_out_data = pd.to_numeric(df_plot[COL_SELL_OUT], errors="coerce").to_numpy(dtype=float)
+    x_labels = period_tokens.to_numpy()
+    x_positions = np.arange(len(x_labels), dtype=float)
+
+    fig_trend, ax_trend = plt.subplots(figsize=figsize, dpi=TREND_ANIMATION_DPI)
+    ax2 = ax_trend.twinx() if doble_eje else None
+    sell_in_exponent = trend_axis_magnitude_exponent(sell_in_data)
+    sell_out_exponent = trend_axis_magnitude_exponent(sell_out_data)
+    sell_in_axis_label = visible_sell_in_label()
+    sell_out_axis_label = short_visible_sell_out_axis_label(lang_idx)
+
+    sell_in_line, = ax_trend.plot(
+        x_positions,
+        sell_in_data,
+        color=COLOR_SELLIN_TREND_LINE,
+        linewidth=4,
+        label=visible_sell_in_label(),
+        zorder=4,
+    )
+    sell_out_axis = ax2 if ax2 is not None else ax_trend
+    sell_out_line, = sell_out_axis.plot(
+        x_positions,
+        sell_out_data,
+        color=COLOR_SELLOUT_TREND_LINE,
+        linewidth=4,
+        label=visible_sell_out_label(lang_idx),
+        zorder=3,
+    )
+
+    if ax2 is not None:
+        ax_trend.set_ylabel(
+            trend_axis_title(sell_in_axis_label, sell_in_exponent, lang_idx),
+            color=COLOR_SELLIN_TREND_LINE,
+            fontsize=10,
+        )
+        ax2.set_ylabel(
+            trend_axis_title(sell_out_axis_label, sell_out_exponent, lang_idx),
+            color=COLOR_SELLOUT_TREND_LINE,
+            fontsize=10,
+        )
+        ax_trend.yaxis.set_major_formatter(build_trend_axis_formatter(lang_idx, sell_in_exponent))
+        ax2.yaxis.set_major_formatter(build_trend_axis_formatter(lang_idx, sell_out_exponent))
+        ax_trend.set_ylim(bottom=0)
+        ax2.set_ylim(bottom=0)
+        ax2.legend(
+            [sell_in_line, sell_out_line],
+            [sell_in_line.get_label(), sell_out_line.get_label()],
+            loc="lower center",
+            bbox_to_anchor=(0.5, legend_y),
+            frameon=False,
+            prop={"size": 11},
+            ncol=2,
+        )
+    else:
+        shared_exponent = trend_axis_magnitude_exponent([*sell_in_data, *sell_out_data])
+        ax_trend.set_ylabel(
+            trend_axis_title(
+                f"{sell_in_axis_label} / {sell_out_axis_label}",
+                shared_exponent,
+                lang_idx,
+            ),
+            color="black",
+            fontsize=10,
+        )
+        ax_trend.yaxis.set_major_formatter(build_trend_axis_formatter(lang_idx, shared_exponent))
+        ax_trend.set_ylim(bottom=0)
+        ax_trend.legend(
+            [sell_in_line, sell_out_line],
+            [sell_in_line.get_label(), sell_out_line.get_label()],
+            loc="lower center",
+            bbox_to_anchor=(0.5, legend_y),
+            frameon=False,
+            prop={"size": 11},
+            ncol=2,
+        )
+
+    visible_positions = x_positions[pipeline:]
+    visible_labels = x_labels[pipeline:]
+    ax_trend.set_xlim(float(pipeline) - 0.5, float(len(x_labels)) - 0.5)
+    ax_trend.set_xticks(visible_positions)
+    ax_trend.set_xticklabels(visible_labels, rotation=30, ha="right", fontsize=9)
+    if len(x_labels) - pipeline > 12:
+        for idx in range(len(x_labels) - 13, pipeline - 1, -12):
+            ax_trend.axvline(
+                x=float(idx),
+                color="#B0B0B0",
+                linestyle="--",
+                linewidth=1.1,
+                alpha=0.35,
+                zorder=1,
+            )
+    apply_trend_grid_style(ax_trend, "monthly")
+    ax_trend.spines["top"].set_visible(False)
+    ax_trend.spines["right"].set_visible(False)
+    if ax2 is not None:
+        ax2.spines["top"].set_visible(False)
+
+    title = labels_dict.get((lang_idx, "Titulo Vol"), "Tendencia en Volumen")
+    ax_trend.set_title(f"{title} | {marca_clean}", size=17)
+    status = ax_trend.text(
+        0.99,
+        1.015,
+        trend_animation_phase_text(lang_idx, pipeline, "original"),
+        transform=ax_trend.transAxes,
+        ha="right",
+        va="bottom",
+        fontsize=11,
+        fontweight="bold",
+        color="#008C95",
+    )
+
+    anchor_idx = _trend_animation_anchor_index(sell_in_data, pipeline)
+    target_idx = min(len(x_labels) - 1, anchor_idx + pipeline)
+    origin_guide = ax_trend.axvline(
+        float(anchor_idx),
+        color=COLOR_SELLIN_TREND_LINE,
+        linestyle=":",
+        linewidth=2,
+        alpha=0.9,
+        zorder=2,
+    )
+    target_guide = ax_trend.axvline(
+        float(target_idx),
+        color=COLOR_SELLOUT_TREND_LINE,
+        linestyle=":",
+        linewidth=2,
+        alpha=0.8,
+        zorder=2,
+    )
+    origin_marker, = ax_trend.plot(
+        [float(anchor_idx)],
+        [float(sell_in_data[anchor_idx])],
+        marker="o",
+        markersize=9,
+        markerfacecolor="white",
+        markeredgecolor=COLOR_SELLIN_TREND_LINE,
+        markeredgewidth=2,
+        linestyle="none",
+        zorder=6,
+    )
+    target_marker, = sell_out_axis.plot(
+        [float(target_idx)],
+        [float(sell_out_data[target_idx])],
+        marker="o",
+        markersize=9,
+        markerfacecolor="white",
+        markeredgecolor=COLOR_SELLOUT_TREND_LINE,
+        markeredgewidth=2,
+        linestyle="none",
+        zorder=6,
+    )
+    aligned_band = ax_trend.axvspan(
+        float(target_idx) - 0.35,
+        float(target_idx) + 0.35,
+        color="#00A6A6",
+        alpha=0.0,
+        zorder=0,
+    )
+
+    # Mantiene un canvas estable en todos los frames. En los layouts amplios,
+    # acerca titulo y leyenda al area de datos para liberar la franja del logo.
+    fig_trend.subplots_adjust(
+        **_trend_subplot_layout(legend_y, ax2 is not None),
+    )
+
+    frames: List["Image.Image"] = []
+    durations: List[int] = []
+    total_steps = max(2, int(TREND_ANIMATION_TRANSITION_FRAMES))
+    progress_values = [0.0] + [step / total_steps for step in range(1, total_steps + 1)]
+    moving_arrow = None
+    moving_label = None
+    for frame_idx, raw_progress in enumerate(progress_values):
+        progress = raw_progress * raw_progress * (3.0 - (2.0 * raw_progress))
+        offset = float(pipeline) * progress
+        moving_x = float(anchor_idx) + offset
+        sell_in_line.set_xdata(x_positions + offset)
+        origin_guide.set_xdata([moving_x, moving_x])
+        origin_guide.set_alpha(max(0.25, 0.9 - (0.65 * progress)))
+        origin_marker.set_xdata([moving_x])
+        aligned_band.set_alpha(0.11 * progress)
+
+        if moving_arrow is not None:
+            moving_arrow.remove()
+            moving_arrow = None
+        if moving_label is not None:
+            moving_label.remove()
+            moving_label = None
+        if target_idx - moving_x > 0.08:
+            moving_arrow = ax_trend.annotate(
+                "",
+                xy=(float(target_idx), 0.93),
+                xytext=(moving_x, 0.93),
+                xycoords=ax_trend.get_xaxis_transform(),
+                textcoords=ax_trend.get_xaxis_transform(),
+                arrowprops={"arrowstyle": "->", "color": "#008C95", "linewidth": 1.8},
+            )
+            moving_label = ax_trend.text(
+                (moving_x + float(target_idx)) / 2.0,
+                0.95,
+                trend_month_quantity_text(lang_idx, pipeline),
+                transform=ax_trend.get_xaxis_transform(),
+                ha="center",
+                va="bottom",
+                fontsize=9,
+                fontweight="bold",
+                color="#008C95",
+                bbox={"facecolor": "white", "edgecolor": "none", "alpha": 0.88, "pad": 1.5},
+                zorder=7,
+            )
+
+        if frame_idx == 0:
+            phase = "original"
+            duration = TREND_ANIMATION_INITIAL_DURATION_MS
+        elif frame_idx == len(progress_values) - 1:
+            phase = "aligned"
+            duration = TREND_ANIMATION_FINAL_DURATION_MS
+        else:
+            phase = "moving"
+            duration = TREND_ANIMATION_STEP_DURATION_MS
+        status.set_text(trend_animation_phase_text(lang_idx, pipeline, phase))
+        frames.append(_figure_to_rgb_frame(fig_trend))
+        durations.append(duration)
+
+    palette_colors = (
+        TREND_DUAL_AXIS_PALETTE_COLORS
+        if doble_eje
+        else TREND_ANIMATION_PALETTE_COLORS
+    )
+    palette_frame = frames[0].convert(
+        "P",
+        palette=Image.Palette.ADAPTIVE,
+        colors=palette_colors,
+    )
+    gif_frames = [palette_frame]
+    gif_frames.extend(
+        frame.quantize(palette=palette_frame, dither=Image.Dither.NONE)
+        for frame in frames[1:]
+    )
+    output = io.BytesIO()
+    gif_frames[0].save(
+        output,
+        format="GIF",
+        save_all=True,
+        append_images=gif_frames[1:],
+        duration=durations,
+        disposal=2,
+        # PowerPoint puede interpretar mal los rectangulos parciales que crea
+        # optimize=True, especialmente cuando la figura usa un eje secundario.
+        # Frames completos mantienen estable la posicion del GIF en ambos modos.
+        optimize=False,
+    )
+    output.seek(0)
+    plt.close(fig_trend)
+    return output
+
+
+def _place_trend_picture(
+    slide,
+    img_stream: io.BytesIO,
+    *,
+    box_left,
+    box_top,
+    box_width=None,
+    box_height=None,
+    picture_height=None,
+    stretch_to_box: bool = False,
+) -> None:
+    """Inserta PNG o GIF con el mismo ajuste usado historicamente por el slide."""
+    if box_width is None and box_height is None:
+        target_height = picture_height or Inches(DEFAULT_TREND_CHART_HEIGHT_INCHES)
+        img_stream.seek(0)
+        slide.shapes.add_picture(img_stream, box_left, box_top, height=target_height)
+        return
+
+    target_width = box_width if box_width is not None else Inches(100)
+    target_height = box_height if box_height is not None else Inches(100)
+    if stretch_to_box:
+        img_stream.seek(0)
+        slide.shapes.add_picture(
+            img_stream,
+            box_left,
+            box_top,
+            width=target_width,
+            height=target_height,
+        )
+        return
+    img_stream.seek(0)
+    try:
+        with Image.open(img_stream) as image_file:
+            px_w, px_h = image_file.size
+    except Exception:
+        px_w, px_h = (1, 1)
+    finally:
+        img_stream.seek(0)
+
+    aspect = (px_w / px_h) if px_h else 1.0
+    box_w_in = float(target_width) / 914400.0
+    box_h_in = float(target_height) / 914400.0
+    placed_w_in = box_w_in
+    placed_h_in = placed_w_in / aspect if aspect else box_h_in
+    if placed_h_in > box_h_in:
+        placed_h_in = box_h_in
+        placed_w_in = placed_h_in * aspect
+
+    placed_w = Inches(max(0.1, placed_w_in))
+    placed_h = Inches(max(0.1, placed_h_in))
+    left = box_left + int((target_width - placed_w) / 2)
+    top = box_top + int((target_height - placed_h) / 2)
+    slide.shapes.add_picture(img_stream, left, top, width=placed_w, height=placed_h)
+
 def generar_grafico_tendencia(
     slide,
     marca_clean,
@@ -4231,7 +4872,9 @@ def generar_grafico_tendencia(
     box_width=None,
     box_height=None,
     figsize: Tuple[float, float] = (13, 5),
-    legend_y: float = -0.28,
+    legend_y: float = DEFAULT_TREND_LEGEND_Y,
+    picture_height=None,
+    animate_pipeline: bool = True,
 ):
     """
     Genera el gráfico de líneas de Tendencia (Sell-in vs Sell-out) y lo añade al slide.
@@ -4241,8 +4884,59 @@ def generar_grafico_tendencia(
          print(f"{Fore.YELLOW}Advertencia: Datos insuficientes para gráfico de Tendencia (Marca: {marca_clean}, P:{pipeline}).")
          return
 
-    fig_trend, ax_trend = plt.subplots(figsize=figsize, dpi=100)
     granularity_norm = normalize_trend_granularity(granularity)
+    if box_left is None:
+        box_left = Inches(0.5)
+    if box_top is None:
+        box_top = Inches(1.8)
+
+    render_figsize = figsize
+    if box_width is not None and box_height is not None:
+        box_width_inches = max(1.0, float(box_width) / 914400.0)
+        box_height_inches = max(1.0, float(box_height) / 914400.0)
+        render_figsize = (
+            round(box_width_inches * TREND_ANIMATION_DPI) / TREND_ANIMATION_DPI,
+            round(box_height_inches * TREND_ANIMATION_DPI) / TREND_ANIMATION_DPI,
+        )
+
+    should_animate = (
+        bool(animate_pipeline)
+        and int(pipeline) > 0
+        and granularity_norm == "monthly"
+        and len(df_plot) > int(pipeline) + 1
+    )
+    if should_animate and doble_eje:
+        render_figsize = (
+            render_figsize[0],
+            max(render_figsize[1], TREND_DUAL_AXIS_MIN_CANVAS_HEIGHT_INCHES),
+        )
+    if should_animate:
+        animated_stream = _build_animated_trend_gif(
+            marca_clean=marca_clean,
+            pipeline=int(pipeline),
+            df_plot=df_plot.reset_index(drop=True),
+            lang_idx=lang_idx,
+            labels_dict=labels_dict,
+            doble_eje=doble_eje,
+            figsize=render_figsize,
+            legend_y=legend_y,
+        )
+        _place_trend_picture(
+            slide,
+            animated_stream,
+            box_left=box_left,
+            box_top=box_top,
+            box_width=box_width,
+            box_height=box_height,
+            picture_height=picture_height,
+            stretch_to_box=box_width is not None and box_height is not None,
+        )
+        return
+
+    fig_trend, ax_trend = plt.subplots(
+        figsize=render_figsize,
+        dpi=TREND_ANIMATION_DPI,
+    )
 
     def _trend_month_abbr_local(month: int) -> str:
         es = ["", "Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"]
@@ -4406,56 +5100,32 @@ def generar_grafico_tendencia(
         size=17,
     )
 
-    plt.tight_layout()
+    fig_trend.subplots_adjust(
+        **_trend_subplot_layout(legend_y, doble_eje),
+    )
     img_stream = io.BytesIO()
-    fig_trend.savefig(img_stream, format='png', bbox_inches='tight', pad_inches=0.1, transparent=True)
+    fig_trend.savefig(
+        img_stream,
+        format='png',
+        dpi=fig_trend.dpi,
+        transparent=True,
+    )
     img_stream.seek(0)
     img_pil = Image.open(img_stream)
     # Sin contorno: el slide ya maneja el layout, y el borde negro se ve pesado.
     img_stream_bordered = io.BytesIO()
     img_pil.save(img_stream_bordered, format='PNG')
     img_stream_bordered.seek(0)
-    # Ubicación por defecto (layout clásico)
-    if box_left is None:
-        box_left = Inches(0.5)
-    if box_top is None:
-        box_top = Inches(1.8)
-
-    # Si no se pasa un "box", mantenemos el comportamiento anterior (solo altura).
-    if box_width is None and box_height is None:
-        slide.shapes.add_picture(img_stream_bordered, box_left, box_top, height=Inches(4.5))
-        plt.close(fig_trend)
-        return
-
-    # Fit dentro del rectángulo manteniendo aspect ratio.
-    if box_width is None:
-        box_width = Inches(100)  # sin limite real, se acota por altura
-    if box_height is None:
-        box_height = Inches(100)  # sin limite real, se acota por ancho
-
-    img_stream_bordered.seek(0)
-    try:
-        with Image.open(img_stream_bordered) as _img:
-            px_w, px_h = _img.size
-    except Exception:
-        px_w, px_h = (1, 1)
-    finally:
-        img_stream_bordered.seek(0)
-
-    aspect = (px_w / px_h) if px_h else 1.0
-    box_w_in = float(box_width) / 914400.0
-    box_h_in = float(box_height) / 914400.0
-    placed_w_in = box_w_in
-    placed_h_in = placed_w_in / aspect if aspect else box_h_in
-    if placed_h_in > box_h_in:
-        placed_h_in = box_h_in
-        placed_w_in = placed_h_in * aspect
-
-    placed_w = Inches(max(0.1, placed_w_in))
-    placed_h = Inches(max(0.1, placed_h_in))
-    left = box_left + int((box_width - placed_w) / 2)
-    top = box_top + int((box_height - placed_h) / 2)
-    slide.shapes.add_picture(img_stream_bordered, left, top, width=placed_w, height=placed_h)
+    _place_trend_picture(
+        slide,
+        img_stream_bordered,
+        box_left=box_left,
+        box_top=box_top,
+        box_width=box_width,
+        box_height=box_height,
+        picture_height=picture_height,
+        stretch_to_box=box_width is not None and box_height is not None,
+    )
     plt.close(fig_trend)
     
 
@@ -4518,6 +5188,7 @@ class ExecutionOptions:
     variations_compact_period_labels: bool = False
     optimal_pipeline_mode: bool = False
     auto_mode: bool = False
+    trend_chart_height_inches: float = DEFAULT_TREND_CHART_HEIGHT_INCHES
 
     @classmethod
     def from_scenario(cls, scenario_key: str) -> Optional["ExecutionOptions"]:
@@ -4539,6 +5210,7 @@ class ExecutionOptions:
                 variations_include_same_period_last_year=True,
                 variations_compact_period_labels=False,
                 auto_mode=True,
+                trend_chart_height_inches=AUTO_TREND_CHART_HEIGHT_INCHES,
             )
         if scenario == SCENARIO_AUTO_DUAL_AXIS:
             return cls(
@@ -4556,6 +5228,7 @@ class ExecutionOptions:
                 variations_include_same_period_last_year=True,
                 variations_compact_period_labels=False,
                 auto_mode=True,
+                trend_chart_height_inches=AUTO_TREND_CHART_HEIGHT_INCHES,
             )
         if scenario == SCENARIO_AUTO_OPTIMAL_PIPELINE:
             return cls(
@@ -4790,6 +5463,7 @@ def build_summary_columns(
     ref_dt: datetime,
     summary_extra_months: Sequence[int],
     summary_extra_months_mode: str,
+    include_category: bool = False,
 ) -> Tuple[List[str], List[datetime], List[str]]:
     coverage_periods, extra_periods, _, _ = build_summary_coverage_periods(
         ref_dt,
@@ -4798,6 +5472,7 @@ def build_summary_columns(
     )
     summary_base_columns: Dict[int, List[str]] = {
         1: [
+            "Categoria",
             "Fabricante/Marca",
             "Pipeline",
             "Penetração Média Mensal",
@@ -4805,6 +5480,7 @@ def build_summary_columns(
             "% VAR Worldpanel by Numerator",
         ],
         2: [
+            "Categoría",
             "Fabricante/Marca",
             "Pipeline",
             "Penetración Media Mensual",
@@ -4812,6 +5488,7 @@ def build_summary_columns(
             "% VAR Worldpanel by Numerator",
         ],
         3: [
+            "Category",
             "Manufacturer/Brand",
             "Pipeline",
             "Monthly Avg Penetration",
@@ -4822,6 +5499,8 @@ def build_summary_columns(
     coverage_prefix = "Coverage" if lang_index == 3 else "Cobertura"
     stability_label = {1: "Estabilidade", 2: "Estabilidad", 3: "Stability"}[lang_index]
     summary_columns = list(summary_base_columns[lang_index])
+    if not include_category:
+        summary_columns.pop(0)
     for period_dt in coverage_periods:
         summary_columns.append(f"{coverage_prefix} {period_dt.strftime('%b-%y')}")
     summary_columns.append(stability_label)
@@ -4834,13 +5513,20 @@ def build_labels(
     ref_month_year: str,
     summary_extra_months: Optional[Sequence[int]] = None,
     summary_extra_months_mode: str = "recent",
+    include_summary_category: bool = False,
 ) -> Dict[Tuple[int, str], List[str] | str]:
     """Reproduce el diccionario de etiquetas usado por el script original."""
     ref_dt = dt.strptime(ref_month_year, "%m-%y")
     extra_months = list(summary_extra_months or [])
-    summary_pt, _, extra_cols_pt = build_summary_columns(1, fabricante, ref_dt, extra_months, summary_extra_months_mode)
-    summary_es, _, extra_cols_es = build_summary_columns(2, fabricante, ref_dt, extra_months, summary_extra_months_mode)
-    summary_en, _, extra_cols_en = build_summary_columns(3, fabricante, ref_dt, extra_months, summary_extra_months_mode)
+    summary_pt, _, extra_cols_pt = build_summary_columns(
+        1, fabricante, ref_dt, extra_months, summary_extra_months_mode, include_summary_category
+    )
+    summary_es, _, extra_cols_es = build_summary_columns(
+        2, fabricante, ref_dt, extra_months, summary_extra_months_mode, include_summary_category
+    )
+    summary_en, _, extra_cols_en = build_summary_columns(
+        3, fabricante, ref_dt, extra_months, summary_extra_months_mode, include_summary_category
+    )
 
     return {
         (1, "S1"): " ",
@@ -4868,14 +5554,20 @@ def build_labels(
         (1, "LowPenFooterPlural"): "Marcas de baixa penetração (<200 compradores) - Resultados para uso interno",
         (1, "LowPenSummarySingular"): "O estudo contém 1 marca de baixa penetração (<200 buyers). Resultados para uso interno",
         (1, "LowPenSummaryPlural"): "O estudo contém {n} marcas de baixa penetração (<200 buyers). Resultados para uso interno",
+        (1, "LowPenSummaryLineSingular"): "O estudo contém 1 linha de baixa penetração (<200 buyers). Resultados para uso interno",
+        (1, "LowPenSummaryLinePlural"): "O estudo contém {n} linhas de baixa penetração (<200 buyers). Resultados para uso interno",
         (2, "LowPenFooter"): "Marca de baja penetración (<200 compradores) - Resultados para uso interno",
         (2, "LowPenFooterPlural"): "Marcas de baja penetración (<200 compradores) - Resultados para uso interno",
         (2, "LowPenSummarySingular"): "El estudio contiene 1 marca de baja penetración (<200 buyers). Resultados para uso interno",
         (2, "LowPenSummaryPlural"): "El estudio contiene {n} marcas de baja penetración (<200 buyers). Resultados para uso interno",
+        (2, "LowPenSummaryLineSingular"): "El estudio contiene 1 línea de baja penetración (<200 buyers). Resultados para uso interno",
+        (2, "LowPenSummaryLinePlural"): "El estudio contiene {n} líneas de baja penetración (<200 buyers). Resultados para uso interno",
         (3, "LowPenFooter"): "Low penetration brand (<200 buyers) - For internal use only",
         (3, "LowPenFooterPlural"): "Low penetration brands (<200 buyers) - For internal use only",
         (3, "LowPenSummarySingular"): "This study contains 1 low penetration brand (<200 buyers). For internal use only",
         (3, "LowPenSummaryPlural"): "This study contains {n} low penetration brands (<200 buyers). For internal use only",
+        (3, "LowPenSummaryLineSingular"): "This study contains 1 low penetration line (<200 buyers). For internal use only",
+        (3, "LowPenSummaryLinePlural"): "This study contains {n} low penetration lines (<200 buyers). For internal use only",
     }
 
 def dataframe_to_bordered_stream(
@@ -4910,12 +5602,19 @@ def dataframe_to_bordered_stream(
     return final_stream
 
 
-def ensure_title_frame(slide: "Presentation"):
+def ensure_title_frame(slide: "Presentation", width: object = None):
     """Garantiza que el slide tenga un cuadro de título y devuelve su text_frame."""
     placeholder = slide.shapes.title
     if placeholder is not None:
+        if width is not None:
+            placeholder.width = width
         return placeholder.text_frame
-    textbox = slide.shapes.add_textbox(Inches(0.5), Inches(0.2), Inches(9), Inches(0.8))
+    textbox = slide.shapes.add_textbox(
+        Inches(0.5),
+        Inches(0.2),
+        width if width is not None else Inches(9),
+        Inches(0.8),
+    )
     return textbox.text_frame
 
 
@@ -4938,6 +5637,8 @@ class SlideBuilder:
         variations_box_style: str = "classic",
         coverage_slide_variant: str = "classic",
         variations_compact_period_labels: bool = False,
+        include_summary_category: bool = False,
+        trend_chart_height_inches: float = DEFAULT_TREND_CHART_HEIGHT_INCHES,
     ) -> None:
         self.ppt = presentation
         self.lang_index = lang_index
@@ -4953,6 +5654,8 @@ class SlideBuilder:
         self.variations_box_style = normalize_variations_box_style(variations_box_style)
         self.coverage_slide_variant = normalize_coverage_slide_variant(coverage_slide_variant)
         self.variations_compact_period_labels = bool(variations_compact_period_labels)
+        self.include_summary_category = bool(include_summary_category)
+        self.trend_chart_height_inches = float(trend_chart_height_inches)
 
     def _add_picture_fit(
         self,
@@ -5579,7 +6282,15 @@ class SlideBuilder:
         col_name_norms = [str(col_name).strip().lower() for col_name in df_summary.columns]
 
         def _semantic_role(col_name_norm: str, idx: int) -> str:
-            if "fabricante/marca" in col_name_norm or "manufacturer/brand" in col_name_norm:
+            del idx
+            if col_name_norm in {"categoria", "categoría", "category"}:
+                return "category"
+            if (
+                "fabricante/marca" in col_name_norm
+                or "manufacturer/brand" in col_name_norm
+                or "marca / fabricante" in col_name_norm
+                or "brand / manufacturer" in col_name_norm
+            ):
                 return "brand"
             if col_name_norm.startswith("pipeline"):
                 return "pipeline"
@@ -5591,12 +6302,13 @@ class SlideBuilder:
                 return "coverage"
             if "estabilidad" in col_name_norm or "estabilidade" in col_name_norm or "stability" in col_name_norm:
                 return "stability"
-            if idx in (3, 4):
+            if "% var" in col_name_norm or "var %" in col_name_norm:
                 return "variation"
             return "generic"
 
         ideal_share_by_role: Dict[str, float] = {
-            "brand": 0.19,
+            "category": 0.13,
+            "brand": 0.18,
             "pipeline": 0.075,
             "penetration": 0.16,
             "variation": 0.12,
@@ -5606,6 +6318,7 @@ class SlideBuilder:
             "generic": 0.11,
         }
         min_share_by_role: Dict[str, float] = {
+            "category": 0.09,
             "brand": 0.13,
             "pipeline": 0.06,
             "penetration": 0.12,
@@ -5720,9 +6433,47 @@ class SlideBuilder:
             body_font_size = 8
         low_penetration_keys: Set[str] = set()
         for brand in (low_penetration_brands or []):
-            key = self._normalize_brand_key(brand)
+            raw_key = str(brand or "").strip()
+            key = (
+                raw_key
+                if LOW_PENETRATION_KEY_SEPARATOR in raw_key
+                else build_low_penetration_key(raw_key)
+            )
             if key:
                 low_penetration_keys.add(key)
+        normalized_column_names = [str(col).strip().lower() for col in df_summary.columns]
+        brand_col_idx = next(
+            (
+                idx
+                for idx, col_name in enumerate(normalized_column_names)
+                if (
+                    "fabricante/marca" in col_name
+                    or "manufacturer/brand" in col_name
+                    or "marca / fabricante" in col_name
+                    or "brand / manufacturer" in col_name
+                )
+            ),
+            0,
+        )
+        category_col_idx = next(
+            (
+                idx
+                for idx, col_name in enumerate(normalized_column_names)
+                if col_name in {"categoria", "categoría", "category"}
+            ),
+            None,
+        )
+        context_col_indexes = {
+            idx
+            for idx, col_name in enumerate(normalized_column_names)
+            if col_name in {"categoria", "categoría", "category"}
+            or idx == brand_col_idx
+        }
+        variation_col_indexes = {
+            idx
+            for idx, col_name in enumerate(normalized_column_names)
+            if "% var" in col_name or "var %" in col_name
+        }
 
         for c, col_name in enumerate(df_summary.columns):
             self._set_table_cell_text(
@@ -5737,13 +6488,31 @@ class SlideBuilder:
             )
 
         for r, row_values in enumerate(df_summary.itertuples(index=False), start=1):
-            brand_key = self._normalize_brand_key(row_values[0]) if cols > 0 else ""
-            row_is_low_penetration = brand_key in low_penetration_keys
+            brand_display = str(row_values[brand_col_idx]) if cols > brand_col_idx else ""
+            brand_display = brand_display.split(" / ", 1)[0]
+            category_display = (
+                str(row_values[category_col_idx])
+                if category_col_idx is not None and cols > category_col_idx
+                else ""
+            )
+            brand_key = build_low_penetration_key(brand_display)
+            row_key = build_low_penetration_key(
+                brand_display,
+                category_display,
+                include_category=(
+                    self.include_summary_category
+                    and category_col_idx is not None
+                ),
+            )
+            row_is_low_penetration = (
+                row_key in low_penetration_keys
+                or brand_key in low_penetration_keys
+            )
             for c in range(cols):
                 val = self._normalize_summary_table_value(row_values[c])
-                align = 1 if c == 0 else 2
+                align = 1 if c in context_col_indexes else 2
                 fill = soft_red_bg if row_is_low_penetration else (stripe_bg if r % 2 == 0 else white_bg)
-                font_color = self._summary_variation_font_color(row_values[c]) if c in (3, 4) else black
+                font_color = self._summary_variation_font_color(row_values[c]) if c in variation_col_indexes else black
                 self._set_table_cell_text(
                     table.cell(r, c),
                     val,
@@ -5752,7 +6521,7 @@ class SlideBuilder:
                     font_size=body_font_size,
                     bold=False,
                     align=align,
-                    word_wrap=False,
+                    word_wrap=c in context_col_indexes,
                 )
 
         separator_color = RGBColor(255, 255, 255)
@@ -5801,7 +6570,8 @@ class SlideBuilder:
 
         table_df = df_bank.copy()
         rows = int(len(table_df.index)) + 2
-        cols = 11
+        category_offset = 1 if self.include_summary_category else 0
+        cols = 11 + category_offset
         if rows <= 2:
             return None
 
@@ -5828,7 +6598,10 @@ class SlideBuilder:
         table = table_shape.table
         self._clear_powerpoint_table_style(table)
 
-        col_ratios = [0.14, 0.085, 0.085, 0.07, 0.11, 0.11, 0.07, 0.07, 0.085, 0.085, 0.09]
+        if self.include_summary_category:
+            col_ratios = [0.11, 0.13, 0.075, 0.075, 0.06, 0.095, 0.095, 0.06, 0.06, 0.075, 0.075, 0.09]
+        else:
+            col_ratios = [0.14, 0.085, 0.085, 0.07, 0.11, 0.11, 0.07, 0.07, 0.085, 0.085, 0.09]
         assigned_w = 0
         for idx, ratio in enumerate(col_ratios):
             if idx == cols - 1:
@@ -5844,14 +6617,16 @@ class SlideBuilder:
             table.rows[row_idx].height = body_h
 
         merge_specs = [
-            (0, 0, 1, 0),
-            (0, 1, 0, 2),
-            (0, 3, 1, 3),
-            (0, 4, 0, 5),
-            (0, 6, 0, 7),
-            (0, 8, 0, 9),
-            (0, 10, 1, 10),
+            (0, category_offset, 1, category_offset),
+            (0, 1 + category_offset, 0, 2 + category_offset),
+            (0, 3 + category_offset, 1, 3 + category_offset),
+            (0, 4 + category_offset, 0, 5 + category_offset),
+            (0, 6 + category_offset, 0, 7 + category_offset),
+            (0, 8 + category_offset, 0, 9 + category_offset),
+            (0, 10 + category_offset, 1, 10 + category_offset),
         ]
+        if self.include_summary_category:
+            merge_specs.insert(0, (0, 0, 1, 0))
         for r1, c1, r2, c2 in merge_specs:
             try:
                 table.cell(r1, c1).merge(table.cell(r2, c2))
@@ -5859,28 +6634,45 @@ class SlideBuilder:
                 pass
 
         top_headers = {
-            (0, 0): "Brand",
-            (0, 1): "Annual Penetration %",
-            (0, 3): "PIPELINE",
-            (0, 4): f"Var % ({curr_year} vs {prev_year})",
-            (0, 6): "Coverage",
-            (0, 8): "Relative Coverage",
-            (0, 10): "Var. pp",
+            (0, category_offset): "Manufacturer/Brand",
+            (0, 1 + category_offset): "Annual Penetration %",
+            (0, 3 + category_offset): "PIPELINE",
+            (0, 4 + category_offset): f"Var % ({curr_year} vs {prev_year})",
+            (0, 6 + category_offset): "Coverage",
+            (0, 8 + category_offset): "Relative Coverage",
+            (0, 10 + category_offset): "Var. pp",
         }
+        if self.include_summary_category:
+            top_headers[(0, 0)] = "Category"
         bottom_headers = {
-            (1, 1): prev_mat_label,
-            (1, 2): curr_mat_label,
-            (1, 4): f"{str(self.manufacturer_name or 'P&G').upper()} WITH\nPIPELINE",
-            (1, 5): "Worldpanel by\nNumerator",
-            (1, 6): str(prev_year),
-            (1, 7): str(curr_year),
-            (1, 8): str(prev_year),
-            (1, 9): str(curr_year),
+            (1, 1 + category_offset): prev_mat_label,
+            (1, 2 + category_offset): curr_mat_label,
+            (1, 4 + category_offset): f"{str(self.manufacturer_name or 'P&G').upper()} WITH\nPIPELINE",
+            (1, 5 + category_offset): "Worldpanel by\nNumerator",
+            (1, 6 + category_offset): str(prev_year),
+            (1, 7 + category_offset): str(curr_year),
+            (1, 8 + category_offset): str(prev_year),
+            (1, 9 + category_offset): str(curr_year),
         }
 
+        dark_top_columns = {
+            category_offset,
+            3 + category_offset,
+            4 + category_offset,
+            10 + category_offset,
+        }
+        white_top_columns = {
+            category_offset,
+            3 + category_offset,
+            4 + category_offset,
+        }
+        if self.include_summary_category:
+            dark_top_columns.add(0)
+            white_top_columns.add(0)
+
         for (row_idx, col_idx), text in top_headers.items():
-            fill = header_bg if col_idx in (0, 3, 4, 10) else header_bg_light
-            font_color = white if col_idx in (0, 3, 4) else black
+            fill = header_bg if col_idx in dark_top_columns else header_bg_light
+            font_color = white if col_idx in white_top_columns else black
             self._set_table_cell_text(
                 table.cell(row_idx, col_idx),
                 text,
@@ -5892,8 +6684,9 @@ class SlideBuilder:
                 word_wrap=True,
             )
         for (row_idx, col_idx), text in bottom_headers.items():
-            fill = header_bg if col_idx in (4, 5) else header_bg_light
-            font_color = white if col_idx in (4, 5) else black
+            variation_columns = (4 + category_offset, 5 + category_offset)
+            fill = header_bg if col_idx in variation_columns else header_bg_light
+            font_color = white if col_idx in variation_columns else black
             self._set_table_cell_text(
                 table.cell(row_idx, col_idx),
                 text,
@@ -5925,7 +6718,7 @@ class SlideBuilder:
             abs_prev, abs_curr, rel_prev, rel_curr = self._resolve_pg_bank_coverage_values(bank_row)
             var_pp = (abs_curr - abs_prev) if pd.notna(abs_curr) and pd.notna(abs_prev) else np.nan
             row_values = [
-                bank_row.get('Fabricante', '') or bank_row.get('Fabricante/Marca', ''),
+                bank_row.get('Fabricante/Marca', ''),
                 "",
                 "",
                 bank_row.get('Pipeline', ''),
@@ -5937,9 +6730,14 @@ class SlideBuilder:
                 _fmt_num(rel_curr),
                 _fmt_num(var_pp),
             ]
+            if self.include_summary_category:
+                row_values.insert(
+                    0,
+                    build_category_short_name(bank_row.get('Categoria', '')) or bank_row.get('Categoria', ''),
+                )
             for col_idx, value in enumerate(row_values):
                 font_color = black
-                if col_idx in (4, 5):
+                if col_idx in (4 + category_offset, 5 + category_offset):
                     font_color = self._summary_variation_font_color(value)
                     if self._parse_summary_percent_value(value) and self._parse_summary_percent_value(value) > 0:
                         font_color = positive_green
@@ -6736,14 +7534,22 @@ class SlideBuilder:
         marca_nombre_limpio: str,
         lang_index: int,
         coverage_label: str,
+        presentation_label: Optional[str] = None,
         progress: Optional["Progress"] = None,
         task_id: Optional[int] = None,
     ) -> int:
         slides_created = 0
+        display_label = str(presentation_label or marca_nombre_limpio).strip() or marca_nombre_limpio
+        pipeline_title = build_pipeline_presentation_title(
+            display_label,
+            assets.pipeline,
+            lang_index=lang_index,
+        )
         slide_cov = self.ppt.slides.add_slide(self.ppt.slide_layouts[PPT_LAYOUT_INDEX])
-        tx_title_cov = ensure_title_frame(slide_cov)
+        pipeline_title_width = self.ppt.slide_width - Inches(1.0)
+        tx_title_cov = ensure_title_frame(slide_cov, width=pipeline_title_width)
         p_cov = tx_title_cov.paragraphs[0]
-        p_cov.text = f"{marca_nombre_limpio} - Pipeline {assets.pipeline}"
+        p_cov.text = pipeline_title
         p_cov.font.bold = True
         p_cov.font.size = Pt(24)
         chart_top = Inches(2.0)
@@ -6753,7 +7559,7 @@ class SlideBuilder:
             chart_height = Inches(3.95)
         generar_grafico_cobertura(
             slide_cov,
-            marca_nombre_limpio,
+            display_label,
             assets.pipeline,
             assets.coverage_series,
             assets.penetration_series,
@@ -6812,9 +7618,9 @@ class SlideBuilder:
         if progress and task_id is not None:
             progress.update(task_id, advance=1)
         slide_trend = self.ppt.slides.add_slide(self.ppt.slide_layouts[PPT_LAYOUT_INDEX])
-        tx_title_trend = ensure_title_frame(slide_trend)
+        tx_title_trend = ensure_title_frame(slide_trend, width=pipeline_title_width)
         p_trend = tx_title_trend.paragraphs[0]
-        p_trend.text = f"{marca_nombre_limpio} - Pipeline {assets.pipeline}"
+        p_trend.text = pipeline_title
         p_trend.font.bold = True
         p_trend.font.size = Pt(24)
         has_variations = assets.variations_detail is not None and not assets.variations_detail.empty
@@ -6844,7 +7650,7 @@ class SlideBuilder:
 
             generar_grafico_tendencia(
                 slide_trend,
-                marca_nombre_limpio,
+                display_label,
                 assets.pipeline,
                 assets.trend_plot_df,
                 lang_index,
@@ -6860,15 +7666,29 @@ class SlideBuilder:
                 legend_y=-0.22,
             )
         else:
+            trend_chart_kwargs = {
+                "picture_height": Inches(self.trend_chart_height_inches),
+            }
+            if self.trend_chart_height_inches > DEFAULT_TREND_CHART_HEIGHT_INCHES:
+                horizontal_margin = Inches(0.35)
+                trend_chart_kwargs = {
+                    "box_left": horizontal_margin,
+                    "box_top": Inches(AUTO_TREND_CHART_TOP_INCHES),
+                    "box_width": self.ppt.slide_width - (2 * horizontal_margin),
+                    "box_height": Inches(self.trend_chart_height_inches),
+                    "figsize": (13.8, 5.8),
+                    "legend_y": AUTO_TREND_LEGEND_Y,
+                }
             generar_grafico_tendencia(
                 slide_trend,
-                marca_nombre_limpio,
+                display_label,
                 assets.pipeline,
                 assets.trend_plot_df,
                 lang_index,
                 self.labels,
                 doble_eje=(self.tipo_eje_tend == "doble"),
                 granularity=self.trend_granularity,
+                **trend_chart_kwargs,
             )
         if has_variations:
             if self.variations_box_style == "pretty":
@@ -6921,16 +7741,25 @@ class SlideBuilder:
             progress.update(task_id, advance=1)
         if assets.evolution_figure is not None:
             slide_evol = self.ppt.slides.add_slide(self.ppt.slide_layouts[PPT_LAYOUT_INDEX])
-            tx_title_evol = ensure_title_frame(slide_evol)
+            tx_title_evol = ensure_title_frame(slide_evol, width=pipeline_title_width)
             p_evol = tx_title_evol.paragraphs[0]
-            if lang_index == 3:
-                p_evol.text = f"{marca_nombre_limpio} - Pipeline {assets.pipeline} - Monthly Evolution and YoY Variation"
-            elif lang_index == 1:
-                p_evol.text = f"{marca_nombre_limpio} - Pipeline {assets.pipeline} - Evolução Mensal e Variação"
-            else:
-                p_evol.text = f"{marca_nombre_limpio} - Pipeline {assets.pipeline} - Evolución Mensual y Variación"
-            p_evol.font.bold = True
-            p_evol.font.size = Pt(24)
+            evolution_title = build_pipeline_presentation_title(
+                display_label,
+                assets.pipeline,
+                slide_kind="evolution",
+                lang_index=lang_index,
+            )
+            p_evol.clear()
+            title_run = p_evol.add_run()
+            title_run.text = evolution_title
+            title_run.font.bold = True
+            # El placeholder del template es de una sola linea. Un titulo con
+            # categoria + descriptor de evolucion puede envolver y quedar
+            # recortado por arriba, por lo que usamos un tamano mas compacto.
+            title_run.font.size = Pt(20)
+            title_run.font.name = "Arial"
+            tx_title_evol.word_wrap = False
+            tx_title_evol.auto_size = None
             buffer = io.BytesIO()
             assets.evolution_figure.savefig(buffer, format="png", dpi=240, bbox_inches="tight", pad_inches=0.08, transparent=True)
             plt.close(assets.evolution_figure)
@@ -7011,23 +7840,12 @@ class SlideBuilder:
             usable_w = self.ppt.slide_width - 2 * left
             total_h = Inches(4.6)
             if self.coverage_slide_variant == "pg" and df_bank is not None and not df_bank.empty:
-                label_box = slide_summary.shapes.add_textbox(Inches(0.18), top + Inches(0.78), Inches(1.22), Inches(0.34))
-                label_tf = label_box.text_frame
-                label_tf.clear()
-                label_tf.word_wrap = True
-                label_p = label_tf.paragraphs[0]
-                label_p.text = str(categoria_nombre or "").strip()
-                label_p.font.size = Pt(12)
-                label_p.font.bold = True
-                label_p.font.color.rgb = RGBColor(35, 35, 35)
-                label_p.alignment = 1
-                pg_left = Inches(1.45)
                 self._add_pg_summary_table(
                     slide_summary,
                     df_bank,
-                    left=pg_left,
+                    left=left,
                     top=top,
-                    width=self.ppt.slide_width - pg_left - Inches(0.35),
+                    width=usable_w,
                     max_height=total_h,
                 )
             elif len(summary_groups) == 1:
@@ -7074,10 +7892,14 @@ class SlideBuilder:
         if low_penetration_brands:
             unique_brands = sorted({str(b).strip() for b in low_penetration_brands if str(b).strip()})
             n = len(unique_brands)
-            key = "LowPenSummaryPlural" if n > 1 else "LowPenSummarySingular"
+            if self.include_summary_category:
+                key = "LowPenSummaryLinePlural" if n > 1 else "LowPenSummaryLineSingular"
+            else:
+                key = "LowPenSummaryPlural" if n > 1 else "LowPenSummarySingular"
             tpl = self.labels.get((self.lang_index, key))
             if not tpl:
-                tpl = self.labels.get((self.lang_index, "LowPenSummaryPlural" if n > 1 else "LowPenSummarySingular"))
+                fallback_key = "LowPenSummaryPlural" if n > 1 else "LowPenSummarySingular"
+                tpl = self.labels.get((self.lang_index, fallback_key))
             if not tpl:
                 tpl = "This study contains {n} low penetration brand(s) (<200 buyers). For internal use only"
             msg = str(tpl).format(n=n)
@@ -7247,13 +8069,11 @@ def _excel_lang_code(include_english: bool, pais_nombre: str) -> str:
 
 
 def _parse_pipeline_from_sheet_name(sheet_name: str) -> int:
-    match = re.match(r"(?i)^p([0-6])_", str(sheet_name or "").strip())
-    return int(match.group(1)) if match else 0
+    return parse_sheet_name_identity(sheet_name).pipeline or 0
 
 
 def _clean_brand_name_from_sheet(sheet_name: str) -> str:
-    cleaned = re.sub(r"(?i)^p[0-6]_", "", str(sheet_name or "")).strip()
-    return cleaned or str(sheet_name or "N/D")
+    return parse_sheet_name_identity(sheet_name).brand_name
 
 
 def _safe_hex(color_value: str) -> str:
@@ -8902,13 +9722,7 @@ ULTRA_FAST_CATEGORY_CODES: Set[str] = frozenset({
 
 
 def extract_forced_pipeline_from_sheet_name(sheet_name: str) -> Optional[int]:
-    match = re.match(r"(?i)^p([0-6])_", str(sheet_name or ""))
-    if match:
-        try:
-            return int(match.group(1))
-        except Exception:
-            return None
-    return None
+    return parse_sheet_name_identity(sheet_name).pipeline
 
 
 def _is_finite_number(value: object) -> bool:
@@ -9825,6 +10639,8 @@ def build_summary_and_bank_rows(
     round_coverage: bool,
     summary_extra_months: Sequence[int],
     summary_extra_months_mode: str,
+    include_summary_category: bool = False,
+    categoria_codigo: str = "",
 ) -> Tuple[Dict[str, str], Dict[str, object], float, float, float, str]:
     ref_dt = dt.strptime(ref_month_year, '%m-%y')
     summary_columns, coverage_periods, _ = build_summary_columns(
@@ -9833,6 +10649,7 @@ def build_summary_and_bank_rows(
         ref_dt=ref_dt,
         summary_extra_months=summary_extra_months,
         summary_extra_months_mode=summary_extra_months_mode,
+        include_category=include_summary_category,
     )
     _, _, base_prev, base_curr = build_summary_coverage_periods(
         ref_dt,
@@ -9855,15 +10672,20 @@ def build_summary_and_bank_rows(
     cov_anterior_val = _coverage_value_to_number(coverage_anterior, round_coverage)
     estabilidad = (cov_actual_val - cov_anterior_val) if round_coverage else round(cov_actual_val - cov_anterior_val, 1)
 
-    summary_row = {
-        summary_columns[0]: marca_nombre_limpio,
-        summary_columns[1]: pipeline,
-        summary_columns[2]: f"{averages.get('Penet_MAT_Actual', 0):.1f}%",
-        summary_columns[3]: f"{var_cliente_anual_y1*100:.1f}%" if pd.notna(var_cliente_anual_y1) else "0.0%",
-        summary_columns[4]: f"{var_kantar_anual_y1*100:.1f}%" if pd.notna(var_kantar_anual_y1) else "0.0%",
-    }
+    base_col_idx = 0
+    summary_row: Dict[str, str] = {}
+    if include_summary_category:
+        summary_row[summary_columns[0]] = build_category_short_name(categoria_nombre) or categoria_nombre
+        base_col_idx = 1
+    summary_row.update({
+        summary_columns[base_col_idx]: marca_nombre_limpio,
+        summary_columns[base_col_idx + 1]: pipeline,
+        summary_columns[base_col_idx + 2]: f"{averages.get('Penet_MAT_Actual', 0):.1f}%",
+        summary_columns[base_col_idx + 3]: f"{var_cliente_anual_y1*100:.1f}%" if pd.notna(var_cliente_anual_y1) else "0.0%",
+        summary_columns[base_col_idx + 4]: f"{var_kantar_anual_y1*100:.1f}%" if pd.notna(var_kantar_anual_y1) else "0.0%",
+    })
 
-    coverage_col_idx = 5
+    coverage_col_idx = base_col_idx + 5
     for period_dt in coverage_periods:
         cov_value = _coverage_value_for_year_month(coverage_series, period_dt.year, period_dt.month)
         summary_row[summary_columns[coverage_col_idx]] = _coverage_value_to_text(cov_value, round_coverage)
@@ -9873,6 +10695,7 @@ def build_summary_and_bank_rows(
     banco_row = {
         'Periodo': ref_dt.date(),
         'Fabricante': fabricante,
+        'Codigo Categoria': _normalize_category_code(categoria_codigo),
         'Categoria': categoria_nombre,
         'Fabricante/Marca': marca_nombre_limpio,
         'Cesta': cesta_nombre,
@@ -9898,7 +10721,7 @@ def build_summary_and_bank_rows(
 
 
 COVERAGE_BANK_COLUMNS = [
-    'Periodo', 'Fabricante', 'Categoria', 'Fabricante/Marca', 'Cesta', 'Subcategoria', 'Panel', 'Unidad',
+    'Periodo', 'Fabricante', 'Codigo Categoria', 'Categoria', 'Fabricante/Marca', 'Cesta', 'Subcategoria', 'Panel', 'Unidad',
     'Razon', 'Pais', 'Ampliacion', 'Penet Media Ano Mov Atual', 'Penet Media Ano Mov Anterior',
     'Raw Buyers Media Ano Mov Atual', 'Frecuencia Media Mensual', 'Pipeline', 'Cobertura Año Mov Actual',
     'Cobertura Año Mov Anterior', '%VAR Cliente', '% VAR WP by Numerator', 'Misma Tendencia', 'Estabilidad'
@@ -9908,6 +10731,9 @@ COVERAGE_BANK_COLUMNS = [
 PIPELINE_REPORT_BASE_COLUMNS = [
     'Fabricante/Marca',
     'Cesta',
+    'Codigo Categoria',
+    'Categoria',
+    'Periodo',
     'Penet Media Ano Mov Atual',
     'Raw Buyers Media Ano Mov Atual',
     'Frecuencia Media Mensual',
@@ -9954,6 +10780,9 @@ PIPELINE_REPORT_HEADER_TRANSLATIONS: Dict[str, Dict[str, str]] = {
     "ES": {
         'Fabricante/Marca': 'Fabricante/Marca',
         'Cesta': 'Cesta',
+        'Codigo Categoria': 'Código de categoría',
+        'Categoria': 'Categoría',
+        'Periodo': 'Periodo',
         'Penet Media Ano Mov Atual': 'Penetración media año móvil actual',
         'Raw Buyers Media Ano Mov Atual': 'Raw Buyers medios año móvil actual',
         'Frecuencia Media Mensual': 'Frecuencia media mensual',
@@ -9989,6 +10818,9 @@ PIPELINE_REPORT_HEADER_TRANSLATIONS: Dict[str, Dict[str, str]] = {
     "PT": {
         'Fabricante/Marca': 'Fabricante/Marca',
         'Cesta': 'Cesta',
+        'Codigo Categoria': 'Código da categoria',
+        'Categoria': 'Categoria',
+        'Periodo': 'Período',
         'Penet Media Ano Mov Atual': 'Penetração média do ano móvel atual',
         'Raw Buyers Media Ano Mov Atual': 'Raw Buyers médios do ano móvel atual',
         'Frecuencia Media Mensual': 'Frequência média mensal',
@@ -10024,6 +10856,9 @@ PIPELINE_REPORT_HEADER_TRANSLATIONS: Dict[str, Dict[str, str]] = {
     "EN": {
         'Fabricante/Marca': 'Manufacturer/Brand',
         'Cesta': 'Basket',
+        'Codigo Categoria': 'Category code',
+        'Categoria': 'Category',
+        'Periodo': 'Period',
         'Penet Media Ano Mov Atual': 'Average penetration – current moving year',
         'Raw Buyers Media Ano Mov Atual': 'Average raw buyers – current moving year',
         'Frecuencia Media Mensual': 'Average monthly frequency',
@@ -10095,7 +10930,7 @@ def pipeline_report_sheet_title(language_code: str) -> str:
     }[language]
 
 
-def build_pipeline_report_columns(ref_month_year: str) -> List[str]:
+def _build_pipeline_report_coverage_columns(ref_month_year: str) -> List[str]:
     try:
         ref_dt = dt.strptime(ref_month_year, '%m-%y')
         prev_dt = ref_dt.replace(year=ref_dt.year - 1)
@@ -10104,16 +10939,33 @@ def build_pipeline_report_columns(ref_month_year: str) -> List[str]:
     except Exception:
         prev_coverage_col = 'Cobertura Año Mov Anterior'
         curr_coverage_col = 'Cobertura Año Mov Actual'
+    return [prev_coverage_col, curr_coverage_col]
+
+
+def build_pipeline_report_columns_for_periods(ref_month_years: Sequence[str]) -> List[str]:
+    coverage_columns: List[str] = []
+    for period_token in dict.fromkeys(str(value or "").strip() for value in ref_month_years):
+        if not period_token:
+            continue
+        for coverage_column in _build_pipeline_report_coverage_columns(period_token):
+            if coverage_column not in coverage_columns:
+                coverage_columns.append(coverage_column)
+    if not coverage_columns:
+        coverage_columns = _build_pipeline_report_coverage_columns("")
     return (
-        PIPELINE_REPORT_BASE_COLUMNS[:8]
-        + [prev_coverage_col, curr_coverage_col]
-        + PIPELINE_REPORT_BASE_COLUMNS[8:]
+        PIPELINE_REPORT_BASE_COLUMNS[:11]
+        + coverage_columns
+        + PIPELINE_REPORT_BASE_COLUMNS[11:]
         + PIPELINE_REPORT_VARIATION_COLUMNS
         + PIPELINE_REPORT_CORRELATION_COLUMNS
         + PIPELINE_REPORT_DIAGNOSTIC_COLUMNS
         + PIPELINE_REPORT_AUTO_MODE_COLUMNS
         + [PIPELINE_REPORT_REASON_COLUMN]
     )
+
+
+def build_pipeline_report_columns(ref_month_year: str) -> List[str]:
+    return build_pipeline_report_columns_for_periods([ref_month_year])
 
 
 def _round_report_number(value: object, digits: int = 1) -> object:
@@ -10361,6 +11213,9 @@ def build_pipeline_report_row(
     for col in [
         'Fabricante/Marca',
         'Cesta',
+        'Codigo Categoria',
+        'Categoria',
+        'Periodo',
         'Penet Media Ano Mov Atual',
         'Raw Buyers Media Ano Mov Atual',
         'Frecuencia Media Mensual',
@@ -10442,10 +11297,22 @@ def generate_presentation_and_bank(
     variations_compact_period_labels: bool = False,
     optimal_pipeline_mode: bool = False,
     elapsed_seconds_fn: Optional[Callable[[], Optional[float]]] = None,
+    trend_chart_height_inches: float = DEFAULT_TREND_CHART_HEIGHT_INCHES,
 ) -> Tuple[str, "pd.DataFrame", "pd.DataFrame", "pd.DataFrame"]:
     chosen_lang, lang_index = determine_language(include_english, pais_nombre)
+    include_summary_category = any(
+        bool(parse_sheet_name_identity(sheet_name).category_code)
+        for sheet_name in marcas
+    )
     ppt, tmp_ppt_path = copy_and_prune_template(root_dir, chosen_lang)
-    labels = build_labels(lang_index, fabricante, ref_month_year, summary_extra_months, summary_extra_months_mode)
+    labels = build_labels(
+        lang_index,
+        fabricante,
+        ref_month_year,
+        summary_extra_months,
+        summary_extra_months_mode,
+        include_summary_category,
+    )
     builder = SlideBuilder(
         ppt,
         lang_index,
@@ -10461,6 +11328,8 @@ def generate_presentation_and_bank(
         variations_box_style=variations_box_style,
         coverage_slide_variant=coverage_slide_variant,
         variations_compact_period_labels=variations_compact_period_labels,
+        include_summary_category=include_summary_category,
+        trend_chart_height_inches=trend_chart_height_inches,
     )
     builder.configure_cover(pais_nombre, fabricante, categoria_nombre, ref_month_year, chosen_lang)
 
@@ -10468,14 +11337,19 @@ def generate_presentation_and_bank(
     summary_rows_by_period: "OrderedDict[str, List[Dict[str, str]]]" = OrderedDict()
     bank_rows: List[Dict[str, object]] = []
     pipeline_report_rows: List[Dict[str, object]] = []
+    pipeline_report_periods: List[str] = []
     low_penetration_brands: List[str] = []
+    buyers_threshold_rows: List[Tuple[str, str, float]] = []
     brand_section_map: Dict[str, List[int]] = {}
     current_section_title: Optional[str] = None
     current_metadata_group: Optional[str] = None
     current_metadata_category_code: Optional[str] = None
 
     total_slides_to_generate = 0
-    needs_mult_metadata_hints = _requires_metadata_category_resolution(category_code)
+    needs_mult_metadata_hints = (
+        _requires_metadata_category_resolution(category_code)
+        or include_summary_category
+    )
     for marca_sheet_name in marcas:
         df_marca_ppt, _ = load_and_preprocess_sheet(
             excel_file_obj,
@@ -10513,17 +11387,13 @@ def generate_presentation_and_bank(
             )
             if df_marca_ppt is None:
                 continue
-            marca_nombre_limpio = re.sub(r"(?i)^p[0-6]_", "", marca_sheet_name)
+            marca_nombre_limpio = _clean_brand_name_from_sheet(marca_sheet_name)
             subcategoria_nombre = extract_sheet_subcategory(marca_sheet_name)
             forced_pipeline = extract_forced_pipeline_from_sheet_name(marca_sheet_name)
             metadata_group_title, next_metadata_group = build_metadata_group_for_sheet(
                 marca_sheet_name,
                 current_metadata_group,
                 fabricante,
-            )
-            section_title, next_section_title = build_section_title_for_sheet(
-                marca_sheet_name,
-                current_section_title,
             )
             sheet_bank_metadata = resolve_sheet_bank_metadata(
                 category_code=category_code,
@@ -10538,6 +11408,23 @@ def generate_presentation_and_bank(
                 sheet_metadata_hints=df_marca_ppt.attrs.get("sheet_metadata_hints"),
                 inherited_category_code=current_metadata_category_code,
             )
+            section_title, next_section_title = build_section_title_for_sheet(
+                marca_sheet_name,
+                current_section_title,
+                category_code=sheet_bank_metadata.categoria_codigo,
+                category_name=(
+                    sheet_bank_metadata.categoria_nombre_corto
+                    or sheet_bank_metadata.categoria_nombre
+                ),
+            )
+            marca_log_label = format_sheet_log_label(
+                marca_sheet_name,
+                category_code=sheet_bank_metadata.categoria_codigo,
+                category_name=(
+                    sheet_bank_metadata.categoria_nombre_corto
+                    or sheet_bank_metadata.categoria_nombre
+                ),
+            )
             current_metadata_group = next_metadata_group
             if _requires_metadata_category_resolution(category_code) and is_total_group_sheet(marca_sheet_name):
                 next_code = _normalize_category_code(sheet_bank_metadata.categoria_codigo)
@@ -10550,9 +11437,9 @@ def generate_presentation_and_bank(
             if issues_detected:
                 for issue in issues_detected:
                     if issue == "zero_dash":
-                        notify_zero_months_exception(marca_nombre_limpio)
+                        notify_zero_months_exception(marca_log_label)
                     elif issue == "negative":
-                        notify_negative_values_exception(marca_nombre_limpio)
+                        notify_negative_values_exception(marca_log_label)
             df_coverage = compute_coverage_dataframe(
                 df_marca_ppt,
                 pais_nombre,
@@ -10590,7 +11477,7 @@ def generate_presentation_and_bank(
                 selection_reason_by_pipeline[optimal_selection.pipeline] = optimal_selection.reason
                 print(
                     Fore.CYAN
-                    + f"Pipeline AUTO Balanceado para {marca_nombre_limpio}: P{optimal_selection.pipeline} "
+                    + f"Pipeline AUTO Balanceado para {marca_log_label}: P{optimal_selection.pipeline} "
                     + f"({optimal_selection.reason}). "
                     + f"AUTO Correlación: P{auto_comparison.correlation.pipeline}."
                 )
@@ -10608,14 +11495,41 @@ def generate_presentation_and_bank(
                 if not pd.isna(sheet_ref_value)
                 else ref_month_year
             )
-            notify_buyers_threshold(marca_nombre_limpio, averages.get('Buyers_MAT_Actual'))
+            buyers_num: Optional[float] = None
             try:
                 buyers_val = averages.get('Buyers_MAT_Actual')
-                if buyers_val is not None and not pd.isna(buyers_val) and float(buyers_val) < 200:
-                    if marca_nombre_limpio not in low_penetration_brands:
-                        low_penetration_brands.append(marca_nombre_limpio)
+                if buyers_val is not None and not pd.isna(buyers_val):
+                    buyers_num = float(buyers_val)
             except Exception:
-                pass
+                buyers_num = None
+            if buyers_num is not None:
+                category_short_name = (
+                    sheet_bank_metadata.categoria_nombre_corto
+                    or build_category_short_name(sheet_bank_metadata.categoria_nombre)
+                    or sheet_bank_metadata.categoria_nombre
+                )
+                category_code_display = _normalize_category_code(
+                    sheet_bank_metadata.categoria_codigo
+                )
+                category_display = (
+                    f"{category_code_display} · {category_short_name}"
+                    if category_code_display and category_short_name
+                    else category_short_name or category_code_display or "Sin categoría"
+                )
+                buyers_threshold_rows.append(
+                    (category_display, marca_nombre_limpio, buyers_num)
+                )
+                if buyers_num < LOW_PENETRATION_BUYERS_THRESHOLD:
+                    low_penetration_key = build_low_penetration_key(
+                        marca_nombre_limpio,
+                        (
+                            sheet_bank_metadata.categoria_nombre_corto
+                            or sheet_bank_metadata.categoria_nombre
+                        ),
+                        include_category=include_summary_category,
+                    )
+                    if low_penetration_key and low_penetration_key not in low_penetration_brands:
+                        low_penetration_brands.append(low_penetration_key)
             df_trend_plot = compute_trend_plot_df(df_marca_ppt)
             for pipeline in pipelines_to_run:
                 coverage_series = df_coverage[f'P{pipeline}']
@@ -10676,6 +11590,7 @@ def generate_presentation_and_bank(
                     marca_nombre_limpio=marca_nombre_limpio,
                     lang_index=lang_index,
                     coverage_label=builder.coverage_label,
+                    presentation_label=section_title,
                     progress=progress,
                     task_id=task_id,
                 )
@@ -10706,6 +11621,8 @@ def generate_presentation_and_bank(
                     round_coverage=round_coverage,
                     summary_extra_months=summary_extra_months,
                     summary_extra_months_mode=summary_extra_months_mode,
+                    include_summary_category=include_summary_category,
+                    categoria_codigo=sheet_bank_metadata.categoria_codigo,
                 )
                 summary_rows.append(summary_row)
                 summary_rows_by_period.setdefault(sheet_ref_month_year, []).append(summary_row)
@@ -10724,7 +11641,10 @@ def generate_presentation_and_bank(
                             auto_comparison=auto_comparison,
                         )
                     )
+                    pipeline_report_periods.append(sheet_ref_month_year)
         progress.update(task_id, advance=1)
+
+    report_buyers_threshold_table(buyers_threshold_rows)
 
     summary_groups: List[Tuple[str, "pd.DataFrame"]] = []
     for period_token, rows_for_period in summary_rows_by_period.items():
@@ -10736,6 +11656,7 @@ def generate_presentation_and_bank(
                 ref_dt=period_dt,
                 summary_extra_months=summary_extra_months,
                 summary_extra_months_mode=summary_extra_months_mode,
+                include_category=include_summary_category,
             )
         except Exception:
             period_columns = labels[(lang_index, 'Summary')]
@@ -10753,7 +11674,11 @@ def generate_presentation_and_bank(
     df_bank = pd.DataFrame(bank_rows, columns=COVERAGE_BANK_COLUMNS)
     df_pipeline_report = pd.DataFrame(pipeline_report_rows)
     if not df_pipeline_report.empty:
-        df_pipeline_report = df_pipeline_report.reindex(columns=build_pipeline_report_columns(ref_month_year))
+        df_pipeline_report = df_pipeline_report.reindex(
+            columns=build_pipeline_report_columns_for_periods(
+                pipeline_report_periods or [ref_month_year]
+            )
+        )
 
     builder.add_summary_slide(
         df_summary,
@@ -11090,6 +12015,7 @@ def save_pipeline_report(
         header_fill = _PatternFill(fill_type="solid", fgColor="404040")
         soft_header_fill = _PatternFill(fill_type="solid", fgColor="D9EAF7")
         correlation_header_fill = _PatternFill(fill_type="solid", fgColor="1F4E78")
+        numerator_header_fill = _PatternFill(fill_type="solid", fgColor="2F75B5")
         balanced_header_fill = _PatternFill(fill_type="solid", fgColor="548235")
         comparison_header_fill = _PatternFill(fill_type="solid", fgColor="BF9000")
         review_header_fill = _PatternFill(fill_type="solid", fgColor="C00000")
@@ -11109,6 +12035,7 @@ def save_pipeline_report(
         soft_red_fill = _PatternFill(fill_type="solid", fgColor="FFEBEB")
         soft_yellow_fill = _PatternFill(fill_type="solid", fgColor="FFF2CC")
         soft_green_fill = _PatternFill(fill_type="solid", fgColor="E2F0D9")
+        soft_numerator_fill = _PatternFill(fill_type="solid", fgColor="DDEBF7")
         dxf_red = _Diff(
             fill=_PatternFill(start_color='FFC7CE', end_color='FFC7CE', fill_type='solid'),
             font=_Font(color='9C0006'),
@@ -11119,9 +12046,24 @@ def save_pipeline_report(
         )
         rule_red = _Rule(type='cellIs', operator='lessThan', formula=['0'], dxf=dxf_red)
         rule_green = _Rule(type='cellIs', operator='greaterThan', formula=['0'], dxf=dxf_green)
+        numerator_rule_red = _Rule(
+            type='cellIs',
+            operator='lessThan',
+            formula=['0'],
+            dxf=_Diff(font=_Font(color='C00000')),
+        )
+        numerator_rule_green = _Rule(
+            type='cellIs',
+            operator='greaterThan',
+            formula=['0'],
+            dxf=_Diff(font=_Font(color='008000')),
+        )
         critical_headers = {
             'Fabricante/Marca',
             'Cesta',
+            'Codigo Categoria',
+            'Categoria',
+            'Periodo',
             'Pipeline',
             '%VAR Cliente',
             '% VAR WP by Numerator',
@@ -11140,6 +12082,9 @@ def save_pipeline_report(
             header_map[header] = cell.column
             if header == 'Revisión requerida':
                 cell.fill = review_header_fill
+                cell.font = header_font
+            elif header == '% VAR WP by Numerator':
+                cell.fill = numerator_header_fill
                 cell.font = header_font
             elif header in {
                 'Conflicto AUTO Correlación vs Balanceado',
@@ -11203,10 +12148,14 @@ def save_pipeline_report(
                 cell = ws.cell(row=row_idx, column=col_idx)
                 cell.alignment = body_alignment
                 cell.border = thin_border
-                if row_is_low_buyers:
-                    cell.fill = soft_red_fill
                 header = ws.cell(row=1, column=col_idx).value
-                if header in percent_columns:
+                if header == '% VAR WP by Numerator':
+                    cell.fill = soft_numerator_fill
+                elif row_is_low_buyers:
+                    cell.fill = soft_red_fill
+                if header == 'Periodo':
+                    cell.number_format = 'mmm-yy'
+                elif header in percent_columns:
                     cell.number_format = '0.0'
                 elif header in decimal_columns:
                     cell.number_format = '0.0'
@@ -11248,13 +12197,22 @@ def save_pipeline_report(
                 elif conflict_value == "sin conflicto":
                     conflict_cell.fill = soft_green_fill
 
-        for col_name in ['%VAR Cliente', '% VAR WP by Numerator', *PIPELINE_REPORT_VARIATION_COLUMNS, 'Estabilidad']:
+        for col_name in ['%VAR Cliente', *PIPELINE_REPORT_VARIATION_COLUMNS, 'Estabilidad']:
             col_idx = header_map.get(col_name)
             if col_idx is None or ws.max_row < 2:
                 continue
             data_range = f"{_get_col_letter(col_idx)}2:{_get_col_letter(col_idx)}{ws.max_row}"
             ws.conditional_formatting.add(data_range, rule_red)
             ws.conditional_formatting.add(data_range, rule_green)
+
+        numerator_col = header_map.get('% VAR WP by Numerator')
+        if numerator_col is not None and ws.max_row >= 2:
+            numerator_range = (
+                f"{_get_col_letter(numerator_col)}2:"
+                f"{_get_col_letter(numerator_col)}{ws.max_row}"
+            )
+            ws.conditional_formatting.add(numerator_range, numerator_rule_red)
+            ws.conditional_formatting.add(numerator_range, numerator_rule_green)
 
         corr_cols = [header_map.get(col_name) for col_name in PIPELINE_REPORT_CORRELATION_COLUMNS]
         corr_cols = [col_idx for col_idx in corr_cols if col_idx is not None]
@@ -11532,6 +12490,7 @@ class CoverageStudioUltraApp:
                 variations_compact_period_labels=options.variations_compact_period_labels,
                 optimal_pipeline_mode=options.optimal_pipeline_mode,
                 elapsed_seconds_fn=get_elapsed,
+                trend_chart_height_inches=options.trend_chart_height_inches,
             )
             ruta_banco_final = save_coverage_bank(
                 df_bank=df_bank,
