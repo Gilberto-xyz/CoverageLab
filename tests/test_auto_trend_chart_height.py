@@ -1,9 +1,66 @@
 import unittest
+import io
 
 import coverage_studio as studio
 
 
 class AutoTrendChartHeightTests(unittest.TestCase):
+    def test_scenario_three_enables_the_default_pipeline_animation(self) -> None:
+        options = studio.ExecutionOptions.from_scenario("3")
+
+        self.assertIsNotNone(options)
+        self.assertTrue(options.auto_mode)
+        self.assertEqual(options.trend_axis, "simple")
+        self.assertEqual(options.trend_granularity, "monthly")
+        self.assertTrue(options.animate_trend_pipeline)
+
+    def test_scenario_three_default_config_renders_an_animated_single_axis_chart(self) -> None:
+        studio._load_heavy_modules()
+        options = studio.ExecutionOptions.from_scenario("3")
+        presentation = studio.Presentation()
+        presentation.slide_width = studio.Inches(13.333333)
+        presentation.slide_height = studio.Inches(7.5)
+        slide = presentation.slides.add_slide(presentation.slide_layouts[6])
+        trend_df = studio.pd.DataFrame(
+            {
+                studio.COL_DATA: [
+                    "01-25", "02-25", "03-25", "04-25", "05-25", "06-25",
+                    "07-25", "08-25", "09-25", "10-25", "11-25", "12-25",
+                ],
+                studio.COL_SELL_IN: [10, 14, 20, 13, 11, 18, 12, 16, 22, 15, 12, 10],
+                studio.COL_SELL_OUT: [8, 9, 10, 12, 15, 11, 9, 14, 10, 13, 17, 12],
+            }
+        )
+        margin = studio.Inches(0.35)
+
+        studio.generar_grafico_tendencia(
+            slide,
+            "Marca",
+            1,
+            trend_df,
+            2,
+            {},
+            doble_eje=(options.trend_axis == "doble"),
+            granularity=options.trend_granularity,
+            box_left=margin,
+            box_top=studio.Inches(studio.AUTO_TREND_CHART_TOP_INCHES),
+            box_width=presentation.slide_width - (2 * margin),
+            box_height=studio.Inches(options.trend_chart_height_inches),
+            figsize=(13.8, 5.8),
+            legend_y=studio.AUTO_TREND_LEGEND_Y,
+            animate_pipeline=options.animate_trend_pipeline,
+        )
+
+        picture = slide.shapes[-1]
+        with studio.Image.open(io.BytesIO(picture.image.blob)) as image:
+            self.assertEqual(image.format, "GIF")
+            self.assertEqual(
+                image.n_frames,
+                studio.TREND_ANIMATION_TRANSITION_FRAMES + 1,
+            )
+        self.assertEqual(picture.top, studio.Inches(studio.AUTO_TREND_CHART_TOP_INCHES))
+        self.assertEqual(picture.height, studio.Inches(options.trend_chart_height_inches))
+
     def test_auto_templates_three_and_four_use_taller_trend_chart(self) -> None:
         for scenario in ("3", "4"):
             with self.subTest(scenario=scenario):

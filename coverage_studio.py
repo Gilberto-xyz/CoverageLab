@@ -5189,6 +5189,7 @@ class ExecutionOptions:
     optimal_pipeline_mode: bool = False
     auto_mode: bool = False
     trend_chart_height_inches: float = DEFAULT_TREND_CHART_HEIGHT_INCHES
+    animate_trend_pipeline: bool = True
 
     @classmethod
     def from_scenario(cls, scenario_key: str) -> Optional["ExecutionOptions"]:
@@ -5211,6 +5212,7 @@ class ExecutionOptions:
                 variations_compact_period_labels=False,
                 auto_mode=True,
                 trend_chart_height_inches=AUTO_TREND_CHART_HEIGHT_INCHES,
+                animate_trend_pipeline=True,
             )
         if scenario == SCENARIO_AUTO_DUAL_AXIS:
             return cls(
@@ -5229,6 +5231,7 @@ class ExecutionOptions:
                 variations_compact_period_labels=False,
                 auto_mode=True,
                 trend_chart_height_inches=AUTO_TREND_CHART_HEIGHT_INCHES,
+                animate_trend_pipeline=True,
             )
         if scenario == SCENARIO_AUTO_OPTIMAL_PIPELINE:
             return cls(
@@ -5639,6 +5642,7 @@ class SlideBuilder:
         variations_compact_period_labels: bool = False,
         include_summary_category: bool = False,
         trend_chart_height_inches: float = DEFAULT_TREND_CHART_HEIGHT_INCHES,
+        animate_trend_pipeline: bool = True,
     ) -> None:
         self.ppt = presentation
         self.lang_index = lang_index
@@ -5656,6 +5660,7 @@ class SlideBuilder:
         self.variations_compact_period_labels = bool(variations_compact_period_labels)
         self.include_summary_category = bool(include_summary_category)
         self.trend_chart_height_inches = float(trend_chart_height_inches)
+        self.animate_trend_pipeline = bool(animate_trend_pipeline)
 
     def _add_picture_fit(
         self,
@@ -7664,6 +7669,7 @@ class SlideBuilder:
                 # Imagen más "alta" para que se aproveche mejor la columna izquierda sin estirar.
                 figsize=(9.0, 7.0),
                 legend_y=-0.22,
+                animate_pipeline=self.animate_trend_pipeline,
             )
         else:
             trend_chart_kwargs = {
@@ -7688,6 +7694,7 @@ class SlideBuilder:
                 self.labels,
                 doble_eje=(self.tipo_eje_tend == "doble"),
                 granularity=self.trend_granularity,
+                animate_pipeline=self.animate_trend_pipeline,
                 **trend_chart_kwargs,
             )
         if has_variations:
@@ -11298,6 +11305,7 @@ def generate_presentation_and_bank(
     optimal_pipeline_mode: bool = False,
     elapsed_seconds_fn: Optional[Callable[[], Optional[float]]] = None,
     trend_chart_height_inches: float = DEFAULT_TREND_CHART_HEIGHT_INCHES,
+    animate_trend_pipeline: bool = True,
 ) -> Tuple[str, "pd.DataFrame", "pd.DataFrame", "pd.DataFrame"]:
     chosen_lang, lang_index = determine_language(include_english, pais_nombre)
     include_summary_category = any(
@@ -11330,6 +11338,7 @@ def generate_presentation_and_bank(
         variations_compact_period_labels=variations_compact_period_labels,
         include_summary_category=include_summary_category,
         trend_chart_height_inches=trend_chart_height_inches,
+        animate_trend_pipeline=animate_trend_pipeline,
     )
     builder.configure_cover(pais_nombre, fabricante, categoria_nombre, ref_month_year, chosen_lang)
 
@@ -12491,6 +12500,7 @@ class CoverageStudioUltraApp:
                 optimal_pipeline_mode=options.optimal_pipeline_mode,
                 elapsed_seconds_fn=get_elapsed,
                 trend_chart_height_inches=options.trend_chart_height_inches,
+                animate_trend_pipeline=options.animate_trend_pipeline,
             )
             ruta_banco_final = save_coverage_bank(
                 df_bank=df_bank,
