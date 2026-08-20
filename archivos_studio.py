@@ -267,6 +267,7 @@ categorias = [
     {'categoria': 'Alimentos', 'descripcion': 'Mayonesa', 'cod': 'MAYO'},
     {'categoria': 'Alimentos', 'descripcion': 'Cárnicos', 'cod': 'MEAT'},
     {'categoria': 'Alimentos', 'descripcion': 'Modificadores de Leche_Saborizadores p_leche', 'cod': 'MLKM'},
+    {'categoria': 'Alimentos', 'descripcion': 'Mole', 'cod': 'MOLE'},
     {'categoria': 'Alimentos', 'descripcion': 'Mixta Cereales Infantiles+Avenas', 'cod': 'MXCO'},
     {'categoria': 'Alimentos', 'descripcion': 'Mixta Caldos + Saborizantes', 'cod': 'MXBS'},
     {'categoria': 'Alimentos', 'descripcion': 'Mixta Caldos + Sopas', 'cod': 'MXSB'},

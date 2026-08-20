@@ -1,5 +1,6 @@
 import unittest
 import os
+from datetime import date
 
 from openpyxl import load_workbook
 
@@ -34,6 +35,39 @@ def candidate(
 
 
 class AutoPipelineComparisonTests(unittest.TestCase):
+    def test_pipeline_report_row_preserves_resolved_sheet_metadata(self) -> None:
+        bank_row = {
+            "Fabricante/Marca": "Natura",
+            "Cesta": "Cuidado Personal",
+            "Codigo Categoria": "MAKE",
+            "Categoria": "Maquillaje-Cosmeticos",
+            "Periodo": date(2026, 5, 1),
+            "Pipeline": 1,
+        }
+        variations = studio.pd.DataFrame(
+            [
+                {
+                    "Tipo": "Anual",
+                    **{f"Cliente P{pipeline}": 0.01 for pipeline in range(1, 7)},
+                }
+            ]
+        )
+        candidates = (candidate(1, 0.85, 0.2),)
+
+        row = studio.build_pipeline_report_row(
+            bank_row=bank_row,
+            df_variations=variations,
+            candidates=candidates,
+            selection_reason="Pipeline indicado en el nombre de la hoja",
+            ref_month_year="05-26",
+        )
+
+        self.assertEqual(row["Fabricante/Marca"], "Natura")
+        self.assertEqual(row["Codigo Categoria"], "MAKE")
+        self.assertEqual(row["Categoria"], "Maquillaje-Cosmeticos")
+        self.assertEqual(row["Cesta"], "Cuidado Personal")
+        self.assertEqual(row["Periodo"], date(2026, 5, 1))
+
     def test_pipeline_report_headers_are_localized_for_each_language(self) -> None:
         self.assertEqual(
             studio.localize_pipeline_report_header("Correlación P2", "ES"),
@@ -51,6 +85,14 @@ class AutoPipelineComparisonTests(unittest.TestCase):
             studio.localize_pipeline_report_header("Cobertura 05-26", "EN"),
             "Coverage 05-26",
         )
+        self.assertEqual(
+            studio.localize_pipeline_report_header("Codigo Categoria", "ES"),
+            "Código de categoría",
+        )
+        self.assertEqual(
+            studio.localize_pipeline_report_header("Categoria", "EN"),
+            "Category",
+        )
 
     def test_saved_pipeline_report_uses_percent_correlations_and_uniform_rows(self) -> None:
         columns = studio.build_pipeline_report_columns("05-26")
@@ -58,7 +100,13 @@ class AutoPipelineComparisonTests(unittest.TestCase):
         row.update(
             {
                 "Fabricante/Marca": "Marca teste",
+                "Cesta": "Cuidado Personal",
+                "Codigo Categoria": "FRAG",
+                "Categoria": "Fragancias",
+                "Periodo": date(2026, 5, 1),
                 "Pipeline": 2,
+                "Raw Buyers Media Ano Mov Atual": 100,
+                "% VAR WP by Numerator": 5.5,
                 "Correlación P1": 0.965,
                 "Correlación P2": 0.855,
                 "Correlación seleccionada": 0.855,
@@ -70,7 +118,9 @@ class AutoPipelineComparisonTests(unittest.TestCase):
                 "Pérdida de correlación Balanceado": 0.110,
             }
         )
-        report_df = studio.pd.DataFrame([row, row], columns=columns)
+        negative_row = dict(row)
+        negative_row["% VAR WP by Numerator"] = -3.2
+        report_df = studio.pd.DataFrame([row, negative_row], columns=columns)
 
         temp_dir = os.path.join(
             os.path.dirname(studio.__file__),
@@ -99,6 +149,35 @@ class AutoPipelineComparisonTests(unittest.TestCase):
             }
 
             correlation_col = headers["Correlação P1"]
+            numerator_col = headers["% VAR WP pela Numerator"]
+            self.assertEqual(
+                worksheet.cell(2, headers["Código da categoria"]).value,
+                "FRAG",
+            )
+            self.assertEqual(
+                worksheet.cell(2, headers["Categoria"]).value,
+                "Fragancias",
+            )
+            self.assertEqual(
+                worksheet.cell(2, headers["Cesta"]).value,
+                "Cuidado Personal",
+            )
+            self.assertEqual(
+                worksheet.cell(2, headers["Período"]).number_format,
+                "mmm-yy",
+            )
+            self.assertTrue(
+                worksheet.cell(1, numerator_col).fill.fgColor.rgb.endswith("2F75B5")
+            )
+            self.assertTrue(
+                worksheet.cell(2, numerator_col).fill.fgColor.rgb.endswith("DDEBF7")
+            )
+            self.assertTrue(
+                worksheet.cell(3, numerator_col).fill.fgColor.rgb.endswith("DDEBF7")
+            )
+            self.assertTrue(
+                worksheet.cell(2, headers["Cesta"]).fill.fgColor.rgb.endswith("FFEBEB")
+            )
             self.assertEqual(worksheet.cell(2, correlation_col).value, 0.965)
             self.assertEqual(worksheet.cell(2, correlation_col).number_format, "0.0%")
             self.assertEqual(
@@ -231,9 +310,22 @@ class AutoPipelineComparisonTests(unittest.TestCase):
     def test_report_columns_include_both_auto_modes(self) -> None:
         columns = studio.build_pipeline_report_columns("05-26")
 
+        self.assertEqual(
+            columns[:5],
+            ["Fabricante/Marca", "Cesta", "Codigo Categoria", "Categoria", "Periodo"],
+        )
         self.assertIn("Pipeline AUTO Correlación", columns)
         self.assertIn("Pipeline AUTO Balanceado", columns)
         self.assertIn("Revisión requerida", columns)
+
+    def test_report_columns_preserve_multiple_sheet_periods(self) -> None:
+        columns = studio.build_pipeline_report_columns_for_periods(["05-26", "06-26"])
+
+        self.assertIn("Cobertura 05-25", columns)
+        self.assertIn("Cobertura 05-26", columns)
+        self.assertIn("Cobertura 06-25", columns)
+        self.assertIn("Cobertura 06-26", columns)
+        self.assertEqual(len(columns), len(set(columns)))
 
 
 if __name__ == "__main__":

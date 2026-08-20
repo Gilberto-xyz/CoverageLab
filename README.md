@@ -143,9 +143,11 @@ Cada hoja representa una marca, variante o agrupación.
 ### Secciones de la presentación
 
 Cada hoja válida genera su propia sección de PowerPoint. El nombre de la
-sección es el nombre visible de la hoja sin el prefijo `P0_` a `P6_`, y contiene
-los slides consecutivos generados para esa hoja/pipeline (normalmente cobertura,
-tendencia y evolución).
+sección es el nombre visible de la hoja sin el prefijo `P0_` a `P6_`. Cuando la
+hoja declara una categoría válida, la sección y los títulos muestran también el
+nombre corto, sin exponer el código técnico; por ejemplo, `P6_FRAG_Natura` se
+presenta como `Natura — Fragancias`. La sección contiene los slides consecutivos
+generados para esa hoja/pipeline (normalmente cobertura, tendencia y evolución).
 
 Las hojas no heredan la sección de una categoría o total anterior. Por ejemplo,
 `P5_T.UL Sabonetes`, `P5_T.UL Sabonetes Barra` y `P2_T.UL FabClean` producen
@@ -160,6 +162,39 @@ Ejemplos:
 
 - `P1_Coffee Mate` procesa solo pipeline 1
 - `Coffee Mate` procesa todos los pipelines disponibles
+
+### Categoría explícita en el nombre de la hoja
+
+Después del prefijo de pipeline puede agregarse un código de categoría válido:
+
+```text
+P<pipeline>_<codCategoria>_<marca>
+```
+
+Ejemplos:
+
+- `P1_BISC_Clorox` -> categoría `Galletas`, marca `Clorox`
+- `P1_MOLE_Doña Maria` -> categoría `Mole`, marca `Doña Maria`
+- `P2_CARB_Pepsi` -> categoría `Bebidas Gaseosas`, marca `Pepsi`
+- `P3_BISC_Clorox_original` -> categoría `Galletas`, marca `Clorox_original`
+
+La separación solo se aplica cuando el primer segmento coincide exactamente con
+un código del catálogo. Los nombres históricos que no empiezan con un código de
+categoría conservan el comportamiento anterior:
+
+- `P1_Embasa_original` -> marca `Embasa_original`
+- `P1_Embasa_rvol1` -> marca `Embasa_rvol1`
+- `P1_Embasa_ajustado` -> marca `Embasa_ajustado`
+
+En archivos `CROS` y `MULT`, una categoría explícita en la hoja tiene prioridad
+para la metadata de esa hoja. Si no existe, se mantiene la resolución actual por
+contenido, reglas o metadata heredada.
+
+Al terminar de procesar las hojas, el log muestra una tabla consolidada con categoría,
+marca, compradores promedio y estado. Por ejemplo, `P1_FRAG_Natura` se identifica
+como categoría `FRAG · Fragancias`, marca `Natura`, y se marca como `PRECAUCIÓN`
+cuando el promedio es menor a 200 compradores. La tabla contiene una fila por hoja,
+sin repetirla por cada pipeline generado.
 
 ### Subcategoría entre paréntesis
 
@@ -249,6 +284,12 @@ incluye como diagnóstico paralelo:
 - mejora del gap de variación
 - indicador de revisión requerida
 
+Cada fila también conserva la metadata resuelta de su hoja: código de categoría,
+categoría, cesta y periodo. Si las hojas tienen distintos meses de corte, el reporte
+mantiene las columnas de cobertura correspondientes a todos esos periodos.
+La columna `% VAR WP de Numerator` se distingue con una paleta azul y conserva el
+valor en verde o rojo según el signo para facilitar la comparación con `% VAR cliente`.
+
 En este modo el prefijo `P1_` a `P6_` se usa como evidencia/fallback, no como
 restricción obligatoria. Fuera de AUTOEXPERIMENTAL conserva el comportamiento
 documentado en [Prefijos de pipeline](#prefijos-de-pipeline).
@@ -275,6 +316,7 @@ El banco final incluye columnas de contexto de negocio y ejecución. Entre ellas
 - mes de ejecución
 - periodo
 - fabricante
+- código de categoría
 - categoría
 - cesta
 - subcategoría
@@ -303,6 +345,17 @@ La presentación:
 
 - se construye sobre `Modelo_PPT.pptx`
 - incluye slides de cobertura, tendencia, evolución y summary
+- identifica cada bloque y cada slide con `Marca — Categoría | Pipeline`
+  cuando la hoja declara una categoría válida
+- muestra `Categoría` en el summary solo cuando al menos una hoja define un
+  código explícito como `P1_BISC_Marca`; si ninguna lo define, omite la columna
+- conserva únicamente la marca en títulos y secciones para nombres históricos
+  sin categoría, como `P1_Embasa_original`
+- el valor de `Fabricante/Marca` proviene exclusivamente del nombre de la hoja
+- en tendencias mensuales con `P1` a `P6`, anima una sola vez la línea de
+  `Sell-in`: parte de sus fechas originales y se desplaza hasta las fechas con
+  las que se comparan las compras del hogar; `P0` y el modo trimestral permanecen
+  estáticos
 - ajusta mejor los anchos del `summary`
 - parte visualmente los encabezados de cobertura como `Cobertura` arriba y `Mes-Año` abajo cuando aplica
 

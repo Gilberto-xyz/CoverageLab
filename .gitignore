@@ -22,8 +22,12 @@
 !tests/test_scorecard_output_name.py
 !tests/test_scorecard_skipped_sheets.py
 !tests/test_presentation_sections.py
+!tests/test_sheet_category_names.py
+!tests/test_auto_trend_chart_height.py
+!tests/test_trend_pipeline_animation.py
 !tests/test_trend_axis_formatting.py
 !tests/test_trend_variation_table_highlight.py
+!tests/test_excel_template_dashboard.py
 
 # Activos base necesarios (presentes en el repo)
 !Modelo_PPT.pptx

@@ -4,6 +4,65 @@ import coverage_studio as studio
 
 
 class PresentationSectionGroupingTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls) -> None:
+        studio._load_heavy_modules()
+
+    def test_natura_sections_include_explicit_sheet_category(self) -> None:
+        expected = {
+            "P1_CRPC_Natura": (
+                "CRPC",
+                "Cross Category (Personal Care)",
+                "Natura — Personal Care",
+            ),
+            "P1_FRAG_Natura": ("FRAG", "Fragancias", "Natura — Fragancias"),
+            "P1_BDCR_Natura": ("BDCR", "Cremas Corporales", "Natura — Cremas Corporales"),
+            "P1_MAKE_Natura": ("MAKE", "Maquillaje-Cosmeticos", "Natura — Maquillaje"),
+            "P1_FCCR_Natura": ("FCCR", "Cremas Faciales", "Natura — Cremas Faciales"),
+        }
+
+        for sheet_name, (category_code, category_name, expected_title) in expected.items():
+            with self.subTest(sheet_name=sheet_name):
+                section_title, current_title = studio.build_section_title_for_sheet(
+                    sheet_name,
+                    None,
+                    category_code=category_code,
+                    category_name=category_name,
+                )
+                self.assertEqual(section_title, expected_title)
+                self.assertEqual(current_title, expected_title)
+
+    def test_pipeline_slide_titles_use_category_label(self) -> None:
+        label = studio.build_presentation_brand_category_label(
+            "P1_FRAG_Natura",
+            category_code="FRAG",
+            category_name="Fragancias",
+        )
+
+        self.assertEqual(
+            studio.build_pipeline_presentation_title(label, 6),
+            "Natura — Fragancias | P6",
+        )
+        self.assertEqual(
+            studio.build_pipeline_presentation_title(
+                label,
+                6,
+                slide_kind="evolution",
+                lang_index=2,
+            ),
+            "Natura — Fragancias | P6 | Evolución y variación",
+        )
+
+    def test_legacy_section_does_not_inherit_file_category(self) -> None:
+        section_title, _ = studio.build_section_title_for_sheet(
+            "P1_Embasa_original",
+            None,
+            category_code="CROS",
+            category_name="Cross Category",
+        )
+
+        self.assertEqual(section_title, "Embasa original")
+
     def test_each_unilever_sheet_gets_its_own_visible_section_title(self) -> None:
         sheet_names = [
             "P5_T.UL Sabonetes",

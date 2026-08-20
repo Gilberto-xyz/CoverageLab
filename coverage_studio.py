@@ -8043,12 +8043,17 @@ def autofit_worksheet_columns(
     padding: float = 2.0,
 ) -> None:
     """Ajusta el ancho de columnas segun encabezado y contenido visible."""
-    for col_cells in ws.iter_cols(min_row=1, max_row=ws.max_row, min_col=1, max_col=ws.max_column):
+    from openpyxl.utils import get_column_letter as _get_column_letter
+
+    for col_index, col_cells in enumerate(
+        ws.iter_cols(min_row=1, max_row=ws.max_row, min_col=1, max_col=ws.max_column),
+        start=1,
+    ):
         max_len = 0
-        col_letter = None
+        # No se obtiene la letra desde la primera celda: en encabezados
+        # combinados puede ser un MergedCell, que no expone column_letter.
+        col_letter = _get_column_letter(col_index)
         for cell in col_cells:
-            if col_letter is None:
-                col_letter = cell.column_letter
             value = cell.value
             if value is None:
                 continue
@@ -8063,8 +8068,6 @@ def autofit_worksheet_columns(
             if not display_text:
                 continue
             max_len = max(max_len, len(display_text))
-        if not col_letter:
-            continue
         target_width = min(max_width, max(min_width, float(max_len) + padding))
         ws.column_dimensions[col_letter].width = target_width
 
@@ -8147,10 +8150,24 @@ def add_native_excel_charts(
         Reference as _Reference,
     )
     from openpyxl.chart.label import DataLabelList as _DataLabelList
-    from openpyxl.chart.axis import DisplayUnitsLabelList as _DisplayUnitsLabelList
+    from openpyxl.chart.axis import (
+        ChartLines as _ChartLines,
+        DateAxis as _DateAxis,
+        DisplayUnitsLabelList as _DisplayUnitsLabelList,
+    )
     from openpyxl.chart.series import SeriesLabel as _SeriesLabel
     from openpyxl.chart.shapes import GraphicalProperties as _GraphicalProperties
+    from openpyxl.formatting.rule import FormulaRule as _FormulaRule
+    from openpyxl.styles import (
+        Alignment as _Alignment,
+        Border as _Border,
+        Font as _Font,
+        PatternFill as _PatternFill,
+        Side as _Side,
+    )
+    from openpyxl.worksheet.datavalidation import DataValidation as _DataValidation
     from openpyxl.utils import get_column_letter as _get_col_letter
+    from openpyxl.utils.cell import quote_sheetname as _quote_sheetname
 
     lang_code = _excel_lang_code(include_english, pais_nombre)
     lang_index = {"PT": 1, "ES": 2, "EN": 3}[lang_code]
@@ -8205,6 +8222,146 @@ def add_native_excel_charts(
     chart_scale = 1.2
     chart_anchor_col = "AA"
 
+    dashboard_copy = {
+        "ES": {
+            "title": "Dashboard de diagnóstico",
+            "instruction": "Seleccione de 0 a 6 meses para alinear Sell-in con las compras y revisar la tendencia.",
+            "source_link": "← Ver datos y cálculos",
+            "dashboard_link": "Abrir dashboard →",
+            "pipeline": "Desfase Sell-in (meses)",
+            "change_threshold": "Cambio >",
+            "range_threshold": "Rango >",
+            "trend": "Tendencia dinámica — Sell-in vs Compras de Worldpanel",
+            "kpi_section": "Monitoreo visual de KPI",
+            "summary": "Detección rápida de inconsistencias (últimos 12 meses)",
+            "latest": "Último",
+            "average": "Prom. 12m",
+            "change": "Vs promedio",
+            "range": "Rango / promedio",
+            "signal": "Señal",
+            "review": "REVISAR",
+            "ok": "OK",
+            "note": "REVISAR si el promedio es cero, el cambio supera el umbral o el rango reciente es inusual.",
+            "period_axis": "Periodo",
+            "volume_axis": "Volumen",
+            "variation_axis": "Variación interanual",
+        },
+        "PT": {
+            "title": "Painel de diagnóstico",
+            "instruction": "Selecione de 0 a 6 meses para alinhar Sell-in com as compras e revisar a tendência.",
+            "source_link": "← Ver dados e cálculos",
+            "dashboard_link": "Abrir painel →",
+            "pipeline": "Defasagem Sell-in (meses)",
+            "change_threshold": "Mudança >",
+            "range_threshold": "Amplitude >",
+            "trend": "Tendência dinâmica — Sell-in vs Compras da Worldpanel",
+            "kpi_section": "Monitoramento visual de KPI",
+            "summary": "Detecção rápida de inconsistências (últimos 12 meses)",
+            "latest": "Último",
+            "average": "Média 12m",
+            "change": "Vs média",
+            "range": "Amplitude / média",
+            "signal": "Sinal",
+            "review": "REVISAR",
+            "ok": "OK",
+            "note": "REVISAR se a média for zero, a mudança superar o limite ou a amplitude recente for incomum.",
+            "period_axis": "Período",
+            "volume_axis": "Volume",
+            "variation_axis": "Variação interanual",
+        },
+        "EN": {
+            "title": "Diagnostic dashboard",
+            "instruction": "Select 0 to 6 months to align Sell-in with purchases and review the trend.",
+            "source_link": "← View data and calculations",
+            "dashboard_link": "Open dashboard →",
+            "pipeline": "Sell-in lag (months)",
+            "change_threshold": "Change >",
+            "range_threshold": "Range >",
+            "trend": "Dynamic trend — Sell-in vs Worldpanel Purchases",
+            "kpi_section": "KPI visual monitoring",
+            "summary": "Quick inconsistency scan (last 12 months)",
+            "latest": "Latest",
+            "average": "12m avg.",
+            "change": "Vs average",
+            "range": "Range / average",
+            "signal": "Signal",
+            "review": "REVIEW",
+            "ok": "OK",
+            "note": "REVIEW when the average is zero, the change exceeds the threshold, or the recent range is unusual.",
+            "period_axis": "Period",
+            "volume_axis": "Volume",
+            "variation_axis": "Year-over-year variation",
+        },
+    }[lang_code]
+    dashboard_kpis = [
+        (COL_COMPRA_MEDIA, {"ES": "Compra media", "PT": "Compra média", "EN": "Average purchase"}[lang_code], "#4472C4", "#,##0.0"),
+        (COL_COMPRA_OCA, {"ES": "Compra por ocasión", "PT": "Compra por ocasião", "EN": "Purchase per occasion"}[lang_code], "#70AD47", "#,##0.00"),
+        (COL_FREQ, {"ES": "Frecuencia", "PT": "Frequência", "EN": "Frequency"}[lang_code], "#ED7D31", "0.00"),
+        (COL_PENET, {"ES": "Penetración", "PT": "Penetração", "EN": "Penetration"}[lang_code], "#FFC000", "0.0"),
+        (COL_BUYERS, "Buyers", "#5B9BD5", "#,##0"),
+    ]
+    uniform_chart_height = 9.0
+    uniform_chart_width = 17.8
+    dashboard_left_chart_col = "AA"
+    dashboard_right_chart_col = "AK"
+    dashboard_chart_rows = (5, 25, 45, 65)
+    dashboard_summary_title_row = 85
+    dashboard_summary_header_row = 86
+    dashboard_summary_first_data_row = 87
+    dashboard_summary_note_row = 93
+
+    def _style_chart_axes(
+        chart: "object",
+        *,
+        x_title: str,
+        y_title: str,
+        y_number_format: str,
+        tick_skip: int = 3,
+        y_minimum: Optional[float] = None,
+    ) -> None:
+        """Hace visibles ambos ejes y usa una cuadrícula gris discreta."""
+        previous_x_axis = chart.x_axis
+        chart.x_axis = _DateAxis(
+            axId=getattr(previous_x_axis, "axId", 10),
+            crossAx=getattr(chart.y_axis, "axId", 100),
+        )
+        chart.x_axis.baseTimeUnit = "days"
+        chart.x_axis.majorTimeUnit = "months"
+        chart.x_axis.majorUnit = max(1, int(tick_skip))
+        chart.x_axis.axPos = "b"
+        chart.x_axis.title = x_title
+        chart.x_axis.delete = False
+        chart.x_axis.tickLblPos = "low"
+        chart.x_axis.tickLblSkip = max(1, int(tick_skip))
+        chart.x_axis.tickMarkSkip = max(1, int(tick_skip))
+        chart.x_axis.majorTickMark = "out"
+        chart.x_axis.number_format = "mmm-yy"
+        chart.x_axis.numFmt = "mmm-yy"
+        try:
+            chart.x_axis.numFmt.sourceLinked = False
+        except Exception:
+            pass
+
+        chart.y_axis.title = y_title
+        chart.y_axis.axPos = "l"
+        chart.y_axis.delete = False
+        chart.y_axis.tickLblPos = "nextTo"
+        chart.y_axis.majorTickMark = "out"
+        chart.y_axis.numFmt = y_number_format
+        if y_minimum is not None:
+            chart.y_axis.scaling.min = y_minimum
+        try:
+            chart.y_axis.numFmt.sourceLinked = False
+        except Exception:
+            pass
+
+        grid_properties = _GraphicalProperties()
+        grid_properties.line.solidFill = "E3E7ED"
+        grid_properties.line.width = 9525
+        grid_properties.line.prstDash = "solid"
+        chart.y_axis.majorGridlines = _ChartLines(spPr=grid_properties)
+        chart.x_axis.majorGridlines = None
+
     def _tint_hex_color(color_value: str, mix_with_white: float = 0.78) -> str:
         """Aclara un color HEX mezclándolo con blanco."""
         hex_color = _safe_hex(color_value)
@@ -8245,7 +8402,297 @@ def add_native_excel_charts(
     wb.calculation.fullCalcOnLoad = True
     wb.calculation.forceFullCalc = True
 
-    for ws in wb.worksheets:
+    # Los nombres dinámicos usados por una versión anterior podían dejar la
+    # serie Sell-in desconectada en Excel. El selector ahora alimenta una
+    # columna visible a la izquierda del dashboard.
+    for defined_name in list(wb.defined_names):
+        if str(defined_name).startswith("TrendSellIn_"):
+            del wb.defined_names[defined_name]
+
+    # Elimina únicamente paneles generados previamente por esta rutina.
+    for old_dashboard in list(wb.worksheets):
+        if old_dashboard.title.startswith("Dash_"):
+            wb.remove(old_dashboard)
+    source_worksheets = list(wb.worksheets)
+
+    def _build_inline_dashboard(
+        source_ws: "object",
+        *,
+        headers: Dict[str, int],
+        last_data_row: int,
+        pipeline: int,
+        brand_name: str,
+        data_col: int,
+        sell_out_col: int,
+        sell_in_sim_col: int,
+    ) -> Optional["object"]:
+        kpi_columns = {
+            canonical: _find_excel_header_col(headers, canonical)
+            for canonical, _, _, _ in dashboard_kpis
+        }
+        if any(value is None for value in kpi_columns.values()):
+            return None
+
+        dashboard = source_ws
+        dashboard.sheet_view.zoomScale = 70
+        source_ref = _quote_sheetname(source_ws.title)
+
+        navy = "1F4E78"
+        light_blue = "D9EAF7"
+        pale_blue = "EDF4FA"
+        gold = "FFC000"
+        white = "FFFFFF"
+        grey = "667085"
+        thin_grey = _Side(style="thin", color="D0D5DD")
+
+        # Limpia el panel generado anteriormente antes de reconstruirlo con
+        # gráficos más grandes. No toca las columnas de datos A:X.
+        generated_merges = (
+            "Y1:AR1",
+            "Y1:AT1",
+            "Y2:AG2",
+            "Y2:AI2",
+            "AA74:AF74",
+            "AA82:AJ82",
+            "AA85:AF85",
+            "AA93:AK93",
+        )
+        merged_ranges = {str(cell_range) for cell_range in dashboard.merged_cells.ranges}
+        for merge_ref in generated_merges:
+            if merge_ref in merged_ranges:
+                dashboard.unmerge_cells(merge_ref)
+        for row in dashboard.iter_rows(min_row=1, max_row=dashboard_summary_note_row, min_col=25, max_col=46):
+            for cell in row:
+                cell.value = None
+
+        # El panel vive en la misma hoja, a la derecha del bloque de datos.
+        dashboard.merge_cells("Y1:AT1")
+        dashboard["Y1"] = f"{dashboard_copy['title']} | {brand_name}"
+        dashboard["Y1"].font = _Font(name="Aptos Display", size=16, bold=True, color=white)
+        dashboard["Y1"].fill = _PatternFill("solid", fgColor=navy)
+        dashboard["Y1"].alignment = _Alignment(horizontal="left", vertical="center")
+        dashboard.merge_cells("Y2:AI2")
+        dashboard["Y2"] = dashboard_copy["instruction"]
+        dashboard["Y2"].font = _Font(name="Aptos", size=9, color=grey, italic=True)
+        dashboard["Y3"] = dashboard_copy["pipeline"]
+        dashboard["Y3"].font = _Font(name="Aptos", bold=True, color=navy)
+        dashboard["Z3"] = max(0, min(6, int(pipeline)))
+        dashboard["Z3"].fill = _PatternFill("solid", fgColor=gold)
+        dashboard["Z3"].font = _Font(name="Aptos", bold=True, color="000000")
+        dashboard["Z3"].alignment = _Alignment(horizontal="center")
+        dashboard["Z3"].border = _Border(left=thin_grey, right=thin_grey, top=thin_grey, bottom=thin_grey)
+        for validation in list(dashboard.data_validations.dataValidation):
+            if "Z3" in str(validation.sqref):
+                dashboard.data_validations.dataValidation.remove(validation)
+        pipeline_validation = _DataValidation(type="list", formula1='"0,1,2,3,4,5,6"', allow_blank=False)
+        pipeline_validation.error = "Seleccione un valor entre 0 y 6."
+        pipeline_validation.errorTitle = "Pipeline inválido"
+        pipeline_validation.prompt = dashboard_copy["instruction"]
+        pipeline_validation.promptTitle = dashboard_copy["pipeline"]
+        pipeline_validation.showInputMessage = True
+        pipeline_validation.showErrorMessage = True
+        dashboard.add_data_validation(pipeline_validation)
+        pipeline_validation.add(dashboard["Z3"])
+
+        dashboard["AB3"] = dashboard_copy["change_threshold"]
+        dashboard["AC3"] = 0.25
+        dashboard["AE3"] = dashboard_copy["range_threshold"]
+        dashboard["AF3"] = 0.75
+        for cell_ref in ("AB3", "AE3"):
+            dashboard[cell_ref].font = _Font(name="Aptos", size=9, bold=True, color=grey)
+        for cell_ref in ("AC3", "AF3"):
+            dashboard[cell_ref].number_format = "0%"
+            dashboard[cell_ref].fill = _PatternFill("solid", fgColor=pale_blue)
+            dashboard[cell_ref].alignment = _Alignment(horizontal="center")
+            dashboard[cell_ref].border = _Border(left=thin_grey, right=thin_grey, top=thin_grey, bottom=thin_grey)
+
+        # Limpia auxiliares creados por versiones anteriores, solo cuando se
+        # reconocen sus encabezados. El dashboard nuevo usa A:X directamente.
+        legacy_helpers = ((46, 3, "Fecha"), (49, 6, "Fecha"))
+        for first_col, column_count, marker in legacy_helpers:
+            if dashboard.cell(1, first_col).value == marker:
+                for row in range(1, max(last_data_row, dashboard.max_row) + 1):
+                    for column in range(first_col, first_col + column_count):
+                        dashboard.cell(row, column).value = None
+                        dashboard.column_dimensions[_get_col_letter(column)].hidden = False
+        if dashboard.cell(1, 55).value in {"Periodo", "Período", "Period"}:
+            for row in range(1, max(last_data_row, dashboard.max_row) + 1):
+                dashboard.cell(row, 55).value = None
+            dashboard.column_dimensions["BC"].hidden = False
+
+        # Fuente dinámica visible en X: toma Sell-in de B y lo desplaza según
+        # Z3. El gráfico referencia esta columna directamente, por lo que el
+        # selector P0-P6 vuelve a funcionar sin nombres de rango frágiles.
+        dynamic_sell_in_col = 24  # X
+        dashboard.cell(1, dynamic_sell_in_col, f"{visible_sell_in_label()} (P0-P6)")
+        dashboard.cell(1, dynamic_sell_in_col).font = _Font(name="Aptos", size=9, bold=True, color=white)
+        dashboard.cell(1, dynamic_sell_in_col).fill = _PatternFill("solid", fgColor=navy)
+        dashboard.cell(1, dynamic_sell_in_col).alignment = _Alignment(horizontal="center", vertical="center")
+        for source_row in range(2, last_data_row + 1):
+            dynamic_cell = dashboard.cell(source_row, dynamic_sell_in_col)
+            dynamic_cell.value = (
+                f'=IF(ROW()-1<=$Z$3,"",INDEX($B$2:$B${last_data_row},ROW()-1-$Z$3))'
+            )
+            dynamic_cell.number_format = "#,##0"
+        dashboard.column_dimensions["X"].width = 21
+
+        trend_chart = _LineChart()
+        trend_chart.style = 13
+        trend_chart.height = uniform_chart_height
+        trend_chart.width = uniform_chart_width
+        trend_chart.title = dashboard_copy["trend"]
+        trend_chart.legend.position = "b"
+        trend_chart.legend.overlay = False
+        trend_chart.display_blanks = "gap"
+        trend_chart.visible_cells_only = False
+        _style_chart_axes(
+            trend_chart,
+            x_title=dashboard_copy["period_axis"],
+            y_title=dashboard_copy["volume_axis"],
+            y_number_format="#,##0",
+            tick_skip=6,
+            y_minimum=0,
+        )
+        trend_chart.add_data(
+            _Reference(dashboard, min_col=dynamic_sell_in_col, min_row=2, max_row=last_data_row),
+            titles_from_data=False,
+        )
+        trend_chart.add_data(
+            _Reference(dashboard, min_col=sell_out_col, min_row=2, max_row=last_data_row),
+            titles_from_data=False,
+        )
+        trend_chart.set_categories(
+            _Reference(dashboard, min_col=data_col, min_row=2, max_row=last_data_row)
+        )
+        if len(trend_chart.series) >= 1:
+            trend_chart.series[0].title = _SeriesLabel(v=f"{visible_sell_in_label()} (P0–P6)")
+            _set_line_series_color(trend_chart.series[0], COLOR_SELLIN_TREND_LINE, width=38100)
+        if len(trend_chart.series) >= 2:
+            trend_chart.series[1].title = _SeriesLabel(v=visible_sell_out_label(lang_index))
+            _set_line_series_color(trend_chart.series[1], COLOR_SELLOUT_TREND_LINE, width=38100)
+        dashboard.add_chart(trend_chart, f"{dashboard_left_chart_col}{dashboard_chart_rows[1]}")
+
+        kpi_start_row = 2
+        kpi_positions = [
+            f"{dashboard_right_chart_col}{dashboard_chart_rows[1]}",
+            f"{dashboard_left_chart_col}{dashboard_chart_rows[2]}",
+            f"{dashboard_right_chart_col}{dashboard_chart_rows[2]}",
+            f"{dashboard_left_chart_col}{dashboard_chart_rows[3]}",
+            f"{dashboard_right_chart_col}{dashboard_chart_rows[3]}",
+        ]
+        for (canonical, label, color, number_format), position in zip(dashboard_kpis, kpi_positions):
+            source_col = int(kpi_columns[canonical])
+            chart = _LineChart()
+            chart.style = 13
+            chart.height = uniform_chart_height
+            chart.width = uniform_chart_width
+            chart.title = label
+            chart.legend = None
+            chart.display_blanks = "gap"
+            chart.visible_cells_only = False
+            _style_chart_axes(
+                chart,
+                x_title=dashboard_copy["period_axis"],
+                y_title=label,
+                y_number_format=number_format,
+                tick_skip=6,
+            )
+            chart.add_data(
+                _Reference(dashboard, min_col=source_col, min_row=kpi_start_row, max_row=last_data_row),
+                titles_from_data=False,
+            )
+            chart.series[-1].title = _SeriesLabel(v=label)
+            chart.set_categories(
+                _Reference(dashboard, min_col=data_col, min_row=kpi_start_row, max_row=last_data_row)
+            )
+            if chart.series:
+                _set_line_series_color(chart.series[0], color, width=38100)
+            dashboard.add_chart(chart, position)
+
+        summary_title_ref = f"AA{dashboard_summary_title_row}:AF{dashboard_summary_title_row}"
+        dashboard.merge_cells(summary_title_ref)
+        summary_title_cell = dashboard.cell(dashboard_summary_title_row, 27)
+        summary_title_cell.value = dashboard_copy["summary"]
+        summary_title_cell.font = _Font(name="Aptos Display", size=11, bold=True, color=white)
+        summary_title_cell.fill = _PatternFill("solid", fgColor=navy)
+        summary_headers = ["KPI", dashboard_copy["latest"], dashboard_copy["average"], dashboard_copy["change"], dashboard_copy["range"], dashboard_copy["signal"]]
+        summary_start_col = 27  # AA
+        for column_offset, value in enumerate(summary_headers):
+            cell = dashboard.cell(dashboard_summary_header_row, summary_start_col + column_offset, value)
+            cell.font = _Font(name="Aptos", size=10, bold=True, color=navy)
+            cell.fill = _PatternFill("solid", fgColor=light_blue)
+            cell.alignment = _Alignment(horizontal="center")
+            cell.border = _Border(bottom=thin_grey)
+
+        recent_start = max(2, last_data_row - 11)
+        for row_offset, (canonical, label, _, number_format) in enumerate(
+            dashboard_kpis,
+            start=dashboard_summary_first_data_row,
+        ):
+            source_col = int(kpi_columns[canonical])
+            col_letter = _get_col_letter(source_col)
+            recent_range = f"{source_ref}!${col_letter}${recent_start}:${col_letter}${last_data_row}"
+            dashboard.cell(row_offset, summary_start_col, label)
+            dashboard.cell(row_offset, summary_start_col + 1, f"={source_ref}!{col_letter}{last_data_row}")
+            dashboard.cell(row_offset, summary_start_col + 2, f"=AVERAGE({recent_range})")
+            dashboard.cell(row_offset, summary_start_col + 3, f"=IFERROR(AB{row_offset}/AC{row_offset}-1,0)")
+            dashboard.cell(row_offset, summary_start_col + 4, f"=IFERROR((MAX({recent_range})-MIN({recent_range}))/ABS(AC{row_offset}),0)")
+            dashboard.cell(
+                row_offset,
+                summary_start_col + 5,
+                f'=IF(OR(AC{row_offset}=0,ABS(AD{row_offset})>$AC$3,AE{row_offset}>$AF$3),"{dashboard_copy["review"]}","{dashboard_copy["ok"]}")',
+            )
+            dashboard.cell(row_offset, summary_start_col + 1).number_format = number_format
+            dashboard.cell(row_offset, summary_start_col + 2).number_format = number_format
+            dashboard.cell(row_offset, summary_start_col + 3).number_format = "0.0%"
+            dashboard.cell(row_offset, summary_start_col + 4).number_format = "0.0%"
+            for column in range(summary_start_col, summary_start_col + 6):
+                cell = dashboard.cell(row_offset, column)
+                cell.border = _Border(bottom=thin_grey)
+                if column in range(summary_start_col + 1, summary_start_col + 5):
+                    cell.alignment = _Alignment(horizontal="right")
+                elif column == summary_start_col + 5:
+                    cell.alignment = _Alignment(horizontal="center")
+
+        summary_signal_range = (
+            f"AF{dashboard_summary_first_data_row}:"
+            f"AF{dashboard_summary_first_data_row + len(dashboard_kpis) - 1}"
+        )
+        for old_signal_range in ("AF76:AF80", summary_signal_range):
+            try:
+                del dashboard.conditional_formatting[old_signal_range]
+            except KeyError:
+                pass
+        dashboard.conditional_formatting.add(
+            summary_signal_range,
+            _FormulaRule(
+                formula=[f'$AF{dashboard_summary_first_data_row}="{dashboard_copy["review"]}"'],
+                fill=_PatternFill("solid", fgColor="F4CCCC"),
+                font=_Font(color="9C0006", bold=True),
+            ),
+        )
+        dashboard.conditional_formatting.add(
+            summary_signal_range,
+            _FormulaRule(
+                formula=[f'$AF{dashboard_summary_first_data_row}="{dashboard_copy["ok"]}"'],
+                fill=_PatternFill("solid", fgColor="D9EAD3"),
+                font=_Font(color="006100", bold=True),
+            ),
+        )
+        summary_note_ref = f"AA{dashboard_summary_note_row}:AK{dashboard_summary_note_row}"
+        dashboard.merge_cells(summary_note_ref)
+        summary_note_cell = dashboard.cell(dashboard_summary_note_row, 27)
+        summary_note_cell.value = dashboard_copy["note"]
+        summary_note_cell.font = _Font(name="Aptos", size=9, italic=True, color=grey)
+
+        dashboard.column_dimensions["Y"].width = 24
+        dashboard.column_dimensions["Z"].width = 9
+        for column in range(27, 47):
+            dashboard.column_dimensions[_get_col_letter(column)].width = 10
+        dashboard.row_dimensions[1].height = 28
+        return dashboard
+
+    for ws in source_worksheets:
         headers = _build_sheet_header_index(ws)
         pipeline = _parse_pipeline_from_sheet_name(ws.title)
         cov_header = f"P{pipeline}"
@@ -8289,6 +8736,22 @@ def add_native_excel_charts(
                 f"{chart_anchor_col}2",
                 f"{chart_anchor_col}22",
                 f"{chart_anchor_col}42",
+                "AA5",
+                "AJ5",
+                "AA22",
+                "AJ22",
+                "AA39",
+                "AJ39",
+                "AA56",
+                "AJ56",
+                f"{dashboard_left_chart_col}{dashboard_chart_rows[0]}",
+                f"{dashboard_right_chart_col}{dashboard_chart_rows[0]}",
+                f"{dashboard_left_chart_col}{dashboard_chart_rows[1]}",
+                f"{dashboard_right_chart_col}{dashboard_chart_rows[1]}",
+                f"{dashboard_left_chart_col}{dashboard_chart_rows[2]}",
+                f"{dashboard_right_chart_col}{dashboard_chart_rows[2]}",
+                f"{dashboard_left_chart_col}{dashboard_chart_rows[3]}",
+                f"{dashboard_right_chart_col}{dashboard_chart_rows[3]}",
                 # Limpieza de anclas anteriores para evitar duplicados al regenerar.
                 "W2",
                 "W22",
@@ -8310,26 +8773,21 @@ def add_native_excel_charts(
             coverage_chart.grouping = "clustered"
             coverage_chart.overlap = 0
             coverage_chart.gapWidth = 85
-            coverage_chart.height = 7.1 * chart_scale
-            coverage_chart.width = 16.2 * chart_scale
+            coverage_chart.height = uniform_chart_height
+            coverage_chart.width = uniform_chart_width
             coverage_chart.title = f"{chart_titles['coverage_title']} | {brand_name} Pipeline {pipeline}"
-            coverage_chart.y_axis.title = f"{coverage_label} | {chart_titles['penetration_label']}"
-            coverage_chart.y_axis.scaling.min = 0
-            coverage_chart.y_axis.numFmt = "0.0"
-            coverage_chart.x_axis.number_format = "yyyy-mm"
-            coverage_chart.x_axis.numFmt = "yyyy-mm"
-            coverage_chart.x_axis.tickLblPos = "low"
-            coverage_chart.x_axis.tickLblSkip = 1
-            coverage_chart.x_axis.tickMarkSkip = 1
-            coverage_chart.x_axis.delete = False
+            coverage_chart.visible_cells_only = False
+            _style_chart_axes(
+                coverage_chart,
+                x_title=dashboard_copy["period_axis"],
+                y_title=coverage_label,
+                y_number_format="0.0",
+                tick_skip=6,
+                y_minimum=0,
+            )
             coverage_chart.legend.position = "b"
             coverage_chart.legend.overlay = False
 
-            coverage_chart.add_data(
-                _Reference(ws, min_col=pen_col, min_row=cov_start, max_row=last_data_row),
-                titles_from_data=False,
-            )
-            coverage_chart.series[-1].title = _SeriesLabel(v=chart_titles["penetration_label"])
             coverage_chart.add_data(
                 _Reference(ws, min_col=cov_col, min_row=cov_start, max_row=last_data_row),
                 titles_from_data=False,
@@ -8338,20 +8796,44 @@ def add_native_excel_charts(
             coverage_chart.set_categories(
                 _Reference(ws, min_col=data_col, min_row=cov_start, max_row=last_data_row)
             )
-            coverage_chart.dataLabels = _DataLabelList()
-            coverage_chart.dataLabels.showVal = True
-            coverage_chart.dataLabels.showSerName = False
-            coverage_chart.dataLabels.showCatName = False
-            coverage_chart.dataLabels.showLegendKey = False
-            coverage_chart.dataLabels.showPercent = False
-            coverage_chart.dataLabels.numFmt = "0.0"
-            coverage_chart.dataLabels.separator = " "
-            _set_bar_series_color(coverage_chart.series[0], COLOR_PENETRACION_BAR)
-            _set_bar_series_color(coverage_chart.series[1], COLOR_COBERTURA_BAR)
-            ws.add_chart(coverage_chart, f"{chart_anchor_col}2")
+            _set_bar_series_color(coverage_chart.series[0], COLOR_COBERTURA_BAR)
 
-        # 2) Tendencia (rangos directos de columnas reales; omite los primeros 6 meses).
-        if trend_start <= trend_end and sell_in_start <= sell_in_end:
+            # Penetración va en un eje secundario para no quedar aplastada por
+            # la escala de cobertura y evitar etiquetas superpuestas.
+            penetration_chart = _LineChart()
+            penetration_chart.y_axis.axId = 200
+            penetration_chart.y_axis.crosses = "max"
+            penetration_chart.visible_cells_only = False
+            _style_chart_axes(
+                penetration_chart,
+                x_title=dashboard_copy["period_axis"],
+                y_title=chart_titles["penetration_label"],
+                y_number_format="0.0",
+                tick_skip=6,
+                y_minimum=0,
+            )
+            penetration_chart.x_axis.delete = True
+            penetration_chart.y_axis.axPos = "r"
+            penetration_chart.y_axis.majorGridlines = None
+            penetration_chart.add_data(
+                _Reference(ws, min_col=pen_col, min_row=cov_start, max_row=last_data_row),
+                titles_from_data=False,
+            )
+            penetration_chart.series[-1].title = _SeriesLabel(v=chart_titles["penetration_label"])
+            penetration_chart.set_categories(
+                _Reference(ws, min_col=data_col, min_row=cov_start, max_row=last_data_row)
+            )
+            _set_line_series_color(penetration_chart.series[0], COLOR_PENETRACION_BAR, width=28575)
+            coverage_chart += penetration_chart
+            ws.add_chart(
+                coverage_chart,
+                f"{dashboard_left_chart_col}{dashboard_chart_rows[0]}",
+            )
+
+        # La tendencia fija anterior se conserva como fallback de código, pero
+        # el template usa la versión dinámica P0-P6 creada en el panel integrado.
+        include_legacy_static_trend = False
+        if include_legacy_static_trend and trend_start <= trend_end and sell_in_start <= sell_in_end:
             trend_categories = _Reference(
                 ws,
                 min_col=data_col,
@@ -8457,17 +8939,17 @@ def add_native_excel_charts(
             if evolution_variant_norm == "simple":
                 evol_chart = _LineChart()
                 evol_chart.style = 13
-                evol_chart.height = 7.5 * chart_scale
-                evol_chart.width = 16.2 * chart_scale
+                evol_chart.height = uniform_chart_height
+                evol_chart.width = uniform_chart_width
                 evol_chart.title = f"{chart_titles['evolution_title']} | {brand_name} P:{pipeline}"
-                evol_chart.y_axis.title = chart_titles["evolution_var_axis"]
-                evol_chart.y_axis.numFmt = "0.0%"
-                evol_chart.x_axis.number_format = "yyyy-mm"
-                evol_chart.x_axis.numFmt = "yyyy-mm"
-                evol_chart.x_axis.tickLblPos = "low"
-                evol_chart.x_axis.tickLblSkip = 1
-                evol_chart.x_axis.tickMarkSkip = 1
-                evol_chart.x_axis.delete = False
+                evol_chart.visible_cells_only = False
+                _style_chart_axes(
+                    evol_chart,
+                    x_title=dashboard_copy["period_axis"],
+                    y_title=chart_titles["evolution_var_axis"],
+                    y_number_format="0.0%",
+                    tick_skip=6,
+                )
                 evol_chart.legend.position = "b"
                 evol_chart.legend.overlay = False
                 evol_chart.add_data(
@@ -8497,22 +8979,25 @@ def add_native_excel_charts(
                 if len(evol_chart.series) >= 2:
                     _set_line_series_color(evol_chart.series[1], COLOR_SELLIN_LINE)
                     _apply_variation_labels(evol_chart.series[1], COLOR_SELLIN_LINE)
-                ws.add_chart(evol_chart, f"{chart_anchor_col}42")
+                ws.add_chart(
+                    evol_chart,
+                    f"{dashboard_right_chart_col}{dashboard_chart_rows[0]}",
+                )
             else:
                 # Modo clasico: solo tendencia de variaciones (sin volumen), con etiquetas puntuales.
                 evol_var_chart = _LineChart()
                 evol_var_chart.style = 2
-                evol_var_chart.height = 7.5 * chart_scale
-                evol_var_chart.width = 16.2 * chart_scale
+                evol_var_chart.height = uniform_chart_height
+                evol_var_chart.width = uniform_chart_width
                 evol_var_chart.title = f"{chart_titles['evolution_title']} | {brand_name} P:{pipeline}"
-                evol_var_chart.y_axis.title = chart_titles["evolution_var_axis"]
-                evol_var_chart.y_axis.numFmt = "0.0%"
-                evol_var_chart.x_axis.number_format = "yyyy-mm"
-                evol_var_chart.x_axis.numFmt = "yyyy-mm"
-                evol_var_chart.x_axis.tickLblPos = "low"
-                evol_var_chart.x_axis.tickLblSkip = 1
-                evol_var_chart.x_axis.tickMarkSkip = 1
-                evol_var_chart.x_axis.delete = False
+                evol_var_chart.visible_cells_only = False
+                _style_chart_axes(
+                    evol_var_chart,
+                    x_title=dashboard_copy["period_axis"],
+                    y_title=chart_titles["evolution_var_axis"],
+                    y_number_format="0.0%",
+                    tick_skip=6,
+                )
                 evol_var_chart.legend.position = "b"
                 evol_var_chart.legend.overlay = False
                 evol_var_chart.add_data(
@@ -8542,7 +9027,23 @@ def add_native_excel_charts(
                 if len(evol_var_chart.series) >= 2:
                     _set_line_series_color(evol_var_chart.series[1], COLOR_SELLIN_BAR_VAR)
                     _apply_variation_labels(evol_var_chart.series[1], COLOR_SELLIN_BAR_VAR)
-                ws.add_chart(evol_var_chart, f"{chart_anchor_col}42")
+                ws.add_chart(
+                    evol_var_chart,
+                    f"{dashboard_right_chart_col}{dashboard_chart_rows[0]}",
+                )
+
+        _build_inline_dashboard(
+            ws,
+            headers=headers,
+            last_data_row=last_data_row,
+            pipeline=pipeline,
+            brand_name=brand_name,
+            data_col=data_col,
+            sell_out_col=sell_out_col,
+            sell_in_sim_col=sell_in_sim_col,
+        )
+    if source_worksheets:
+        wb.active = source_worksheets[0]
 
     wb.save(xlsx_path)
 
