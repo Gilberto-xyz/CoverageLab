@@ -8127,6 +8127,36 @@ def _find_excel_header_col(headers: Dict[str, int], canonical_header: str) -> Op
     return None
 
 
+def _excel_pipeline_shift_formula(
+    source_row: int,
+    *,
+    selector_cell: str = "$Z$3",
+    source_column: str = "$B",
+) -> str:
+    """Construye un desfase P0-P6 explícito y recalculable por Excel.
+
+    Cada alternativa referencia una celda concreta de Sell-in. Esto evita que
+    el selector dependa de ROW()/INDEX(), combinación que algunos Excel no
+    refrescan de forma consistente dentro de gráficos al cambiar la lista.
+    """
+    row = int(source_row)
+    if row < 2:
+        raise ValueError("La fila de datos debe ser 2 o mayor.")
+
+    expression = '""'
+    for pipeline in range(6, -1, -1):
+        shifted_row = row - pipeline
+        shifted_value = (
+            f"{source_column}${shifted_row}"
+            if shifted_row >= 2
+            else '""'
+        )
+        expression = (
+            f"IF({selector_cell}={pipeline},{shifted_value},{expression})"
+        )
+    return f"={expression}"
+
+
 def add_native_excel_charts(
     xlsx_path: str,
     *,
@@ -8149,7 +8179,7 @@ def add_native_excel_charts(
         LineChart as _LineChart,
         Reference as _Reference,
     )
-    from openpyxl.chart.label import DataLabelList as _DataLabelList
+    from openpyxl.chart.label import DataLabel as _DataLabel, DataLabelList as _DataLabelList
     from openpyxl.chart.axis import (
         ChartLines as _ChartLines,
         DateAxis as _DateAxis,
@@ -8397,6 +8427,46 @@ def add_native_excel_charts(
         except Exception:
             pass
 
+    def _apply_kpi_value_labels(
+        series_obj: "object",
+        *,
+        number_format: str,
+        line_color: str,
+        point_count: int,
+    ) -> None:
+        """Etiqueta cortes trimestrales y el último dato sin saturar la línea."""
+        label_indexes = list(range(0, max(0, int(point_count)), 3))
+        if point_count > 0 and (point_count - 1) not in label_indexes:
+            label_indexes.append(point_count - 1)
+        dlabels = _DataLabelList()
+        dlabels.showVal = False
+        dlabels.showSerName = False
+        dlabels.showCatName = False
+        dlabels.showLegendKey = False
+        dlabels.showPercent = False
+        dlabels.showLeaderLines = False
+        dlabels.dLblPos = "t"
+        dlabels.numFmt = number_format
+        dlabels.dLbl = [
+            _DataLabel(
+                idx=point_index,
+                showVal=True,
+                showSerName=False,
+                showCatName=False,
+                dLblPos="t",
+                numFmt=number_format,
+            )
+            for point_index in label_indexes
+        ]
+        series_obj.dLbls = dlabels
+        try:
+            series_obj.marker.symbol = "circle"
+            series_obj.marker.size = 4
+            series_obj.marker.graphicalProperties.solidFill = _safe_hex(line_color)
+            series_obj.marker.graphicalProperties.line.solidFill = _safe_hex(line_color)
+        except Exception:
+            pass
+
     wb = _load_wb_chart(xlsx_path)
     wb.calculation.calcMode = "auto"
     wb.calculation.fullCalcOnLoad = True
@@ -8524,15 +8594,15 @@ def add_native_excel_charts(
         # Z3. El gráfico referencia esta columna directamente, por lo que el
         # selector P0-P6 vuelve a funcionar sin nombres de rango frágiles.
         dynamic_sell_in_col = 24  # X
-        dashboard.cell(1, dynamic_sell_in_col, f"{visible_sell_in_label()} (P0-P6)")
+        dashboard.cell(1, dynamic_sell_in_col).value = (
+            f'="{visible_sell_in_label()} (P"&$Z$3&")"'
+        )
         dashboard.cell(1, dynamic_sell_in_col).font = _Font(name="Aptos", size=9, bold=True, color=white)
         dashboard.cell(1, dynamic_sell_in_col).fill = _PatternFill("solid", fgColor=navy)
         dashboard.cell(1, dynamic_sell_in_col).alignment = _Alignment(horizontal="center", vertical="center")
         for source_row in range(2, last_data_row + 1):
             dynamic_cell = dashboard.cell(source_row, dynamic_sell_in_col)
-            dynamic_cell.value = (
-                f'=IF(ROW()-1<=$Z$3,"",INDEX($B$2:$B${last_data_row},ROW()-1-$Z$3))'
-            )
+            dynamic_cell.value = _excel_pipeline_shift_formula(source_row)
             dynamic_cell.number_format = "#,##0"
         dashboard.column_dimensions["X"].width = 21
 
@@ -8554,8 +8624,8 @@ def add_native_excel_charts(
             y_minimum=0,
         )
         trend_chart.add_data(
-            _Reference(dashboard, min_col=dynamic_sell_in_col, min_row=2, max_row=last_data_row),
-            titles_from_data=False,
+            _Reference(dashboard, min_col=dynamic_sell_in_col, min_row=1, max_row=last_data_row),
+            titles_from_data=True,
         )
         trend_chart.add_data(
             _Reference(dashboard, min_col=sell_out_col, min_row=2, max_row=last_data_row),
@@ -8607,6 +8677,12 @@ def add_native_excel_charts(
             )
             if chart.series:
                 _set_line_series_color(chart.series[0], color, width=38100)
+                _apply_kpi_value_labels(
+                    chart.series[0],
+                    number_format=number_format,
+                    line_color=color,
+                    point_count=last_data_row - kpi_start_row + 1,
+                )
             dashboard.add_chart(chart, position)
 
         summary_title_ref = f"AA{dashboard_summary_title_row}:AF{dashboard_summary_title_row}"

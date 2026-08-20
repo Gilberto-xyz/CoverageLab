@@ -99,9 +99,11 @@ class ExcelTemplateDashboardTests(unittest.TestCase):
             self.assertIsNone(source["AW1"].value)
             self.assertIsNone(source["BC1"].value)
 
-            self.assertEqual(source["X1"].value, "Sell-in (P0-P6)")
-            self.assertIn("INDEX", source["X2"].value)
-            self.assertIn("$B$2:$B$41", source["X2"].value)
+            self.assertIn('="Sell-in (P"', source["X1"].value)
+            self.assertIn("$Z$3", source["X1"].value)
+            self.assertNotIn("INDEX", source["X2"].value)
+            self.assertNotIn("ROW()", source["X2"].value)
+            self.assertIn("IF($Z$3=0,$B$2", source["X2"].value)
             self.assertIn("$Z$3", source["X2"].value)
             self.assertFalse(any(name.startswith("TrendSellIn_") for name in workbook.defined_names))
             self.assertEqual(len(source._charts), 8)
@@ -162,11 +164,26 @@ class ExcelTemplateDashboardTests(unittest.TestCase):
             self.assertEqual(trend_chart.series[0].val.numRef.f, "'P4_Marca Demo'!$X$2:$X$41")
             self.assertEqual(trend_chart.series[1].val.numRef.f, "'P4_Marca Demo'!$C$2:$C$41")
             self.assertEqual(trend_chart.series[0].cat.numRef.f, "'P4_Marca Demo'!$A$2:$A$41")
+            self.assertEqual(trend_chart.series[0].tx.v, "Sell-in (P0–P6)")
 
             expected_kpi_columns = ["D", "E", "F", "G", "H"]
-            for chart, column in zip(source._charts[3:], expected_kpi_columns):
+            expected_kpi_formats = ["#,##0.0", "#,##0.00", "0.00", "0.0", "#,##0"]
+            for chart, column, number_format in zip(
+                source._charts[3:],
+                expected_kpi_columns,
+                expected_kpi_formats,
+            ):
                 self.assertEqual(chart.series[0].val.numRef.f, f"'P4_Marca Demo'!${column}$2:${column}$41")
                 self.assertEqual(chart.series[0].cat.numRef.f, "'P4_Marca Demo'!$A$2:$A$41")
+                self.assertFalse(chart.series[0].dLbls.showVal)
+                self.assertEqual(chart.series[0].dLbls.dLblPos, "t")
+                self.assertEqual(chart.series[0].dLbls.numFmt, number_format)
+                self.assertEqual(
+                    [label.idx for label in chart.series[0].dLbls.dLbl],
+                    list(range(0, 40, 3)),
+                )
+                self.assertTrue(all(label.showVal for label in chart.series[0].dLbls.dLbl))
+                self.assertEqual(chart.series[0].marker.symbol, "circle")
             self.assertEqual(
                 [source.cell(row, 27).value for row in range(87, 92)],
                 ["Compra media", "Compra por ocasión", "Frecuencia", "Penetración", "Buyers"],
@@ -177,6 +194,47 @@ class ExcelTemplateDashboardTests(unittest.TestCase):
             workbook.close()
         finally:
             self._remove_test_directory(temp_dir)
+
+    def test_pipeline_shift_formula_covers_p0_to_p6_without_invalid_rows(self) -> None:
+        first_formula = studio._excel_pipeline_shift_formula(2)
+        self.assertIn("IF($Z$3=0,$B$2", first_formula)
+        self.assertNotIn("$B$1", first_formula)
+        self.assertNotIn("INDEX", first_formula)
+        self.assertNotIn("ROW()", first_formula)
+        for pipeline in range(7):
+            self.assertIn(f"$Z$3={pipeline}", first_formula)
+
+        seventh_lag_formula = studio._excel_pipeline_shift_formula(8)
+        for source_row in range(2, 9):
+            self.assertIn(f"$B${source_row}", seventh_lag_formula)
+
+    def test_pipeline_selector_is_generated_for_single_and_double_axis_modes(self) -> None:
+        for axis_mode in ("simple", "doble"):
+            with self.subTest(axis_mode=axis_mode):
+                temp_dir = self._test_directory(f"axis_{axis_mode}")
+                try:
+                    path = os.path.join(temp_dir, "template.xlsx")
+                    self._build_template(path)
+                    studio.add_native_excel_charts(
+                        path,
+                        coverage_label="Cobertura Absoluta",
+                        trend_axis=axis_mode,
+                        evolution_slide_variant="simple",
+                        include_english=False,
+                        pais_nombre="Mexico",
+                    )
+                    workbook = load_workbook(path, data_only=False)
+                    source = workbook["P4_Marca Demo"]
+                    self.assertEqual(source["Z3"].value, 4)
+                    self.assertIn("$Z$3=0", source["X8"].value)
+                    self.assertIn("$Z$3=6", source["X8"].value)
+                    self.assertEqual(
+                        source._charts[2].series[0].val.numRef.f,
+                        "'P4_Marca Demo'!$X$2:$X$41",
+                    )
+                    workbook.close()
+                finally:
+                    self._remove_test_directory(temp_dir)
 
     def test_autofit_supports_dashboard_merged_headers(self) -> None:
         workbook = Workbook()
