@@ -311,6 +311,10 @@ Dentro se generan:
 
 ### Banco de coberturas
 
+La hoja principal del banco contiene dos tablas apiladas. La primera conserva la
+estructura original sin `Codigo Categoria`; dos filas vacías después se repiten
+los encabezados y la misma información, ahora incluyendo `Codigo Categoria`.
+
 El banco final incluye columnas de contexto de negocio y ejecución. Entre ellas:
 
 - mes de ejecución

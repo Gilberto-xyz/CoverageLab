@@ -28,6 +28,7 @@
 !tests/test_trend_axis_formatting.py
 !tests/test_trend_variation_table_highlight.py
 !tests/test_excel_template_dashboard.py
+!tests/test_coverage_bank_tables.py
 
 # Activos base necesarios (presentes en el repo)
 !Modelo_PPT.pptx

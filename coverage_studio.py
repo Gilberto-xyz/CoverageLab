@@ -12332,6 +12332,26 @@ def generate_presentation_and_bank(
     return ruta_ppt_final, df_summary, df_bank, df_pipeline_report
 
 
+def build_coverage_bank_table_views(
+    df_bank: "pd.DataFrame",
+) -> Tuple["pd.DataFrame", "pd.DataFrame", int]:
+    """Prepara las dos vistas apiladas del banco y la fila inicial de la segunda."""
+    category_code_column = "Codigo Categoria"
+    bank_with_category_code = df_bank.copy()
+    if category_code_column not in bank_with_category_code.columns:
+        insert_at = (
+            bank_with_category_code.columns.get_loc("Fabricante") + 1
+            if "Fabricante" in bank_with_category_code.columns
+            else 0
+        )
+        bank_with_category_code.insert(insert_at, category_code_column, "")
+
+    original_bank = bank_with_category_code.drop(columns=[category_code_column])
+    # startrow es base cero: encabezado + datos + dos filas vacias.
+    second_table_startrow = len(original_bank.index) + 3
+    return original_bank, bank_with_category_code, second_table_startrow
+
+
 def save_coverage_bank(
     df_bank: "pd.DataFrame",
     carpeta_salida: str,
@@ -12364,22 +12384,43 @@ def save_coverage_bank(
     ruta_banco_final = os.path.join(carpeta_salida, nombre_banco_final)
 
     def write_bank_file() -> None:
-        df_bank.to_excel(ruta_banco_final, index=False)
+        original_bank, bank_with_category_code, second_table_startrow = (
+            build_coverage_bank_table_views(df_bank)
+        )
+        bank_sheet_name = "Sheet1"
+        with pd.ExcelWriter(ruta_banco_final, engine="openpyxl") as writer:
+            original_bank.to_excel(
+                writer,
+                sheet_name=bank_sheet_name,
+                index=False,
+                startrow=0,
+            )
+            bank_with_category_code.to_excel(
+                writer,
+                sheet_name=bank_sheet_name,
+                index=False,
+                startrow=second_table_startrow,
+            )
         from openpyxl import load_workbook as _wb_load
         from openpyxl.styles import PatternFill as _PatternFill, Font as _Font, Alignment as _Alignment, Border as _Border, Side as _Side
         wb_bank = _wb_load(ruta_banco_final)
         for ws in wb_bank.worksheets:
-            header_map = {}
-            for cell in ws[1]:
-                if cell.value is not None:
-                    header_map[str(cell.value).strip().lower()] = cell.column
-            for header_name in ['periodo', 'mes_ejecucion']:
-                col_idx = header_map.get(header_name)
-                if col_idx is None:
-                    continue
-                for r in range(2, ws.max_row + 1):
-                    c = ws.cell(row=r, column=col_idx)
-                    c.number_format = 'mmm-yy'
+            if ws.title == bank_sheet_name:
+                table_specs = (
+                    (1, len(original_bank.index)),
+                    (second_table_startrow + 1, len(bank_with_category_code.index)),
+                )
+                for header_row, data_row_count in table_specs:
+                    header_map = {}
+                    for cell in ws[header_row]:
+                        if cell.value is not None:
+                            header_map[str(cell.value).strip().lower()] = cell.column
+                    for header_name in ['periodo', 'mes_ejecucion']:
+                        col_idx = header_map.get(header_name)
+                        if col_idx is None:
+                            continue
+                        for r in range(header_row + 1, header_row + data_row_count + 1):
+                            ws.cell(row=r, column=col_idx).number_format = 'mmm-yy'
             if ws.title.lower() != "summary":
                 autofit_worksheet_columns(ws, min_width=11.0, max_width=34.0, padding=2.0)
 
