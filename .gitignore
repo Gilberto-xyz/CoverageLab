@@ -29,6 +29,7 @@
 !tests/test_trend_variation_table_highlight.py
 !tests/test_excel_template_dashboard.py
 !tests/test_coverage_bank_tables.py
+!tests/test_yakult_relative.py
 
 # Activos base necesarios (presentes en el repo)
 !Modelo_PPT.pptx

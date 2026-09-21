@@ -124,14 +124,13 @@ class ExcelTemplateDashboardTests(unittest.TestCase):
                 [(26, 4), (36, 4), (26, 24), (36, 24), (26, 44), (36, 44), (26, 64), (36, 64)],
             )
             for chart in source._charts:
-                self.assertIsNotNone(chart.x_axis.title)
-                self.assertIsNotNone(chart.y_axis.title)
+                self.assertIsNone(chart.x_axis.title)
                 self.assertEqual(chart.x_axis.__class__.__name__, "DateAxis")
                 self.assertEqual(chart.x_axis.tickLblPos, "low")
                 self.assertFalse(chart.x_axis.delete)
                 self.assertEqual(chart.y_axis.tickLblPos, "nextTo")
                 self.assertFalse(chart.y_axis.delete)
-                self.assertEqual(chart.x_axis.numFmt.formatCode, "mmm-yy")
+                self.assertEqual(chart.x_axis.numFmt.formatCode, "mm-yy")
                 self.assertEqual(
                     chart.y_axis.majorGridlines.spPr.line.solidFill.srgbClr,
                     "E3E7ED",
@@ -180,10 +179,16 @@ class ExcelTemplateDashboardTests(unittest.TestCase):
                 self.assertEqual(chart.series[0].dLbls.numFmt, number_format)
                 self.assertEqual(
                     [label.idx for label in chart.series[0].dLbls.dLbl],
-                    list(range(0, 40, 3)),
+                    [0, 39],
                 )
                 self.assertTrue(all(label.showVal for label in chart.series[0].dLbls.dLbl))
+                self.assertTrue(all(label.showLegendKey is False for label in chart.series[0].dLbls.dLbl))
+                self.assertEqual(chart.x_axis.majorUnit, 1)
+                self.assertEqual(chart.x_axis.majorTimeUnit, 'months')
+                self.assertEqual(chart.x_axis.txPr.bodyPr.rot, -2700000)
                 self.assertEqual(chart.series[0].marker.symbol, "circle")
+                self.assertIsNone(chart.y_axis.title)
+                self.assertFalse(chart.series[0].smooth)
             self.assertEqual(
                 [source.cell(row, 27).value for row in range(87, 92)],
                 ["Compra media", "Compra por ocasión", "Frecuencia", "Penetración", "Buyers"],

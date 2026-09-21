@@ -12,6 +12,18 @@ class TrendAxisFormattingTests(unittest.TestCase):
         self.assertEqual(studio.format_trend_axis_tick(123_456.78), "123,456.78")
         self.assertEqual(studio.format_trend_axis_tick(-12_500), "-12,500")
 
+    def test_limits_end_on_visible_round_tick_above_data(self) -> None:
+        for values, expected in [([3_100_000, 3_700_000], 4_000_000),
+                                 ([900_000, 1_300_000], 1_400_000),
+                                 ([0, 0], 1), ([float('nan')], 1)]:
+            fig, axis = studio.plt.subplots()
+            try:
+                studio._set_trend_axis_limits(axis, values)
+                self.assertEqual(axis.get_ylim(), (0, expected))
+                self.assertEqual(axis.get_yticks()[-1], expected)
+            finally:
+                studio.plt.close(fig)
+
     def test_normalizes_small_zero_ticks(self) -> None:
         self.assertEqual(studio.format_trend_axis_tick(-0.0), "0")
 

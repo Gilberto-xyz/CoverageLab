@@ -5,6 +5,42 @@ import coverage_studio as studio
 
 
 class AutoTrendChartHeightTests(unittest.TestCase):
+    def test_default_slide_has_equal_width_for_single_and_dual_axes(self) -> None:
+        studio._load_heavy_modules()
+        dates = studio.pd.date_range('2025-01-01', periods=12, freq='MS')
+        trend = studio.pd.DataFrame({
+            studio.COL_DATA: dates.strftime('%m-%y'),
+            studio.COL_SELL_IN: [100 + i * 7 for i in range(12)],
+            studio.COL_SELL_OUT: [50 + i * 3 for i in range(12)],
+        })
+        assets = studio.PipelineAssets(
+            pipeline=1, marca='Yakult',
+            coverage_series=studio.pd.Series(40.0, index=dates),
+            penetration_series=studio.pd.Series(2.4, index=dates),
+            variation_table=studio.pd.DataFrame(), trend_plot_df=trend,
+            variations_detail=None, evolution_figure=None,
+        )
+        for animate in (False, True):
+            bounds = []
+            for axis in ('simple', 'doble'):
+                ppt = studio.Presentation()
+                ppt.slide_width = studio.Inches(13.333333)
+                ppt.slide_height = studio.Inches(7.5)
+                builder = studio.SlideBuilder(
+                    ppt, 1, {}, 'Cobertura Relativa', 'relativa', '12-25',
+                    'Yakult', 'Brasil', 'Lacteos', axis, animate_trend_pipeline=animate,
+                )
+                builder.add_pipeline_slides(assets, 'Yakult', 1, 'Cobertura Relativa')
+                picture = next(s for s in ppt.slides[1].shapes if s.shape_type == 13)
+                bounds.append((picture.left, picture.top, picture.width, picture.height))
+                self.assertEqual(picture.width, ppt.slide_width - studio.Inches(1))
+                self.assertLessEqual(picture.left + picture.width, ppt.slide_width)
+            self.assertEqual(bounds[0], bounds[1])
+        self.assertEqual(
+            studio._trend_subplot_layout(studio.DEFAULT_TREND_LEGEND_Y, False),
+            studio._trend_subplot_layout(studio.DEFAULT_TREND_LEGEND_Y, True),
+        )
+
     def test_scenario_three_enables_the_default_pipeline_animation(self) -> None:
         options = studio.ExecutionOptions.from_scenario("3")
 

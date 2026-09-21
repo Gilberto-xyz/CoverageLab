@@ -857,6 +857,7 @@ SCENARIO_AUTO_DUAL_AXIS = "AUTO_DOBLE_EJE"
 SCENARIO_AUTO_OPTIMAL_PIPELINE = "AUTO_PIPELINE_OPTIMO"
 SCENARIO_PG_GLOBAL_EN = "PG_GLOBAL_EN"
 SCENARIO_NATURA_BR = "NATURA_BR"
+SCENARIO_YAKULT_BR_RELATIVA = "YAKULT_BR_RELATIVA"
 SCENARIO_PG_COLOR = (64, 105, 205)
 SCENARIO_NATURA_COLOR = (255, 105, 19)
 
@@ -939,6 +940,8 @@ def normalize_variations_box_style(raw_value: Optional[str]) -> str:
 def normalize_coverage_slide_variant(raw_value: Optional[str]) -> str:
     """Normaliza el modo del slide de cobertura (classic | complemented | pg)."""
     val = (raw_value or "").strip().lower()
+    if val in {"yakult", "yakult_br_relativa", "4"}:
+        return "yakult"
     if not val:
         return "classic"
     if val in {"pg", "p&g", "p & g", "procter", "procter & gamble", "procter and gamble", "3"}:
@@ -952,6 +955,8 @@ def normalize_coverage_slide_variant(raw_value: Optional[str]) -> str:
 
 def coverage_slide_variant_label(variant: str) -> str:
     normalized = normalize_coverage_slide_variant(variant)
+    if normalized == "yakult":
+        return "Yakult - BR- Relativa"
     if normalized == "complemented":
         return "Complementado"
     if normalized == "pg":
@@ -1440,6 +1445,7 @@ CATEGORY_CODE_ALIASES: Dict[str, str] = {
 METADATA_RESOLUTION_CATEGORY_CODES: Set[str] = frozenset({"MULT", "CROS"})
 
 PPT_LAYOUT_INDEX = 1
+YAKULT_TEMPLATE_SLIDE_NAME = "CoverageLab.Template.Yakult"
 DEFAULT_POP_COVERAGE = "100%"
 EXCEL_TEMP_FILENAME = "file_temp_coverage.xlsx"
 POP_COVERAGE_MAP = {
@@ -1510,8 +1516,8 @@ EXCEL_TREND_INITIAL_GAP_MONTHS = 6
 DEFAULT_TREND_CHART_HEIGHT_INCHES = 4.5
 AUTO_TREND_CHART_HEIGHT_INCHES = 5.05
 AUTO_TREND_CHART_TOP_INCHES = 1.8
-DEFAULT_TREND_LEGEND_Y = -0.28
-AUTO_TREND_LEGEND_Y = -0.23
+DEFAULT_TREND_LEGEND_Y = -0.25
+AUTO_TREND_LEGEND_Y = -0.20
 TREND_ANIMATION_TRANSITION_FRAMES = 7
 TREND_ANIMATION_INITIAL_DURATION_MS = 1800
 TREND_ANIMATION_STEP_DURATION_MS = 135
@@ -1520,10 +1526,10 @@ TREND_ANIMATION_DPI = 174
 TREND_ANIMATION_PALETTE_COLORS = 144
 TREND_DUAL_AXIS_PALETTE_COLORS = 128
 TREND_DUAL_AXIS_MIN_CANVAS_HEIGHT_INCHES = 5.2
-TREND_COMPACT_TOP_MARGIN = 0.89
-TREND_COMPACT_BOTTOM_MARGIN = 0.18
-TREND_DEFAULT_TOP_MARGIN = 0.85
-TREND_DEFAULT_BOTTOM_MARGIN = 0.23
+TREND_COMPACT_TOP_MARGIN = 0.93
+TREND_COMPACT_BOTTOM_MARGIN = 0.17
+TREND_DEFAULT_TOP_MARGIN = 0.90
+TREND_DEFAULT_BOTTOM_MARGIN = 0.20
 
 
 def visible_sell_in_label() -> str:
@@ -3161,6 +3167,8 @@ def clear_and_print_summary():
             cov_disp = "P&G - Global - Ingles"
         elif scenario_key == SCENARIO_NATURA_BR:
             cov_disp = "Natura - Br"
+        elif scenario_key == SCENARIO_YAKULT_BR_RELATIVA:
+            cov_disp = "Yakult - BR- Relativa"
         _line("Tipo de cobertura", "Cobertura", cov_disp)
     if _get("Razón") is not None:
         _line("Razon de cobertura", "Razón", _get("Razón"))
@@ -3765,6 +3773,7 @@ def tipo_cobertura():
             + " (pipeline recomendado por ajuste integral)"
             + Style.RESET_ALL
         )
+        print(Fore.WHITE + "8 - Template Yakult - BR- Relativa")
         tipos = {
             '1': "Absoluta",
             '2': "relativa",
@@ -3773,8 +3782,9 @@ def tipo_cobertura():
             '5': SCENARIO_PG_GLOBAL_EN,
             '6': SCENARIO_NATURA_BR,
             '7': SCENARIO_AUTO_OPTIMAL_PIPELINE,
+            '8': SCENARIO_YAKULT_BR_RELATIVA,
         }
-        eleccion = input(Fore.GREEN + "Elija 1, 2, 3, 4, 5, 6 o 7: ")
+        eleccion = input(Fore.GREEN + "Elija 1, 2, 3, 4, 5, 6, 7 u 8: ")
         tipo_seleccionado = tipos.get(eleccion, "Absoluta")  # Default a 'Absoluta'
     SELECTIONS['Cobertura'] = tipo_seleccionado
     clear_and_print_summary()
@@ -3844,10 +3854,13 @@ def coverage_slide_variant_option() -> str:
         print(Fore.WHITE + "1 - Clásico (tabla VAR % MAT)")
         print(Fore.WHITE + "2 - Complementado (Penetración MAT + Cobertura puntual + Estabilidad)")
         print(Fore.WHITE + "3 - P&G (gráfico + tablas editables inferiores)")
+        print(Fore.WHITE + "4 - Yakult - BR- Relativa")
         opciones = {
             "1": "classic",
             "2": "complemented",
             "3": "pg",
+            "4": "yakult",
+            "yakult": "yakult",
             "clasico": "classic",
             "clásico": "classic",
             "complementado": "complemented",
@@ -3855,7 +3868,7 @@ def coverage_slide_variant_option() -> str:
             "pg": "pg",
             "p&g": "pg",
         }
-        eleccion = input(Fore.GREEN + "Elija 1, 2 o 3: ").strip().lower()
+        eleccion = input(Fore.GREEN + "Elija 1, 2, 3 o 4: ").strip().lower()
         variant = opciones.get(eleccion, "classic")
     SELECTIONS["Slide Cobertura"] = coverage_slide_variant_label(variant)
     clear_and_print_summary()
@@ -4519,12 +4532,26 @@ def _figure_to_rgb_frame(fig: object) -> "Image.Image":
         return rendered.convert("RGB")
 
 
+def _set_trend_axis_limits(axis, values) -> None:
+    """Termina el eje en una marca redonda, con espacio sobre todos los datos."""
+    from matplotlib.ticker import MaxNLocator
+
+    finite = np.asarray(values, dtype=float)
+    finite = finite[np.isfinite(finite)]
+    peak = max(0.0, float(finite.max())) if finite.size else 0.0
+    upper = peak * 1.03 if peak > 0 else 1.0
+    ticks = MaxNLocator(nbins=8, steps=[1, 2, 2.5, 5, 10]).tick_values(0, upper)
+    axis.set_yticks(ticks)
+    axis.set_ylim(0, float(ticks[-1]))
+
+
 def _trend_subplot_layout(legend_y: float, doble_eje: bool) -> Dict[str, float]:
     """Distribuye el canvas sin aire excesivo y preserva etiquetas y leyenda."""
     compact_layout = float(legend_y) >= -0.23
     return {
-        "left": 0.075,
-        "right": 0.925 if doble_eje else 0.985,
+        "left": 0.065,
+        # Reservar el mismo margen para alinear el área de trazado en ambos modos.
+        "right": 0.935,
         "bottom": (
             TREND_COMPACT_BOTTOM_MARGIN
             if compact_layout
@@ -4590,8 +4617,8 @@ def _build_animated_trend_gif(
         )
         ax_trend.yaxis.set_major_formatter(build_trend_axis_formatter(lang_idx, sell_in_exponent))
         ax2.yaxis.set_major_formatter(build_trend_axis_formatter(lang_idx, sell_out_exponent))
-        ax_trend.set_ylim(bottom=0)
-        ax2.set_ylim(bottom=0)
+        _set_trend_axis_limits(ax_trend, sell_in_data)
+        _set_trend_axis_limits(ax2, sell_out_data)
         ax2.legend(
             [sell_in_line, sell_out_line],
             [sell_in_line.get_label(), sell_out_line.get_label()],
@@ -4613,7 +4640,7 @@ def _build_animated_trend_gif(
             fontsize=10,
         )
         ax_trend.yaxis.set_major_formatter(build_trend_axis_formatter(lang_idx, shared_exponent))
-        ax_trend.set_ylim(bottom=0)
+        _set_trend_axis_limits(ax_trend, [*sell_in_data, *sell_out_data])
         ax_trend.legend(
             [sell_in_line, sell_out_line],
             [sell_in_line.get_label(), sell_out_line.get_label()],
@@ -4905,7 +4932,7 @@ def generar_grafico_tendencia(
         and granularity_norm == "monthly"
         and len(df_plot) > int(pipeline) + 1
     )
-    if should_animate and doble_eje:
+    if should_animate:
         render_figsize = (
             render_figsize[0],
             max(render_figsize[1], TREND_DUAL_AXIS_MIN_CANVAS_HEIGHT_INCHES),
@@ -5031,9 +5058,8 @@ def generar_grafico_tendencia(
         )
         ax_trend.yaxis.set_major_formatter(build_trend_axis_formatter(lang_idx, sell_in_exponent))
         ax2.yaxis.set_major_formatter(build_trend_axis_formatter(lang_idx, sell_out_exponent))
-        # --- CORRECCIÓN: Configurar ambos ejes para empezar desde 0 ---
-        ax_trend.set_ylim(bottom=0)
-        ax2.set_ylim(bottom=0)
+        _set_trend_axis_limits(ax_trend, sell_in_data)
+        _set_trend_axis_limits(ax2, sell_out_data)
         lns = lns1 + lns2
         labs = [l.get_label() for l in lns]
         ax2.legend(lns, labs, loc='lower center', bbox_to_anchor=(0.5, legend_y), frameon=False, prop={'size': 11}, ncol=2)
@@ -5063,7 +5089,7 @@ def generar_grafico_tendencia(
             fontsize=10,
         )
         ax_trend.yaxis.set_major_formatter(build_trend_axis_formatter(lang_idx, shared_exponent))
-        ax_trend.set_ylim(bottom=0)
+        _set_trend_axis_limits(ax_trend, [*sell_in_data, *sell_out_data])
         lns = lns1 + lns2
         labs = [l.get_label() for l in lns]
         ax_trend.legend(lns, labs, loc='lower center', bbox_to_anchor=(0.5, legend_y), frameon=False, prop={'size': 11}, ncol=2)
@@ -5135,6 +5161,8 @@ def normalize_scenario_key(value: object) -> str:
     """Normaliza aliases de escenarios predefinidos del menu de cobertura."""
     normalized = normalize_brand_key(str(value or "")).replace("&", "and")
     normalized = re.sub(r"[^a-z0-9]+", "_", normalized).strip("_")
+    if normalized in {"yakult", "yakult_br", "yakult_br_relativa", "8"}:
+        return SCENARIO_YAKULT_BR_RELATIVA
     if normalized in {"auto", "3"}:
         return SCENARIO_AUTO
     if normalized in {
@@ -5195,6 +5223,17 @@ class ExecutionOptions:
     def from_scenario(cls, scenario_key: str) -> Optional["ExecutionOptions"]:
         """Crea opciones predefinidas para escenarios del menu de cobertura."""
         scenario = normalize_scenario_key(scenario_key)
+        if scenario == SCENARIO_YAKULT_BR_RELATIVA:
+            return cls(
+                coverage_type="relativa",
+                coverage_reason="Actualización periódica por contrato",
+                trend_axis="simple",
+                trend_granularity="monthly",
+                include_english=False,
+                round_coverage=False,
+                coverage_slide_variant="yakult",
+                auto_mode=True,
+            )
         if scenario == SCENARIO_AUTO:
             return cls(
                 coverage_type="Absoluta",
@@ -5296,6 +5335,8 @@ class ExecutionOptions:
         coverage_type = os.environ.get("AUTO_COV_TYPE", "Absoluta")
         scenario_options = cls.from_scenario(coverage_type)
         if scenario_options:
+            if normalize_scenario_key(coverage_type) == SCENARIO_YAKULT_BR_RELATIVA:
+                scenario_options.trend_axis = os.environ.get("AUTO_EJE", "simple")
             return scenario_options
         variations_box_style = normalize_variations_box_style(
             next((os.environ.get(k) for k in VARIATIONS_BOX_STYLE_ENV_KEYS if os.environ.get(k) is not None), None)
@@ -7088,6 +7129,82 @@ class SlideBuilder:
         self._set_table_cell_text(table.cell(2, 1), cov_curr_txt, fill_color=white_bg, font_color=black, align=2)
         self._set_table_cell_text(table.cell(2, 2), stability_txt, fill_color=white_bg, font_color=black, align=2)
 
+    def _add_yakult_coverage_header(self, slide, assets: PipelineAssets) -> None:
+        """Replica el encabezado Yakult con penetración media MAT y cortes YoY."""
+        ref = dt.strptime(self.ref_month_year, "%m-%y")
+        previous = ref - pd.DateOffset(months=12)
+        width = self.ppt.slide_width
+        self._add_editable_coverage_variation_table(
+            slide, assets.variation_table, left=Inches(0.5), top=Inches(1.1),
+            width=int(width * 0.38), height=Inches(0.55),
+        )
+        if assets.variation_table is not None and not assets.variation_table.empty:
+            variation = [shape.table for shape in slide.shapes if shape.has_table][-1]
+            for cell in variation.rows[1].cells:
+                cell.fill.solid()
+                cell.fill.fore_color.rgb = RGBColor(242, 242, 242)
+                cell.text_frame.word_wrap = False
+                for paragraph in cell.text_frame.paragraphs:
+                    for run in paragraph.runs:
+                        run.font.size = Pt(9)
+                        run.font.color.rgb = RGBColor(0, 0, 0)
+
+        def text_box(text, left, top, box_width, height, size, color=None):
+            shape = slide.shapes.add_textbox(left, top, box_width, height)
+            frame = shape.text_frame
+            frame.margin_top = frame.margin_bottom = 0
+            frame.margin_left = frame.margin_right = 0
+            self._set_paragraph_text(
+                frame.paragraphs[0], text, font_size=size,
+                font_color=color or RGBColor(0, 0, 0), bold=False, align=2,
+            )
+            return shape
+
+        center = int(width * 0.56)
+        title = {1: "Penetração Média\nMensal", 2: "Penetración Media\nMensual",
+                 3: "Average Monthly\nPenetration"}.get(self.lang_index, "Penetração Média\nMensal")
+        text_box(f"{title} {ref.year}", center - Inches(1.0), Inches(0.17),
+                 Inches(2), Inches(0.43), 12)
+
+        def fmt(value):
+            if value is None or not np.isfinite(float(value)):
+                return "-"
+            return f"{float(value):.1f}".replace(".", ",")
+
+        text_box(fmt(assets.penet_mat_actual), center - Inches(0.34), Inches(1.07),
+                 Inches(0.68), Inches(0.30), 18, RGBColor(255, 255, 255))
+        current_cov = _coverage_value_for_year_month(assets.coverage_series, ref.year, ref.month)
+        previous_cov = _coverage_value_for_year_month(assets.coverage_series, previous.year, previous.month)
+        stability = (current_cov - previous_cov
+                     if current_cov is not None and previous_cov is not None else None)
+        table = slide.shapes.add_table(
+            3, 3, int(width * 0.74), Inches(0.80), int(width * 0.21), Inches(0.78),
+        ).table
+        self._clear_powerpoint_table_style(table)
+        for column, ratio in zip(table.columns, (0.30, 0.30, 0.40)):
+            column.width = int(width * 0.21 * ratio)
+        table.cell(0, 0).merge(table.cell(0, 2))
+        rows = [
+            [self._coverage_metric_title(), "", ""],
+            [f"{self._month_abbr(previous.month)}-{previous.year % 100:02d}",
+             f"{self._month_abbr(ref.month)}-{ref.year % 100:02d}", self._stability_label()],
+            [fmt(previous_cov), fmt(current_cov), fmt(stability)],
+        ]
+        for row_index, row in enumerate(rows):
+            for col_index, value in enumerate(row):
+                if row_index == 0 and col_index:
+                    continue
+                cell = table.cell(row_index, col_index)
+                self._set_table_cell_text(
+                    cell, value, font_size=10 if row_index < 2 else 14,
+                    fill_color=RGBColor(166, 166, 166) if row_index < 2 else RGBColor(255, 255, 255),
+                    font_color=RGBColor(255, 255, 255) if row_index < 2 else RGBColor(0, 0, 0),
+                    bold=row_index < 2,
+                    word_wrap=False,
+                )
+                for side in ("lnL", "lnR", "lnT", "lnB"):
+                    self._add_table_cell_border(cell, side, RGBColor(0, 0, 0), width=6350)
+
     def _add_cov_slide_header_boxes(self, slide, assets: PipelineAssets) -> None:
         """Header del slide de Cobertura en modo 'complemented'."""
         try:
@@ -7550,11 +7667,13 @@ class SlideBuilder:
             assets.pipeline,
             lang_index=lang_index,
         )
-        slide_cov = self.ppt.slides.add_slide(self.ppt.slide_layouts[PPT_LAYOUT_INDEX])
+        slide_cov = add_coverage_slide(self.ppt, self.coverage_slide_variant)
         pipeline_title_width = self.ppt.slide_width - Inches(1.0)
         tx_title_cov = ensure_title_frame(slide_cov, width=pipeline_title_width)
         p_cov = tx_title_cov.paragraphs[0]
         p_cov.text = pipeline_title
+        if self.coverage_slide_variant == "yakult":
+            p_cov.text = f"{display_label} - Pipeline {assets.pipeline}"
         p_cov.font.bold = True
         p_cov.font.size = Pt(24)
         chart_top = Inches(2.0)
@@ -7574,7 +7693,9 @@ class SlideBuilder:
             picture_top=chart_top,
             picture_height=chart_height,
         )
-        if self.coverage_slide_variant == "complemented":
+        if self.coverage_slide_variant == "yakult":
+            self._add_yakult_coverage_header(slide_cov, assets)
+        elif self.coverage_slide_variant == "complemented":
             try:
                 self._add_cov_slide_header_boxes(slide_cov, assets)
             except Exception as exc:
@@ -7673,7 +7794,10 @@ class SlideBuilder:
             )
         else:
             trend_chart_kwargs = {
-                "picture_height": Inches(self.trend_chart_height_inches),
+                "box_left": Inches(0.5),
+                "box_top": Inches(1.8),
+                "box_width": self.ppt.slide_width - Inches(1.0),
+                "box_height": Inches(self.trend_chart_height_inches),
             }
             if self.trend_chart_height_inches > DEFAULT_TREND_CHART_HEIGHT_INCHES:
                 horizontal_margin = Inches(0.35)
@@ -7962,7 +8086,31 @@ def ensure_output_folder(root_dir: str, nombre_base_archivo: str) -> str:
 
 
 
-def copy_and_prune_template(root_dir: str, chosen_lang: str) -> Tuple["Presentation", str]:
+def add_coverage_slide(ppt: "Presentation", variant: str):
+    """Reutiliza el slide de Yakult embebido sin publicar la diapositiva auxiliar."""
+    from copy import deepcopy
+
+    if normalize_coverage_slide_variant(variant) != "yakult":
+        return ppt.slides.add_slide(ppt.slide_layouts[PPT_LAYOUT_INDEX])
+    source = getattr(ppt, "_yakult_template_slide", None)
+    if source is None:
+        raise ValueError("Modelo_PPT.pptx no contiene el slide reutilizable de Yakult")
+    slide = ppt.slides.add_slide(ppt.slide_layouts[PPT_LAYOUT_INDEX])
+    for shape in list(slide.shapes):
+        slide.shapes._spTree.remove(shape.element)
+    for shape in source.shapes:
+        element = deepcopy(shape.element)
+        for blip in element.iter(qn("a:blip")):
+            old_rid = blip.get(qn("r:embed"))
+            if old_rid:
+                image_part = source.part.related_part(old_rid)
+                _, new_rid = slide.part.get_or_add_image_part(io.BytesIO(image_part.blob))
+                blip.set(qn("r:embed"), new_rid)
+        slide.shapes._spTree.insert_element_before(element, "p:extLst")
+    return slide
+
+
+def copy_and_prune_template(root_dir: str, chosen_lang: str, coverage_slide_variant: str = "classic") -> Tuple["Presentation", str]:
     """Copia la plantilla base, elimina slides según idioma y devuelve la presentación lista."""
     run_id = os.environ.get('RUN_ID') or datetime.now().strftime('%Y%m%d_%H%M%S')
     tmp_dir = os.path.join(root_dir, 'tmp')
@@ -7974,18 +8122,31 @@ def copy_and_prune_template(root_dir: str, chosen_lang: str) -> Tuple["Presentat
     tmp_ppt_path = os.path.join(tmp_dir, tmp_ppt_name)
     shutil.copyfile(src_template_path, tmp_ppt_path)
     ppt = Presentation(tmp_ppt_path)
+    reusable_indices = {i for i, slide in enumerate(ppt.slides)
+                        if slide.name == YAKULT_TEMPLATE_SLIDE_NAME}
+    yakult_slide = None
+    if normalize_coverage_slide_variant(coverage_slide_variant) == "yakult":
+        if len(reusable_indices) != 1:
+            raise ValueError("Modelo_PPT.pptx debe contener exactamente un slide reutilizable de Yakult")
+        yakult_slide = ppt.slides[next(iter(reusable_indices))]
     keep_indices_by_lang = {
         'ES': {0, 1, 2, 3, 4, 5, 16},
         'PT': {0, 6, 7, 8, 9, 10, 16},
         'EN': {0, 11, 12, 13, 14, 15, 16},
     }
-    keep_set = keep_indices_by_lang.get(chosen_lang, keep_indices_by_lang['ES'])
+    # Los auxiliares nunca forman parte de los conceptos ni del resultado final.
+    content_indices = [i for i in range(len(ppt.slides)) if i not in reusable_indices]
+    keep_set = {content_indices[i] for i in keep_indices_by_lang.get(chosen_lang, keep_indices_by_lang['ES'])
+                if i < len(content_indices)}
     total_initial = len(ppt.slides)
     delete_list = sorted([i for i in range(total_initial) if i not in keep_set], reverse=True)
     for di in delete_list:
         _delete_slide(ppt, di)
     ppt.save(tmp_ppt_path)
-    return Presentation(tmp_ppt_path), tmp_ppt_path
+    result = Presentation(tmp_ppt_path)
+    if yakult_slide is not None:
+        result._yakult_template_slide = yakult_slide
+    return result, tmp_ppt_path
 
 
 def _delete_slide(pres_obj: "Presentation", idx: int) -> None:
@@ -8346,7 +8507,6 @@ def add_native_excel_charts(
         x_title: str,
         y_title: str,
         y_number_format: str,
-        tick_skip: int = 3,
         y_minimum: Optional[float] = None,
     ) -> None:
         """Hace visibles ambos ejes y usa una cuadrícula gris discreta."""
@@ -8355,18 +8515,28 @@ def add_native_excel_charts(
             axId=getattr(previous_x_axis, "axId", 10),
             crossAx=getattr(chart.y_axis, "axId", 100),
         )
-        chart.x_axis.baseTimeUnit = "days"
+        chart.x_axis.baseTimeUnit = "months"
         chart.x_axis.majorTimeUnit = "months"
-        chart.x_axis.majorUnit = max(1, int(tick_skip))
+        chart.x_axis.majorUnit = 1
         chart.x_axis.axPos = "b"
-        chart.x_axis.title = x_title
+        # Las fechas ya identifican el período; evitar un título sobre las etiquetas.
+        chart.x_axis.title = None
         chart.x_axis.delete = False
         chart.x_axis.tickLblPos = "low"
-        chart.x_axis.tickLblSkip = max(1, int(tick_skip))
-        chart.x_axis.tickMarkSkip = max(1, int(tick_skip))
+        chart.x_axis.tickLblSkip = 1
+        chart.x_axis.tickMarkSkip = 1
         chart.x_axis.majorTickMark = "out"
-        chart.x_axis.number_format = "mmm-yy"
-        chart.x_axis.numFmt = "mmm-yy"
+        chart.x_axis.number_format = "mm-yy"
+        chart.x_axis.numFmt = "mm-yy"
+        from openpyxl.chart.text import RichText
+        from openpyxl.drawing.text import Paragraph, ParagraphProperties, CharacterProperties, RichTextProperties
+        chart.x_axis.txPr = RichText(
+            bodyPr=RichTextProperties(rot=-2700000),
+            p=[Paragraph(pPr=ParagraphProperties(defRPr=CharacterProperties(sz=700)))],
+        )
+        if chart.title is not None:
+            chart.title.overlay = False
+        chart.roundedCorners = False
         try:
             chart.x_axis.numFmt.sourceLinked = False
         except Exception:
@@ -8408,9 +8578,9 @@ def add_native_excel_charts(
         return f"{r2:02X}{g2:02X}{b2:02X}"
 
     def _apply_variation_labels(series_obj: "object", line_color: str) -> None:
-        """Muestra valor puntual con fondo difuminado del color de línea y color por signo."""
+        """Resalta el cierre sin cubrir la evolución con etiquetas en cada mes."""
         dlabels = _DataLabelList()
-        dlabels.showVal = True
+        dlabels.showVal = False
         dlabels.showSerName = False
         dlabels.showCatName = False
         dlabels.showLegendKey = False
@@ -8418,6 +8588,14 @@ def add_native_excel_charts(
         dlabels.separator = " "
         # Color de fuente por signo (Excel evalúa el formato en tiempo de cálculo).
         dlabels.numFmt = "[Green]0.0%;[Red]-0.0%;0.0%"
+        reference = series_obj.val.numRef.f
+        rows = re.findall(r"\$[A-Z]+\$(\d+)", reference)
+        if len(rows) == 2:
+            dlabels.dLbl = [_DataLabel(
+                idx=int(rows[1]) - int(rows[0]), showVal=True,
+                showLegendKey=False, showSerName=False, showCatName=False,
+                showPercent=False, numFmt=dlabels.numFmt, dLblPos="t",
+            )]
         series_obj.dLbls = dlabels
         # Fondo difuminado con color de la línea de la serie.
         try:
@@ -8434,10 +8612,8 @@ def add_native_excel_charts(
         line_color: str,
         point_count: int,
     ) -> None:
-        """Etiqueta cortes trimestrales y el último dato sin saturar la línea."""
-        label_indexes = list(range(0, max(0, int(point_count)), 3))
-        if point_count > 0 and (point_count - 1) not in label_indexes:
-            label_indexes.append(point_count - 1)
+        """Destaca el inicio y el cierre; conserva todos los puntos de la serie."""
+        label_indexes = sorted({0, point_count - 1}) if point_count > 0 else []
         dlabels = _DataLabelList()
         dlabels.showVal = False
         dlabels.showSerName = False
@@ -8453,6 +8629,8 @@ def add_native_excel_charts(
                 showVal=True,
                 showSerName=False,
                 showCatName=False,
+                showLegendKey=False,
+                showPercent=False,
                 dLblPos="t",
                 numFmt=number_format,
             )
@@ -8461,7 +8639,8 @@ def add_native_excel_charts(
         series_obj.dLbls = dlabels
         try:
             series_obj.marker.symbol = "circle"
-            series_obj.marker.size = 4
+            series_obj.marker.size = 3
+            series_obj.smooth = False
             series_obj.marker.graphicalProperties.solidFill = _safe_hex(line_color)
             series_obj.marker.graphicalProperties.line.solidFill = _safe_hex(line_color)
         except Exception:
@@ -8620,7 +8799,6 @@ def add_native_excel_charts(
             x_title=dashboard_copy["period_axis"],
             y_title=dashboard_copy["volume_axis"],
             y_number_format="#,##0",
-            tick_skip=6,
             y_minimum=0,
         )
         trend_chart.add_data(
@@ -8665,13 +8843,13 @@ def add_native_excel_charts(
                 x_title=dashboard_copy["period_axis"],
                 y_title=label,
                 y_number_format=number_format,
-                tick_skip=6,
             )
             chart.add_data(
                 _Reference(dashboard, min_col=source_col, min_row=kpi_start_row, max_row=last_data_row),
                 titles_from_data=False,
             )
             chart.series[-1].title = _SeriesLabel(v=label)
+            chart.y_axis.title = None
             chart.set_categories(
                 _Reference(dashboard, min_col=data_col, min_row=kpi_start_row, max_row=last_data_row)
             )
@@ -8858,7 +9036,6 @@ def add_native_excel_charts(
                 x_title=dashboard_copy["period_axis"],
                 y_title=coverage_label,
                 y_number_format="0.0",
-                tick_skip=6,
                 y_minimum=0,
             )
             coverage_chart.legend.position = "b"
@@ -8885,7 +9062,6 @@ def add_native_excel_charts(
                 x_title=dashboard_copy["period_axis"],
                 y_title=chart_titles["penetration_label"],
                 y_number_format="0.0",
-                tick_skip=6,
                 y_minimum=0,
             )
             penetration_chart.x_axis.delete = True
@@ -9024,7 +9200,6 @@ def add_native_excel_charts(
                     x_title=dashboard_copy["period_axis"],
                     y_title=chart_titles["evolution_var_axis"],
                     y_number_format="0.0%",
-                    tick_skip=6,
                 )
                 evol_chart.legend.position = "b"
                 evol_chart.legend.overlay = False
@@ -9072,7 +9247,6 @@ def add_native_excel_charts(
                     x_title=dashboard_copy["period_axis"],
                     y_title=chart_titles["evolution_var_axis"],
                     y_number_format="0.0%",
-                    tick_skip=6,
                 )
                 evol_var_chart.legend.position = "b"
                 evol_var_chart.legend.overlay = False
@@ -9120,6 +9294,13 @@ def add_native_excel_charts(
         )
     if source_worksheets:
         wb.active = source_worksheets[0]
+
+    for worksheet in source_worksheets:
+        for chart in worksheet._charts:
+            for component in chart._charts:
+                for series in component.series:
+                    if isinstance(component, _LineChart):
+                        series.smooth = False
 
     wb.save(xlsx_path)
 
@@ -11889,7 +12070,7 @@ def generate_presentation_and_bank(
         bool(parse_sheet_name_identity(sheet_name).category_code)
         for sheet_name in marcas
     )
-    ppt, tmp_ppt_path = copy_and_prune_template(root_dir, chosen_lang)
+    ppt, tmp_ppt_path = copy_and_prune_template(root_dir, chosen_lang, coverage_slide_variant)
     labels = build_labels(
         lang_index,
         fabricante,
@@ -12986,6 +13167,8 @@ class CoverageStudioUltraApp:
         coverage_type = tipo_cobertura()
         scenario_options = ExecutionOptions.from_scenario(coverage_type)
         if scenario_options:
+            if normalize_scenario_key(coverage_type) == SCENARIO_YAKULT_BR_RELATIVA:
+                scenario_options.trend_axis = tipo_eje_tendencia()
             apply_execution_options_to_selections(scenario_options)
             clear_and_print_summary()
             return scenario_options

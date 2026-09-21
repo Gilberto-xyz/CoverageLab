@@ -98,6 +98,35 @@ python coverage_studio.py
 python coverage_studio.py
 ```
 
+### Template Yakult - BR- Relativa
+
+En el menú de cobertura, la opción **8 - Template Yakult - BR- Relativa**
+calcula cobertura relativa con un decimal. Permite seleccionar tendencia con un
+solo eje o doble eje. Usa el idioma del país del archivo
+(portugués para Brasil) y respeta el pipeline indicado por la hoja, por ejemplo
+`P1_T.Yakult`.
+
+La diapositiva de cobertura reproduce la referencia Yakult: tabla VAR % MAT a
+la izquierda, indicador verde de penetración media mensual del MAT actual,
+comparación del mes de corte con el mismo mes del año anterior y estabilidad
+en puntos, más las barras de penetración y cobertura. Los años y meses se
+actualizan desde los datos; el indicador usa los últimos 12 meses, no el año
+calendario. Las tablas y el valor del indicador son editables en PowerPoint.
+La casa original está integrada en la diapositiva reutilizable
+`CoverageLab.Template.Yakult` de `Modelo_PPT.pptx`. El generador la duplica para
+las coberturas Yakult y excluye siempre el slide auxiliar del resultado final.
+Los demás modos no lo utilizan ni incluyen su imagen. No requiere una carpeta
+de recursos adicional.
+
+Para ejecutar con el archivo de ejemplo desde PowerShell:
+
+```powershell
+$env:AUTO_FILE = '55_MXDI_Yakult.xlsx'
+$env:AUTO_COV_TYPE = 'YAKULT_BR_RELATIVA'
+$env:AUTO_EJE = 'doble' # 'simple' para eje normal; predeterminado si se omite
+python coverage_studio.py
+```
+
 ### Flujo C: exportar scorecards
 
 ```bash
