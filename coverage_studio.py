@@ -4506,8 +4506,10 @@ def trend_animation_phase_text(lang_idx: int, pipeline: int, phase: str) -> str:
     return labels.get(lang_idx, labels[2]).get(phase, labels[2]["aligned"])
 
 
-def _trend_animation_anchor_index(sell_in_data: "np.ndarray", pipeline: int) -> int:
-    """Elige un pico visible cuyo origen y destino quepan dentro del grafico."""
+def _trend_animation_anchor_index(
+    sell_in_data: "np.ndarray", sell_out_data: "np.ndarray", pipeline: int
+) -> int:
+    """Prioriza los picos mas altos que coinciden al aplicar el pipeline."""
     length = len(sell_in_data)
     start = max(0, int(pipeline))
     stop = max(start + 1, length - max(0, int(pipeline)))
@@ -4520,6 +4522,39 @@ def _trend_animation_anchor_index(sell_in_data: "np.ndarray", pipeline: int) -> 
         candidates = [idx for idx in range(length) if np.isfinite(sell_in_data[idx])]
     if not candidates:
         return 0
+
+    def is_peak(values: "np.ndarray", idx: int) -> bool:
+        # Exigir ambos vecinos evita tratar extremos o huecos como picos.
+        if idx <= 0 or idx >= len(values) - 1:
+            return False
+        previous, current, following = values[idx - 1:idx + 2]
+        return bool(
+            np.isfinite([previous, current, following]).all()
+            and current >= previous
+            and current >= following
+            and (current > previous or current > following)
+        )
+
+    paired_candidates = [
+        idx for idx in candidates
+        if 0 <= idx + pipeline < len(sell_out_data)
+        and np.isfinite(sell_out_data[idx + pipeline])
+    ]
+    coincident_peaks = [
+        idx for idx in paired_candidates
+        if is_peak(sell_in_data, idx) and is_peak(sell_out_data, idx + pipeline)
+    ]
+    if paired_candidates:
+        # Normalizar cada serie permite comparar alturas incluso con doble eje.
+        sell_in_scale = max(1.0, max(abs(float(sell_in_data[idx])) for idx in paired_candidates))
+        sell_out_scale = max(1.0, max(abs(float(sell_out_data[idx + pipeline])) for idx in paired_candidates))
+        return max(
+            coincident_peaks or paired_candidates,
+            key=lambda idx: (
+                max(0.0, float(sell_in_data[idx])) / sell_in_scale
+                * max(0.0, float(sell_out_data[idx + pipeline])) / sell_out_scale
+            ),
+        )
     return max(candidates, key=lambda idx: float(sell_in_data[idx]))
 
 
@@ -4686,7 +4721,7 @@ def _build_animated_trend_gif(
         color="#008C95",
     )
 
-    anchor_idx = _trend_animation_anchor_index(sell_in_data, pipeline)
+    anchor_idx = _trend_animation_anchor_index(sell_in_data, sell_out_data, pipeline)
     target_idx = min(len(x_labels) - 1, anchor_idx + pipeline)
     origin_guide = ax_trend.axvline(
         float(anchor_idx),
