@@ -176,9 +176,17 @@ automáticas como referencia. Las hojas excluidas no aparecen en los entregables
 La metadata por hoja se conserva incluso al excluir una hoja total de la que
 otras hojas heredaron su categoría.
 
-Cada generación crea su propia carpeta en `outputs/pipeline_explorer/`, con
-los entregables, `selection.json`, `result.json` y `generation.log`. Usa una copia
-del Excel revisado y de la plantilla PPT; conserva las entregas anteriores.
+El encabezado fijo incluye **Exportar**, con la misma revisión y selección del botón
+inferior, y **Abrir resultados**, que abre `Output` en el explorador de archivos.
+Cada generación crea `Output/<nombre de entrega del script>__AAAAMMDD_HHMMSS/`:
+el nombre conserva país, categoría, fabricante, periodo y tipo de cobertura; la fecha
+y hora se agregan para distinguir ejecuciones. Los nombres y formatos de Excel, PPT,
+banco y reporte mantienen las reglas del script. La carpeta también contiene
+`selection.json`, `result.json`, `job.json` y `generation.log`; cada entrega muestra
+su fecha/hora y un botón para abrir su carpeta concreta. Las entregas se recuperan
+al reiniciar el explorador. La preparación temporal ocurre en `Output/.runs/` y se
+retira al terminar correctamente. Usa una copia del Excel revisado y la plantilla PPT;
+conserva las entregas anteriores de `outputs/pipeline_explorer/` en su ubicación.
 Si el Excel cambia desde la revisión, debes volver a cargarlo. Las selecciones
 guardadas quedan en `outputs/pipeline_explorer/selections/`, ligadas a la huella
 del archivo, y los borradores también se conservan en el navegador.

@@ -15,3 +15,5 @@
   .sidebar-footer{flex-shrink:0}
   [id^="excel-chart-"],#excel-diagnostics,#template-table,.complete-table-section,#chart-title{scroll-margin-top:106px}
 }
+
+.header-actions,.job-heading-actions{display:flex;align-items:center;gap:9px}.header-actions{flex-shrink:0}.header-actions .button{font-size:11px}.header-actions .local-status{margin-left:9px}.job-heading{gap:16px;flex-wrap:wrap}.job-heading h2{flex:1;min-width:220px;overflow-wrap:anywhere;line-height:1.6}.job-heading-actions{flex-wrap:wrap}.app-header .steps{gap:18px}@media(max-width:1250px){.app-header .steps{display:none}}@media(max-width:900px){.header-actions .local-status{display:none}}@media(max-width:800px){.app-header{height:auto;min-height:86px;flex-wrap:wrap;padding:15px 20px;gap:12px}.header-actions{width:100%}.header-actions .button{flex:1}.job-heading-actions{width:100%}.job-heading-actions .button{flex:1}}

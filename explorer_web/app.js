@@ -1,7 +1,7 @@
 'use strict';
 const $ = id => document.getElementById(id);
 const token = document.querySelector('meta[name="explorer-token"]').content;
-const state = {analysis: null, active: null, selections: {}, included: {}, busy: false, dirty: false, job: null, files: []};
+const state = {analysis: null, active: null, selections: {}, included: {}, busy: false, dirty: false, job: null, files: [], openingResults:false};
 const fmt = (value, digits = 1, suffix = '') => value == null ? '—' : new Intl.NumberFormat('es-MX', {minimumFractionDigits: digits, maximumFractionDigits: digits}).format(value) + suffix;
 const month = date => new Intl.DateTimeFormat('es-MX', {month: 'short', year: '2-digit'}).format(new Date(date + 'T12:00:00'));
 const item = (tag, text, className) => { const element = document.createElement(tag); if (text != null) element.textContent = text; if (className) element.className = className; return element; };
@@ -44,6 +44,10 @@ function controls() {
   const ready = state.analysis && !state.dirty && Object.keys(selectedSheets()).length && !working;
   $('save').disabled = !ready;
   $('export').disabled = !ready;
+  $('header-export').disabled = !ready;
+  $('header-export').title = state.dirty ? 'Vuelve a cargar el archivo para aplicar la configuración actual' : `Exportar con ${$('template').selectedOptions[0].textContent} y los pipelines elegidos`;
+  $('open-output').disabled = state.openingResults;
+  $('open-job').disabled = state.openingResults || !state.job || state.job.status==='running';
   $('select-all').disabled = working;
   $('select-none').disabled = working;
   document.querySelectorAll('.sheet-row input, .pipeline-button').forEach(control => { control.disabled = working || control.dataset.unavailable === 'true'; });
@@ -610,11 +614,18 @@ async function exportFiles() {
 function downloadLink(url, label) {
   const a = item('a', label); a.href = `${url}${url.includes('?') ? '&' : '?'}token=${encodeURIComponent(token)}`; a.setAttribute('referrerpolicy', 'no-referrer'); return a;
 }
+async function openResults(scope) {
+  state.openingResults=true;controls();
+  try { const result=await api('/api/open-results',{scope,...(scope==='job' ? {id:state.job.id} : {})});status(`${result.message} ${result.directory}`); }
+  catch(error) { status(error.message,true); }
+  finally { state.openingResults=false;controls(); }
+}
 async function pollJob() {
   try {
     state.job = await api(`/api/job?id=${encodeURIComponent(state.job.id)}`);
     const job = state.job;
-    $('job-title').textContent = job.status === 'complete' ? 'Entregables generados' : job.status === 'failed' ? 'La generación requiere revisión' : 'Generando entregables…';
+    const generatedAt=job.started_at ? new Intl.DateTimeFormat('es-MX',{dateStyle:'medium',timeStyle:'medium'}).format(new Date(job.started_at)) : '';
+    $('job-title').textContent = job.status === 'complete' ? `${job.title || 'Entregables generados'}${generatedAt ? ` · ${generatedAt}` : ''}` : job.status === 'failed' ? 'La generación requiere revisión' : 'Generando entregables…';
     $('job-badge').textContent = job.status === 'complete' ? 'Completado' : job.status === 'failed' ? 'Error' : 'En curso';
     $('job-message').textContent = job.error || (job.status === 'complete' ? `Archivos guardados en ${job.directory}` : 'Puedes consultar el avance en el registro. Esta generación usa la selección que acabas de confirmar.');
     $('job-log').textContent = (job.log || '').replace(/\x1b\[[0-9;]*[a-zA-Z]/g, '');
@@ -676,6 +687,9 @@ try {
 } catch (_) { /* Default visual settings are retained. */ }
 $('save').addEventListener('click', saveSelection);
 $('export').addEventListener('click', reviewExport);
+$('header-export').addEventListener('click', reviewExport);
+$('open-output').addEventListener('click',()=>openResults('all'));
+$('open-job').addEventListener('click',()=>openResults('job'));
 $('cancel-export').addEventListener('click', () => $('export-dialog').close());
 $('confirm-export').addEventListener('click', exportFiles);
 controls();

@@ -8,6 +8,7 @@ import shutil
 import subprocess
 import tempfile
 import threading
+import time
 import unittest
 from unittest import mock
 import urllib.error
@@ -150,6 +151,7 @@ class PipelineExplorerTests(unittest.TestCase):
         self.assertEqual(self.state.jobs, {})
         self.assertEqual({path.name for path in self.root.iterdir()}, before)
         self.assertFalse((self.root / "outputs").exists())
+        self.assertFalse((self.root / "Output").exists())
         json.dumps(analysis, allow_nan=False)
 
     def test_mat_annual_cuts_match_excel_sums_growth_and_pipeline(self):
@@ -344,10 +346,44 @@ assert.equal(api.correlationStyle(null,[0,.5,1],palette),null);
             request = urllib.request.Request(base + "/api/files", headers={"X-Explorer-Token": self.state.token})
             with urllib.request.urlopen(request) as response:
                 self.assertEqual(json.load(response)["files"], [self.source.name])
+            for headers in ({}, {"X-Explorer-Token": self.state.token, "Origin": "https://example.com"}):
+                request = urllib.request.Request(base + "/api/open-results", data=b'{"scope":"all"}', headers=headers)
+                with self.assertRaises(urllib.error.HTTPError) as error:
+                    urllib.request.urlopen(request)
+                self.assertEqual(error.exception.code, 403)
+            self.assertFalse((self.root / "Output").exists())
+            with mock.patch.object(explorer.os, "startfile", create=True) as opener, mock.patch.object(explorer.sys, "platform", "win32"):
+                request = urllib.request.Request(base + "/api/open-results", data=b'{"scope":"all"}', headers={"X-Explorer-Token": self.state.token})
+                with urllib.request.urlopen(request) as response:
+                    self.assertEqual(Path(json.load(response)["directory"]), self.root / "Output")
+                opener.assert_called_once_with(str(self.root / "Output"))
         finally:
             server.shutdown()
             server.server_close()
             thread.join()
+
+    def test_open_results_only_opens_known_local_folders(self):
+        with mock.patch.object(explorer.os, "startfile", create=True) as opener, mock.patch.object(explorer.sys, "platform", "win32"):
+            for payload in ({"scope": "other", "path": str(self.root.parent)}, {"scope": "job", "id": "../outside"}):
+                with self.assertRaises(ValueError):
+                    self.state.open_results(payload)
+            self.state.jobs["escaped"] = {"directory": str(self.root.parent)}
+            with self.assertRaises(ValueError):
+                self.state.open_results({"scope": "job", "id": "escaped"})
+            opener.assert_not_called()
+            directory = self.root / "Output" / "Entrega"
+            directory.mkdir(parents=True)
+            self.state.jobs["local"] = {"directory": str(directory)}
+            self.state.open_results({"scope": "job", "id": "local"})
+            opener.assert_called_once_with(str(directory))
+
+    def test_restore_jobs_rejects_output_paths_outside_the_delivery(self):
+        directory = self.root / "Output" / "Entrega"
+        directory.mkdir(parents=True)
+        job = {"id": "bad", "directory": str(directory), "status": "complete", "started_at": "2026-10-13T12:00:00-06:00",
+               "outputs": [{"path": str(self.source), "label": "template"}]}
+        (directory / "job.json").write_text(json.dumps(job), encoding="utf-8")
+        self.assertEqual(explorer.ExplorerState(self.root).jobs, {})
 
     def test_real_export_respects_override_and_excludes_other_sheets(self):
         from openpyxl import load_workbook
@@ -361,14 +397,27 @@ assert.equal(api.correlationStyle(null,[0,.5,1],palette),null);
         analysis = self.analyze()
         selected = analysis["sheets"][1]
         self.assertEqual(selected["metadata"]["categoria_codigo"], "BISC")
-        options = self.options
-        options.pipeline_overrides = {"P4_MarcaDemo": 3}
-        options.sheet_metadata_overrides = {"P4_MarcaDemo": self.core.SheetBankMetadata(**selected["metadata"])}
-        app = self.core.CoverageStudioUltraApp()
-        app.root_dir = str(self.root)
-        with contextlib.redirect_stdout(io.StringIO()):
-            outputs = app.process_file(self.source.name, options, 1, 1)
-        self.assertIsNotNone(outputs)
+        job = self.state.export({"analysis_id": analysis["id"], "selections": {"P4_MarcaDemo": 3}})
+        deadline = time.monotonic() + 90
+        while self.state.job(job["id"])["status"] == "running" and time.monotonic() < deadline:
+            time.sleep(.1)
+        job = self.state.job(job["id"])
+        self.assertEqual(job["status"], "complete", job.get("error") or job.get("log"))
+        outputs = {out["label"]: out["path"] for out in job["outputs"]}
+        directory = Path(job["directory"])
+        self.assertEqual(directory.parent, self.root / "Output")
+        self.assertTrue(directory.name.startswith(job["title"] + "__"))
+        stage = self.root / "Output" / ".runs" / job["id"] / job["title"]
+        expected_name = self.core.build_bounded_output_filename(str(stage), "Template_" + job["title"] + ".xlsx")
+        self.assertEqual(Path(outputs["template"]).name, expected_name)
+        self.assertEqual(job["options"], analysis["options"])
+        for name in ("selection.json", "result.json", "job.json", "generation.log"):
+            self.assertTrue((directory / name).is_file())
+        config = json.loads((directory / "selection.json").read_text(encoding="utf-8"))
+        self.assertEqual(config["options"], analysis["options"])
+        self.assertEqual(config["selections"], {"P4_MarcaDemo": 3})
+        self.assertEqual(explorer.ExplorerState(self.root).jobs[job["id"]]["status"], "complete")
+        self.assertFalse((self.root / "Output" / ".runs" / job["id"]).exists())
         self.assertTrue(all(Path(path).is_file() for path in outputs.values()))
         bank = load_workbook(outputs["bank"], data_only=True)
         ws = bank.active

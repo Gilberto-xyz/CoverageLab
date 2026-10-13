@@ -327,6 +327,76 @@ class ExplorerState:
         self.analysis_lock = threading.Lock()
         self.analyses = {}
         self.jobs = {}
+        self.output_root = self.root / "Output"
+        self.restore_jobs()
+
+    def restore_jobs(self):
+        """Recupera entregas locales verificadas, sin mover las ejecuciones anteriores."""
+        jobs = []
+        for manifest in self.output_root.glob("*/job.json"):
+            try:
+                job = json.loads(manifest.read_text(encoding="utf-8"))
+                directory = Path(job["directory"]).resolve()
+                if directory != manifest.parent.resolve() or not directory.is_relative_to(self.output_root.resolve()):
+                    continue
+                if job["status"] != "complete" or not isinstance(job["id"], str):
+                    continue
+                datetime.fromisoformat(job["started_at"])
+                if not isinstance(job["outputs"], list) or not job["outputs"]:
+                    continue
+                if any(not Path(out["path"]).resolve().is_relative_to(directory) or not Path(out["path"]).is_file() for out in job["outputs"]):
+                    continue
+                for out in job["outputs"]:
+                    out["url"] = f"/api/download?job={quote(job['id'])}&output={quote(out['label'])}"
+                jobs.append(job)
+            except (OSError, ValueError, KeyError, TypeError):
+                continue
+        # Las salidas del explorador anterior siguen disponibles en su ubicación.
+        legacy_root = self.root / "outputs" / "pipeline_explorer"
+        for result_path in legacy_root.glob("*/result.json"):
+            try:
+                result = json.loads(result_path.read_text(encoding="utf-8"))
+                directory = result_path.parent.resolve()
+                if not directory.is_relative_to(legacy_root.resolve()) or result.get("error") or not result.get("outputs"):
+                    continue
+                outputs = []
+                for label, path in result["outputs"].items():
+                    file = Path(path).resolve()
+                    if not file.is_relative_to(directory) or not file.is_file():
+                        raise ValueError("Salida anterior fuera de su ejecución.")
+                    outputs.append({"label": label, "name": file.name, "path": str(file),
+                                    "url": f"/api/download?job={quote(directory.name)}&output={quote(label)}"})
+                started = datetime.strptime(directory.name[:15], "%Y%m%d_%H%M%S").astimezone().isoformat()
+                jobs.append({"id": directory.name, "status": "complete", "directory": str(directory),
+                             "title": Path(outputs[0]["path"]).parent.name, "started_at": started,
+                             "outputs": outputs, "error": None})
+            except (OSError, ValueError, KeyError, TypeError):
+                continue
+        for job in sorted(jobs, key=lambda entry: entry.get("started_at", entry["id"])):
+            self.jobs[job["id"]] = job
+
+    def open_results(self, payload):
+        """Abre únicamente Output o una ejecución registrada, nunca una ruta del cliente."""
+        if payload.get("scope") == "all":
+            directory = self.output_root.resolve()
+            if not directory.is_relative_to(self.root):
+                raise ValueError("La carpeta Output debe estar dentro del proyecto.")
+            directory.mkdir(exist_ok=True)
+        elif payload.get("scope") == "job":
+            directory = Path(self.job(payload.get("id"))["directory"]).resolve()
+            roots = (self.output_root.resolve(), (self.root / "outputs" / "pipeline_explorer").resolve())
+            if not any(directory.is_relative_to(root) and root.is_relative_to(self.root) for root in roots):
+                raise ValueError("La carpeta no pertenece a una ejecución local.")
+        else:
+            raise ValueError("Carpeta de resultados desconocida.")
+        if not directory.is_dir():
+            raise ValueError("La carpeta de resultados ya no está disponible.")
+        if sys.platform == "win32":
+            os.startfile(str(directory))
+        else:
+            subprocess.Popen(["open" if sys.platform == "darwin" else "xdg-open", str(directory)],
+                             stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        return {"message": "Carpeta de resultados abierta.", "directory": str(directory)}
 
     def files(self):
         return sorted(path.name for path in self.root.glob("*.xlsx")
@@ -416,8 +486,11 @@ class ExplorerState:
             if any(job["status"] == "running" for job in self.jobs.values()):
                 raise ValueError("Ya hay una generación en curso. Espera a que termine.")
             analysis, source, selections = self.reviewed_selection(payload)
-            job_id = datetime.now().strftime("%Y%m%d_%H%M%S") + "_" + secrets.token_hex(3)
-            workdir = self.root / "outputs" / "pipeline_explorer" / job_id
+            started = datetime.now().astimezone()
+            job_id = started.strftime("%Y%m%d_%H%M%S") + "_" + secrets.token_hex(3)
+            workdir = self.output_root / ".runs" / job_id
+            if not workdir.resolve().is_relative_to(self.root):
+                raise ValueError("La carpeta de salida debe estar dentro del proyecto.")
             workdir.mkdir(parents=True)
             shutil.copy2(source, workdir / source.name)
             if fingerprint(workdir / source.name) != analysis["fingerprint"]:
@@ -425,10 +498,12 @@ class ExplorerState:
             shutil.copy2(self.root / "Modelo_PPT.pptx", workdir / "Modelo_PPT.pptx")
             config = {"file": source.name, "fingerprint": analysis["fingerprint"],
                       "options": analysis["options"], "selections": selections,
+                      "output_root": str(self.output_root), "run_suffix": started.strftime("%Y%m%d_%H%M%S"),
                       "metadata": {sheet["name"]: sheet["metadata"] for sheet in analysis["sheets"] if sheet["name"] in selections}}
             config_path = workdir / "selection.json"
             config_path.write_text(json.dumps(config, ensure_ascii=False, indent=2), encoding="utf-8")
-            job = {"id": job_id, "status": "running", "directory": str(workdir), "outputs": [], "error": None}
+            job = {"id": job_id, "status": "running", "directory": str(workdir), "outputs": [], "error": None,
+                   "title": source.stem, "started_at": started.isoformat(), "options": analysis["options"]}
             self.jobs[job_id] = job
             threading.Thread(target=self.run_export, args=(job_id, config_path), daemon=True).start()
             return dict(job)
@@ -447,11 +522,25 @@ class ExplorerState:
             result = json.loads(result_path.read_text(encoding="utf-8"))
             if result.get("error"):
                 raise RuntimeError(result["error"])
+            directory = Path(result["directory"]).resolve()
+            if not directory.is_relative_to(self.output_root.resolve()) or not self.output_root.resolve().is_relative_to(self.root):
+                raise ValueError("La entrega debe estar dentro de Output.")
             outputs = [{"label": label, "name": Path(path).name, "path": path,
                         "url": f"/api/download?job={quote(job_id)}&output={quote(label)}"}
                        for label, path in result["outputs"].items() if path]
+            if not outputs or any(not Path(out["path"]).resolve().is_relative_to(directory) or not Path(out["path"]).is_file() for out in outputs):
+                raise ValueError("Los entregables no pertenecen a la carpeta de resultados.")
+            shutil.copy2(workdir / "generation.log", directory / "generation.log")
+            shutil.copy2(result_path, directory / "result.json")
             with self.lock:
-                self.jobs[job_id].update(status="complete", outputs=outputs)
+                finished = dict(self.jobs[job_id], status="complete", outputs=outputs, directory=str(directory), title=result["title"])
+                (directory / "job.json").write_text(json.dumps(finished, ensure_ascii=False, indent=2), encoding="utf-8")
+                self.jobs[job_id] = finished
+            with contextlib.suppress(OSError):
+                for name in ("generation.log", "result.json", "selection.json"):
+                    (workdir / name).unlink(missing_ok=True)
+                workdir.rmdir()
+                workdir.parent.rmdir()
         except Exception as exc:
             with self.lock:
                 self.jobs[job_id].update(status="failed", error=str(exc))
@@ -486,11 +575,34 @@ def run_worker(config_path):
         outputs = app.process_file(config["file"], options, 1, 1)
         if not outputs or any(not path or not Path(path).is_file() for path in outputs.values()):
             raise RuntimeError("No se generaron todos los entregables. Revisa generation.log.")
-        result = {"outputs": outputs}
         core.cleanup_temp_dir(app.root_dir)
         # Keep only deliverables, manifest and log in the execution directory.
         (config_path.parent / config["file"]).unlink(missing_ok=True)
         (config_path.parent / "Modelo_PPT.pptx").unlink(missing_ok=True)
+        if config.get("output_root"):
+            output_root = Path(config["output_root"]).resolve()
+            if config_path.parent.parent != output_root / ".runs":
+                raise ValueError("La ejecución no pertenece a Output.")
+            directories = {Path(path).resolve().parent for path in outputs.values() if path}
+            if len(directories) != 1:
+                raise ValueError("Los entregables deben compartir la carpeta del script.")
+            source_dir = directories.pop()
+            if source_dir.parent != config_path.parent:
+                raise ValueError("Carpeta generada fuera de la ejecución.")
+            title = source_dir.name
+            directory = output_root / f"{title}__{config['run_suffix']}"
+            attempt = 1
+            while directory.exists():
+                attempt += 1
+                directory = output_root / f"{title}__{config['run_suffix']}_{attempt}"
+            if directory.resolve().parent != output_root:
+                raise ValueError("La carpeta final debe estar directamente dentro de Output.")
+            shutil.move(str(source_dir), str(directory))
+            outputs = {key: str(directory / Path(path).name) for key, path in outputs.items() if path}
+            shutil.copy2(config_path, directory / "selection.json")
+            result = {"outputs": outputs, "directory": str(directory), "title": title}
+        else:
+            result = {"outputs": outputs}
     except BaseException as exc:
         result = {"error": str(exc) or "El motor interrumpió la generación."}
     (config_path.parent / "result.json").write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -587,7 +699,8 @@ def make_handler(state):
                 payload = json.loads(self.rfile.read(length))
                 if not isinstance(payload, dict):
                     raise ValueError("Solicitud inválida.")
-                routes = {"/api/analyze": state.analyze, "/api/save": state.save_selection, "/api/export": state.export}
+                routes = {"/api/analyze": state.analyze, "/api/save": state.save_selection, "/api/export": state.export,
+                          "/api/open-results": state.open_results}
                 operation = routes.get(urlsplit(self.path).path)
                 if operation is None:
                     self.send_json({"error": "Ruta desconocida."}, 404)
