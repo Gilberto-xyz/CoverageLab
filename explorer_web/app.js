@@ -25,6 +25,14 @@ function status(message, error = false) {
   $('status').textContent = message || '';
   $('status').classList.toggle('error', error);
   $('status').setAttribute('role', error ? 'alert' : 'status');
+  syncChromeGeometry();
+}
+function syncChromeGeometry() {
+  $('result-dock').hidden=$('status').hidden && $('job-panel').hidden;
+  const root=document.documentElement;
+  root.style.setProperty('--header-height',`${$('app-top').querySelector('header').getBoundingClientRect().height}px`);
+  root.style.setProperty('--results-height',`${$('result-dock').getBoundingClientRect().height}px`);
+  root.style.setProperty('--top-height',`${$('app-top').getBoundingClientRect().height}px`);
 }
 function requestOptions() {
   return {file: $('file').value, template: $('template').value, trend_axis: $('trend-axis').value,
@@ -44,10 +52,14 @@ function controls() {
   const ready = state.analysis && !state.dirty && Object.keys(selectedSheets()).length && !working;
   $('save').disabled = !ready;
   $('export').disabled = !ready;
-  $('header-export').disabled = !ready;
-  $('header-export').title = state.dirty ? 'Vuelve a cargar el archivo para aplicar la configuración actual' : `Exportar con ${$('template').selectedOptions[0].textContent} y los pipelines elegidos`;
+  const refreshNeeded=!state.analysis || state.dirty;
+  $('header-export').disabled = working || !$('file').value || (!refreshNeeded && !Object.keys(selectedSheets()).length);
+  $('header-export').textContent=state.job?.status==='running' ? 'Generando…' : state.busy ? 'Procesando…' : 'Exportar →';
+  $('header-export').title = refreshNeeded ? 'Cargar la configuración actual y revisar antes de generar' : !Object.keys(selectedSheets()).length ? 'Incluye al menos una hoja para exportar' : `Exportar con ${$('template').selectedOptions[0].textContent} y los pipelines elegidos`;
   $('open-output').disabled = state.openingResults;
   $('open-job').disabled = state.openingResults || !state.job || state.job.status==='running';
+  $('open-output').textContent=state.openingResults==='all' ? 'Abriendo…' : 'Abrir Output ↗';
+  $('open-job').textContent=state.openingResults==='job' ? 'Abriendo carpeta…' : 'Abrir carpeta de esta entrega ↗';
   $('select-all').disabled = working;
   $('select-none').disabled = working;
   document.querySelectorAll('.sheet-row input, .pipeline-button').forEach(control => { control.disabled = working || control.dataset.unavailable === 'true'; });
@@ -71,7 +83,7 @@ async function refreshFiles() {
     [...new Set(state.files.map(file => file[key]).filter(Boolean))].sort((a,b) => a.localeCompare(b, 'es')).forEach(value => $(id).append(new Option(value, value)));
     if ([...$(id).options].some(option => option.value === current)) $(id).value = current;
   });
-  renderFileDetail(); renderFileCards();
+  renderFileDetail(); renderFileCards(); controls();
 }
 function fact(label, value) { const div = item('div', null, 'fact'); div.append(item('small', label), item('strong', value || '—')); return div; }
 function paintExcelCell(cell, kind, value, sheet, monthIndex = null) {
@@ -134,13 +146,13 @@ function renderFileCards() {
   if (!matches.length) $('file-cards').append(item('p', 'No hay archivos con estos filtros.', 'section-description'));
 }
 function markDirty() {
-  if (state.analysis) { state.dirty = true; status('La configuración cambió. Pulsa «Cargar y explorar» para actualizar las métricas antes de generar.'); controls(); }
+  if (state.analysis) { state.dirty = true; status('La configuración cambió. Cargar y explorar o Exportar actualizará los datos antes de la revisión final.'); }
+  controls();
 }
 async function load() {
   if (!$('file').value) return status('Selecciona un archivo Excel.', true);
   state.busy = true; state.analysis = null; state.dirty = false;
   $('workspace').hidden = true; $('sheet-panel').hidden = true; $('empty').hidden = false;
-  $('job-panel').hidden = true;
   status('Cargando hojas y calculando P0–P6…'); controls();
   try {
     const analysis = await api('/api/analyze', requestOptions());
@@ -599,6 +611,12 @@ function reviewExport() {
   Object.entries(selectedSheets()).forEach(([name, pipeline]) => { const row = item('div', null, 'dialog-row'); row.append(item('span', name), item('strong', `P${pipeline}`)); $('dialog-selection').append(row); });
   $('export-dialog').showModal();
 }
+async function prepareExport() {
+  if(state.busy || state.job?.status==='running')return;
+  if(!state.analysis || state.dirty)await load();
+  if(state.analysis && !state.dirty && Object.keys(selectedSheets()).length)reviewExport();
+  else if(state.analysis)status('Incluye al menos una hoja para generar.',true);
+}
 async function exportFiles() {
   $('export-dialog').close(); state.busy = true; controls();
   try {
@@ -615,7 +633,8 @@ function downloadLink(url, label) {
   const a = item('a', label); a.href = `${url}${url.includes('?') ? '&' : '?'}token=${encodeURIComponent(token)}`; a.setAttribute('referrerpolicy', 'no-referrer'); return a;
 }
 async function openResults(scope) {
-  state.openingResults=true;controls();
+  if(state.openingResults)return;
+  state.openingResults=scope;controls();
   try { const result=await api('/api/open-results',{scope,...(scope==='job' ? {id:state.job.id} : {})});status(`${result.message} ${result.directory}`); }
   catch(error) { status(error.message,true); }
   finally { state.openingResults=false;controls(); }
@@ -628,6 +647,7 @@ async function pollJob() {
     $('job-title').textContent = job.status === 'complete' ? `${job.title || 'Entregables generados'}${generatedAt ? ` · ${generatedAt}` : ''}` : job.status === 'failed' ? 'La generación requiere revisión' : 'Generando entregables…';
     $('job-badge').textContent = job.status === 'complete' ? 'Completado' : job.status === 'failed' ? 'Error' : 'En curso';
     $('job-message').textContent = job.error || (job.status === 'complete' ? `Archivos guardados en ${job.directory}` : 'Puedes consultar el avance en el registro. Esta generación usa la selección que acabas de confirmar.');
+    $('job-title').title=$('job-title').textContent;$('job-message').title=$('job-message').textContent;
     $('job-log').textContent = (job.log || '').replace(/\x1b\[[0-9;]*[a-zA-Z]/g, '');
     $('downloads').replaceChildren();
     const names = {template: '↓ Template Excel', presentation: '↓ Presentación PPT', bank: '↓ Banco de coberturas', pipeline_report: '↓ Reporte de pipelines'};
@@ -638,6 +658,7 @@ async function pollJob() {
       status(job.error || 'Generación completa. Los entregables y la configuración están disponibles para descargar.', !!job.error);
     }
     controls();
+    syncChromeGeometry();
     if (job.status === 'running') setTimeout(pollJob, 2000);
   } catch (error) { status(`No se pudo consultar el avance: ${error.message}. La generación puede seguir en su carpeta local.`, true); setTimeout(pollJob, 5000); }
 }
@@ -687,12 +708,15 @@ try {
 } catch (_) { /* Default visual settings are retained. */ }
 $('save').addEventListener('click', saveSelection);
 $('export').addEventListener('click', reviewExport);
-$('header-export').addEventListener('click', reviewExport);
+$('header-export').addEventListener('click', prepareExport);
 $('open-output').addEventListener('click',()=>openResults('all'));
 $('open-job').addEventListener('click',()=>openResults('job'));
 $('cancel-export').addEventListener('click', () => $('export-dialog').close());
 $('confirm-export').addEventListener('click', exportFiles);
-controls();
+const chromeObserver=new ResizeObserver(syncChromeGeometry);
+chromeObserver.observe($('app-top'));
+window.addEventListener('resize',syncChromeGeometry);
+syncChromeGeometry();controls();
 refreshFiles().catch(error => status(error.message, true));
 api('/api/jobs').then(result => {
   if (result.latest) {

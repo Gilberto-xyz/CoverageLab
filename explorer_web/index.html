@@ -10,11 +10,17 @@
   <script src="/app.js" defer></script>
 </head>
 <body>
+  <div id="app-top" class="app-top">
   <header class="app-header">
     <a class="brand" href="/"><span class="brand-icon">CL</span><span>Coverage<span class="brand-light">Lab</span><small>EXPLORADOR DE PIPELINES</small></span></a>
     <nav class="steps" aria-label="Etapas"><span class="step active" id="step-file"><b>01</b> Cargar archivo</span><span class="step" id="step-review"><b>02</b> Explorar y elegir</span><span class="step" id="step-export"><b>03</b> Generar entregables</span></nav>
-    <div class="header-actions"><button id="header-export" class="button primary" disabled>Exportar →</button><button id="open-output" class="button secondary" title="Abrir Output con todas las entregas">Abrir resultados ↗</button><span class="local-status"><i></i> Sesión local</span></div>
+    <div class="header-actions"><button id="header-export" class="button primary" disabled>Exportar →</button><button id="open-output" class="button secondary" title="Abrir Output con todas las entregas">Abrir Output ↗</button><span class="local-status"><i></i> Sesión local</span></div>
   </header>
+  <div id="result-dock" class="result-dock" hidden>
+    <div id="status" class="status" role="status" aria-live="polite" hidden></div>
+    <section id="job-panel" class="job-panel" hidden aria-live="polite"><div class="job-heading"><h2 id="job-title">Generando entregables…</h2><div class="job-heading-actions"><button id="open-job" class="button secondary" disabled>Abrir carpeta de esta entrega ↗</button><span id="job-badge" class="pill">En curso</span></div></div><p id="job-message"></p><div id="downloads" class="downloads"></div><details><summary>Ver registro de generación</summary><pre id="job-log"></pre></details></section>
+  </div>
+  </div>
   <div class="app-layout">
     <aside class="sidebar" aria-label="Archivo y hojas">
       <section class="source-panel">
@@ -44,7 +50,6 @@
       <div class="sidebar-footer">CoverageLab <span>Revisión antes de exportar</span></div>
     </aside>
     <main>
-      <div id="status" class="status" role="status" aria-live="polite" hidden></div>
       <section id="empty" class="empty-state">
         <div class="empty-illustration" aria-hidden="true"><svg viewBox="0 0 230 130"><path class="grid-line" d="M20 30H210M20 65H210M20 100H210"/><path class="empty-wp" d="M20 90L50 62L80 78L110 32L140 58L170 22L210 40"/><path class="empty-si" d="M20 103L50 90L80 62L110 78L140 32L170 58L210 22"/></svg><span>P0 → P6</span></div>
         <div class="eyebrow">PRIMERO EXPLORA. DESPUÉS GENERA.</div>
@@ -108,7 +113,6 @@
         </div>
         <section class="export-bar"><div><strong id="export-summary"></strong><p>La elección por hoja se aplicará al PPT, al banco y a los gráficos del Excel.</p></div><div class="export-actions"><button id="save" class="button secondary">Guardar selección</button><button id="export" class="button primary">Revisar y generar →</button></div></section>
       </section>
-      <section id="job-panel" class="job-panel" hidden aria-live="polite"><div class="job-heading"><h2 id="job-title">Generando entregables…</h2><div class="job-heading-actions"><button id="open-job" class="button secondary" disabled>Abrir carpeta de esta entrega ↗</button><span id="job-badge" class="pill">En curso</span></div></div><p id="job-message"></p><div id="downloads" class="downloads"></div><details><summary>Ver registro de generación</summary><pre id="job-log"></pre></details></section>
     </main>
   </div>
   <dialog id="export-dialog"><div class="dialog-heading"><div class="eyebrow">REVISIÓN FINAL</div><h2>Generar con tu selección</h2><p id="dialog-file"></p></div><div id="dialog-selection" class="dialog-selection"></div><p>Se creará una carpeta nueva en <strong>Output</strong>, con el nombre de país, categoría, fabricante, periodo y cobertura del script, más fecha y hora. Conserva el Excel, el PPT, el banco, el reporte de pipelines y la configuración utilizada.</p><div class="dialog-actions"><button id="cancel-export" class="button secondary">Volver a explorar</button><button id="confirm-export" class="button primary">Generar entregables</button></div></dialog>

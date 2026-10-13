@@ -17,3 +17,60 @@
 }
 
 .header-actions,.job-heading-actions{display:flex;align-items:center;gap:9px}.header-actions{flex-shrink:0}.header-actions .button{font-size:11px}.header-actions .local-status{margin-left:9px}.job-heading{gap:16px;flex-wrap:wrap}.job-heading h2{flex:1;min-width:220px;overflow-wrap:anywhere;line-height:1.6}.job-heading-actions{flex-wrap:wrap}.app-header .steps{gap:18px}@media(max-width:1250px){.app-header .steps{display:none}}@media(max-width:900px){.header-actions .local-status{display:none}}@media(max-width:800px){.app-header{height:auto;min-height:86px;flex-wrap:wrap;padding:15px 20px;gap:12px}.header-actions{width:100%}.header-actions .button{flex:1}.job-heading-actions{width:100%}.job-heading-actions .button{flex:1}}
+
+/* Encabezado y resultados fijados al viewport, con espacio reservado para el contenido. */
+:root{--header-height:68px;--results-height:0px;--top-height:68px;--sidebar-width:260px}
+body{padding-top:var(--header-height)}
+.app-top{position:fixed;inset:0 0 auto;z-index:30;pointer-events:none}
+.app-top .app-header{position:static;pointer-events:auto;height:68px;min-height:68px;padding:0 24px;gap:16px}
+.result-dock{margin-left:var(--sidebar-width);pointer-events:auto;max-height:max(90px,min(300px,calc(48dvh - var(--header-height))));overflow-y:auto;overscroll-behavior-y:contain;background:#fff;border-bottom:1px solid var(--line);box-shadow:0 5px 14px #172c3c0a}
+.result-dock .status{border-radius:0;border-width:0 0 1px;font-size:10px;padding:7px 18px;margin:0;line-height:1.5}
+.result-dock .job-panel{border:0;border-radius:0;margin:0;padding:10px 18px}
+.result-dock .job-heading{gap:8px}
+.result-dock .job-heading h2{font-size:12px;line-height:1.5;min-width:200px}
+.result-dock .job-heading-actions .button{font-size:10px;padding:7px 10px}
+.result-dock .pill{font-size:9px;padding:5px 9px}
+.result-dock #job-message{font-size:9px;line-height:1.4;margin:5px 0 8px}
+.result-dock .downloads{margin:0;gap:6px}
+.result-dock .downloads a{padding:7px 9px;font-size:10px}
+.result-dock details{font-size:9px;margin-top:4px}
+.result-dock summary{padding:5px 0}
+.result-dock pre{margin:4px 0;max-height:150px}
+.app-layout{grid-template-columns:var(--sidebar-width) minmax(0,1fr);min-height:calc(100dvh - var(--header-height))}
+.app-layout>main{padding-top:calc(var(--results-height) + 24px)}
+.source-panel{padding:16px 16px 14px}
+.source-panel>.eyebrow{font-size:9px;margin-bottom:10px}
+.source-panel>label,.options-row label{font-size:11px;margin:10px 0 5px}
+.source-panel select{min-height:32px;padding:6px 8px;font-size:11px}
+.source-panel .browse-files{font-size:10px;padding-top:7px}
+.source-panel .file-detail{padding:10px;margin-top:10px}
+.source-panel .file-manufacturer{font-size:12px}
+.source-panel .file-original-name{font-size:8px;margin-top:5px}
+.source-panel .file-facts{grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin-top:10px}
+.source-panel .file-facts .fact:last-child{grid-column:1/-1}
+.source-panel .fact small{font-size:8px;margin-bottom:3px}
+.source-panel .fact strong{font-size:10px;line-height:1.4}
+.source-panel .file-size{font-size:8px;margin-top:8px}
+.source-panel .check-options{gap:6px;margin:10px 0 12px}
+.source-panel .check-options label{font-size:10px}
+.source-panel>.button{font-size:11px;padding:9px 12px}
+.source-panel .source-note{font-size:8px;margin-top:8px}
+.sidebar-footer{padding:12px 16px}
+.sheet-list{align-content:start;grid-auto-rows:max-content}
+[id^="excel-chart-"],#excel-diagnostics,#template-table,.complete-table-section,#chart-title{scroll-margin-top:calc(var(--top-height) + 18px)}
+@media(min-width:801px){.sidebar{top:var(--header-height);height:calc(100dvh - var(--header-height))}}
+@media(max-width:1150px){:root{--sidebar-width:240px}}
+@media(max-width:800px){
+  :root{--sidebar-width:0px}
+  body{padding-top:var(--top-height)}
+  .app-top .app-header{height:auto;padding:12px 16px;gap:10px}
+  .result-dock{margin-left:0;max-height:max(100px,min(260px,calc(48dvh - var(--header-height))))}
+  .result-dock .job-panel{padding:9px 14px}
+  .result-dock .job-heading-actions{width:auto}
+  .result-dock .job-heading-actions .button{flex:none}
+  .result-dock .downloads a{font-size:9px;padding:6px 8px}
+  .app-layout{grid-template-columns:1fr}
+  .app-layout>main{padding-top:20px}
+  .source-panel{gap:8px 12px}
+  .source-panel .file-detail{margin-top:0}
+}
