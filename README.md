@@ -129,6 +129,12 @@ python coverage_studio.py
 
 ### Flujo C: exportar scorecards
 
+El template Excel incluye un gráfico de barras MAT en `AA96`, con su tabla de
+cálculo desde `AA118`. Compara ventanas completas de doce meses al mismo mes
+de corte de cada año. Sell-in usa el pipeline seleccionado; Worldpanel usa los
+meses del corte. Las etiquetas muestran volumen y variación frente al MAT del
+año anterior, omitiendo el porcentaje cuando no hay base comparable o es cero.
+
 ```bash
 python scorecards_studio.py
 ```

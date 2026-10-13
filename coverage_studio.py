@@ -7828,11 +7828,15 @@ class SlideBuilder:
                 animate_pipeline=self.animate_trend_pipeline,
             )
         else:
+            # El logo del pie comienza a 0.6 pulgadas del borde inferior.
+            # Aprovechar el alto disponible en ambos modos, sin invadir el pie.
+            trend_top = Inches(AUTO_TREND_CHART_TOP_INCHES)
+            trend_height = self.ppt.slide_height - Inches(0.6) - trend_top
             trend_chart_kwargs = {
                 "box_left": Inches(0.5),
-                "box_top": Inches(1.8),
+                "box_top": trend_top,
                 "box_width": self.ppt.slide_width - Inches(1.0),
-                "box_height": Inches(self.trend_chart_height_inches),
+                "box_height": trend_height,
             }
             if self.trend_chart_height_inches > DEFAULT_TREND_CHART_HEIGHT_INCHES:
                 horizontal_margin = Inches(0.35)
@@ -7840,7 +7844,7 @@ class SlideBuilder:
                     "box_left": horizontal_margin,
                     "box_top": Inches(AUTO_TREND_CHART_TOP_INCHES),
                     "box_width": self.ppt.slide_width - (2 * horizontal_margin),
-                    "box_height": Inches(self.trend_chart_height_inches),
+                    "box_height": trend_height,
                     "figsize": (13.8, 5.8),
                     "legend_y": AUTO_TREND_LEGEND_Y,
                 }
@@ -8645,10 +8649,18 @@ def add_native_excel_charts(
         *,
         number_format: str,
         line_color: str,
-        point_count: int,
+        periods: Sequence[object],
     ) -> None:
-        """Destaca el inicio y el cierre; conserva todos los puntos de la serie."""
+        """Etiqueta inicio, cierre y el mismo mes de corte de años anteriores."""
+        point_count = len(periods)
         label_indexes = sorted({0, point_count - 1}) if point_count > 0 else []
+        dates = pd.to_datetime(list(periods), errors="coerce")
+        if point_count and pd.notna(dates[-1]):
+            cutoff = dates[-1]
+            label_indexes = sorted(set(label_indexes) | {
+                index for index, date in enumerate(dates)
+                if pd.notna(date) and date.month == cutoff.month and date.year < cutoff.year
+            })
         dlabels = _DataLabelList()
         dlabels.showVal = False
         dlabels.showSerName = False
@@ -8894,7 +8906,8 @@ def add_native_excel_charts(
                     chart.series[0],
                     number_format=number_format,
                     line_color=color,
-                    point_count=last_data_row - kpi_start_row + 1,
+                    periods=[dashboard.cell(row=row, column=data_col).value
+                             for row in range(kpi_start_row, last_data_row + 1)],
                 )
             dashboard.add_chart(chart, position)
 
@@ -8974,10 +8987,189 @@ def add_native_excel_charts(
         summary_note_cell.value = dashboard_copy["note"]
         summary_note_cell.font = _Font(name="Aptos", size=9, italic=True, color=grey)
 
+        # MAT comparables: doce meses completos, siempre al mismo mes de corte.
+        from openpyxl.chart.text import Text as _ChartText
+        from openpyxl.chart.data_source import StrRef as _StrRef
+        class _MatDataLabel(_DataLabel):
+            # openpyxl omite c:tx en DataLabel; Excel admite referencias de texto.
+            def __init__(self, *, tx=None, **kwargs):
+                super().__init__(**kwargs)
+                self.tx = tx
+
+            def to_tree(self, tagname=None, idx=None, namespace=None):
+                base = _DataLabel(**{key: getattr(self, key) for key in _DataLabel.__elements__})
+                node = base.to_tree(tagname, idx, namespace)
+                if self.tx is not None:
+                    node.insert(1, self.tx.to_tree("tx"))
+                return node
+        dates = pd.to_datetime([
+            dashboard.cell(row, data_col).value for row in range(2, last_data_row + 1)
+        ], errors="coerce")
+        cutoff = dates[-1]
+        mat_rows = []
+        if pd.notna(cutoff):
+            for index, date in enumerate(dates):
+                if pd.isna(date) or date.month != cutoff.month or index < 11:
+                    continue
+                expected = pd.period_range(end=date, periods=12, freq="M")
+                actual = dates[index - 11:index + 1].to_period("M")
+                if list(actual) == list(expected):
+                    mat_rows.append((date, index - 11 + 2, index + 2))
+        if mat_rows:
+            mat_header_row = 118
+            mat_headers = ["MAT", visible_sell_in_label(), visible_sell_out_label(lang_index),
+                           "YoY Sell-in", "YoY WP", "Label Sell-in", "Label WP"]
+            for offset, title in enumerate(mat_headers):
+                cell = dashboard.cell(mat_header_row, 27 + offset, title)
+                cell.font = _Font(name="Aptos", bold=True, color=white)
+                cell.fill = _PatternFill("solid", fgColor=navy)
+            year_rows = {}
+            for offset, (date, start, end) in enumerate(mat_rows, start=1):
+                row = mat_header_row + offset
+                dashboard.cell(row, 27, f"MAT {date:%m-%Y}")
+                for column, source_column, growth_column, label_column in (
+                    (28, dynamic_sell_in_col, 30, 32), (29, sell_out_col, 31, 33),
+                ):
+                    source_letter = _get_col_letter(source_column)
+                    value_range = f"{source_letter}{start}:{source_letter}{end}"
+                    dashboard.cell(row, column, f'=IF(COUNT({value_range})=12,SUM({value_range}),NA())')
+                    dashboard.cell(row, column).number_format = '#,##0'
+                    value_cell = f"{_get_col_letter(column)}{row}"
+                    previous_row = year_rows.get(date.year - 1)
+                    if previous_row is not None:
+                        previous_cell = f"{_get_col_letter(column)}{previous_row}"
+                        dashboard.cell(row, growth_column,
+                            f'=IFERROR(IF({previous_cell}=0,"",{value_cell}/{previous_cell}-1),"")')
+                    dashboard.cell(row, growth_column).number_format = '+0.0%;-0.0%;0.0%'
+                    growth_cell = f"{_get_col_letter(growth_column)}{row}"
+                    dashboard.cell(row, label_column,
+                        f'=IFERROR(TEXT({value_cell},"#,##0"),"")')
+                year_rows[date.year] = row
+            mat_chart = _BarChart()
+            mat_chart.type = "col"
+            mat_chart.grouping = "clustered"
+            mat_chart.overlap = 0
+            mat_chart.gapWidth = 65
+            mat_chart.title = {"ES": "Volumen MAT y variación interanual", "PT": "Volume MAT e variação anual", "EN": "MAT volume and year-over-year change"}[lang_code]
+            mat_chart.title.overlay = False
+            mat_chart.width = uniform_chart_width
+            mat_chart.height = uniform_chart_height
+            mat_chart.legend.position = "b"
+            mat_chart.legend.overlay = False
+            mat_chart.y_axis.scaling.min = 0
+            mat_chart.y_axis.numFmt = '#,##0'
+            mat_chart.x_axis.delete = False
+            mat_chart.y_axis.delete = False
+            mat_chart.y_axis.tickLblPos = "nextTo"
+            mat_chart.x_axis.tickLblPos = "low"
+            mat_chart.y_axis.majorGridlines = _ChartLines(spPr=_GraphicalProperties())
+            mat_chart.y_axis.majorGridlines.spPr.line.solidFill = "E3E7ED"
+            mat_chart.visible_cells_only = False
+            mat_chart.add_data(_Reference(dashboard, min_col=28, max_col=29,
+                min_row=mat_header_row, max_row=mat_header_row + len(mat_rows)), titles_from_data=True)
+            mat_chart.set_categories(_Reference(dashboard, min_col=27,
+                min_row=mat_header_row + 1, max_row=mat_header_row + len(mat_rows)))
+            for series, color, label_col in zip(mat_chart.series,
+                    (COLOR_SELLIN_TREND_LINE, COLOR_SELLOUT_TREND_LINE), ("AF", "AG")):
+                series.graphicalProperties.solidFill = _safe_hex(color)
+                series.graphicalProperties.line.noFill = True
+                series.dLbls = _DataLabelList(showVal=False, showLegendKey=False,
+                    showCatName=False, showSerName=False, dLblPos="outEnd")
+                series.dLbls.dLbl = [_MatDataLabel(idx=i, showVal=False, showLegendKey=False,
+                    showCatName=False, showSerName=False, dLblPos="outEnd",
+                    tx=_ChartText(strRef=_StrRef(f=f"{source_ref}!${label_col}${mat_header_row + 1 + i}")))
+                    for i in range(len(mat_rows))]
+            # Capas sin trazos: etiquetas de variación por signo, vinculadas a
+            # fórmulas. Al cambiar el pipeline el porcentaje cambia de color.
+            from openpyxl.chart import ScatterChart, Series
+            from openpyxl.chart.text import RichText
+            from openpyxl.drawing.text import Paragraph, ParagraphProperties, CharacterProperties
+            scatter = ScatterChart()
+            scatter.x_axis.axId = 500
+            scatter.x_axis.crossAx = 100
+            scatter.x_axis.scaling.min = 0.5
+            scatter.x_axis.scaling.max = len(mat_rows) + 0.5
+            scatter.x_axis.delete = True
+            scatter.x_axis.majorGridlines = None
+            scatter.x_axis.minorGridlines = None
+            scatter.legend = None
+            scatter.y_axis.axId = 100
+            scatter.y_axis.crossAx = 10
+            scatter.y_axis.scaling.min = 0
+            # Dos barras por categoría, separación equivalente a gapWidth=65.
+            offset = 0.5 / 2.65
+            for series_index, (value_col, growth_col, text_col, x_col) in enumerate(
+                    (("AB", "AD", "AP", "AH"), ("AC", "AE", "AQ", "AI"))):
+                dashboard[f"{x_col}118"] = f"MAT X {series_index + 1}"
+                dashboard[f"{text_col}118"] = f"YoY label {series_index + 1}"
+                for i in range(len(mat_rows)):
+                    row = mat_header_row + 1 + i
+                    dashboard[f"{x_col}{row}"] = i + 1 + (-offset if series_index == 0 else offset)
+                    dashboard[f"{text_col}{row}"] = f'=IF(ISNUMBER({growth_col}{row}),TEXT({growth_col}{row},"+0.0%;-0.0%;0.0%"),"")'
+                for sign_index, (operator, font_color) in enumerate(((">", "008000"), ("<", "C00000"), ("=", "595959"))):
+                    helper_col = _get_col_letter(36 + series_index * 3 + sign_index)
+                    dashboard[f"{helper_col}118"] = f"YoY {series_index + 1} {operator}0"
+                    for i in range(len(mat_rows)):
+                        row = mat_header_row + 1 + i
+                        dashboard[f"{helper_col}{row}"] = f'=IF(AND(ISNUMBER({growth_col}{row}),{growth_col}{row}{operator}0),{value_col}{row}*1.12,NA())'
+                    overlay = Series(
+                        _Reference(dashboard, min_col=36 + series_index * 3 + sign_index, min_row=119, max_row=118 + len(mat_rows)),
+                        _Reference(dashboard, min_col=34 + series_index, min_row=119, max_row=118 + len(mat_rows)),
+                    )
+                    overlay.graphicalProperties.line.noFill = True
+                    overlay.marker.symbol = "none"
+                    overlay.title = _SeriesLabel(v=" ")
+                    overlay.dLbls = _DataLabelList(showVal=False, showLegendKey=False, dLblPos="t")
+                    overlay.dLbls.dLbl = [_MatDataLabel(idx=i, showVal=False, showLegendKey=False,
+                        showSerName=False, showCatName=False, dLblPos="t",
+                        txPr=RichText(p=[Paragraph(pPr=ParagraphProperties(
+                            defRPr=CharacterProperties(solidFill=font_color, b=True, sz=900)))]),
+                        tx=_ChartText(strRef=_StrRef(f=f"{source_ref}!${text_col}${119 + i}")))
+                        for i in range(len(mat_rows))]
+                    scatter.series.append(overlay)
+            dashboard["AR118"] = coverage_label
+            for i, (_, _, end) in enumerate(mat_rows):
+                coverage_cells = ",".join(
+                    f"{_get_col_letter(headers[f'P{p}'])}{end}" for p in range(7)
+                )
+                dashboard.cell(119 + i, 44, f"=CHOOSE($Z$3+1,{coverage_cells})")
+                dashboard.cell(119 + i, 44).number_format = '0.0"%"'
+            coverage_line = _LineChart()
+            coverage_line.y_axis.axId = 200
+            coverage_line.y_axis.crossAx = 10
+            coverage_line.y_axis.axPos = "r"
+            coverage_line.y_axis.crosses = "max"
+            coverage_line.y_axis.delete = False
+            coverage_line.y_axis.title = None
+            coverage_line.y_axis.numFmt = '0"%"'
+            coverage_line.y_axis.scaling.min = 0
+            coverage_line.y_axis.majorGridlines = None
+            coverage_line.add_data(_Reference(dashboard, min_col=44, min_row=118,
+                max_row=118 + len(mat_rows)), titles_from_data=True)
+            coverage_line.set_categories(_Reference(dashboard, min_col=27, min_row=119,
+                max_row=118 + len(mat_rows)))
+            coverage_series = coverage_line.series[0]
+            _set_line_series_color(coverage_series, "#008C95", width=28575)
+            coverage_series.marker.symbol = "circle"
+            coverage_series.marker.size = 5
+            coverage_series.marker.graphicalProperties.solidFill = "008C95"
+            coverage_series.marker.graphicalProperties.line.solidFill = "008C95"
+            coverage_series.dLbls = _DataLabelList(showVal=True, showLegendKey=False,
+                showSerName=False, showCatName=False, dLblPos="b", numFmt='0.0"%"',
+                txPr=RichText(p=[Paragraph(pPr=ParagraphProperties(
+                    defRPr=CharacterProperties(solidFill="008C95", b=True, sz=900)))]))
+            mat_chart += coverage_line
+            mat_chart += scatter
+            from openpyxl.chart.legend import LegendEntry
+            mat_chart.legend.legendEntry = [LegendEntry(idx=i, delete=True) for i in range(3, 9)]
+            dashboard.add_chart(mat_chart, "AA96")
+
         dashboard.column_dimensions["Y"].width = 24
         dashboard.column_dimensions["Z"].width = 9
         for column in range(27, 47):
             dashboard.column_dimensions[_get_col_letter(column)].width = 10
+        for column in ("AB", "AC"):
+            dashboard.column_dimensions[column].width = 15
         dashboard.row_dimensions[1].height = 28
         return dashboard
 
@@ -9026,6 +9218,7 @@ def add_native_excel_charts(
                 f"{chart_anchor_col}22",
                 f"{chart_anchor_col}42",
                 "AA5",
+                "AA96",
                 "AJ5",
                 "AA22",
                 "AJ22",
@@ -10141,16 +10334,6 @@ def generate_excel_template(
             apply_coverage_values_formatting(excel_temp_path)
             print(Fore.GREEN + "Formato aplicado: coberturas (1 decimal) y YoY evolución (0.0%).")
 
-            add_native_excel_charts(
-                excel_temp_path,
-                coverage_label=coverage_label,
-                trend_axis=trend_axis,
-                evolution_slide_variant=evolution_slide_variant,
-                include_english=include_english,
-                pais_nombre=pais_nombre,
-            )
-            print(Fore.GREEN + "Graficos nativos de Excel insertados (editables).")
-
             def apply_visible_excel_labels(xlsx_path: str) -> None:
                 from openpyxl import load_workbook as _load_wb4
 
@@ -10178,6 +10361,16 @@ def generate_excel_template(
 
             apply_template_autofit(excel_temp_path)
             print(Fore.GREEN + "Ancho de columnas ajustado automaticamente en el template.")
+            # Último guardado: preservar las etiquetas MAT vinculadas (c:tx).
+            add_native_excel_charts(
+                excel_temp_path,
+                coverage_label=coverage_label,
+                trend_axis=trend_axis,
+                evolution_slide_variant=evolution_slide_variant,
+                include_english=include_english,
+                pais_nombre=pais_nombre,
+            )
+            print(Fore.GREEN + "Graficos nativos de Excel insertados (editables).")
         except Exception as e:
             print(Fore.YELLOW + f"No se pudo completar el postproceso del template Excel: {e}")
 
