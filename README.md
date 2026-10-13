@@ -156,6 +156,10 @@ cambio y amplitud relativa, con límites iniciales de 25% y 75% ajustables en la
 completa con coberturas P0–P6 y calendario, variaciones, correlaciones, promedios y
 tabla de cortes anuales. Los enlaces del panel llevan directamente a cada gráfico o
 tabla. **Revisar y generar** se usa únicamente para producir los entregables finales.
+En escritorio, el encabezado y la barra lateral de archivo/configuración permanecen
+visibles mientras se recorren los gráficos y tablas. Las hojas tienen desplazamiento
+propio; en pantallas de poca altura, la configuración también se puede desplazar
+internamente para acceder a todos los controles. En móvil se conserva el flujo vertical.
 El cuadro completo de cada gráfico permite ampliarlo con clic o con Enter/Espacio;
 también conserva un botón grande **Ampliar**. Clic fuera del diálogo, Escape o la X
 cierran la ampliación. Las escalas y los decimales del eje se adaptan a valores
