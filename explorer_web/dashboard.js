@@ -10,6 +10,31 @@ window.CoverageDashboard = (() => {
   const valid = v => v != null && Number.isFinite(v);
   const signed = v => v == null ? '—' : (v > 0 ? '+' : '') + fmt(v, 1, '%');
 
+  function axisScale(values, topPadding = .18, bottomPadding = .08) {
+    const numbers = values.filter(valid);
+    const min = Math.min(0,...numbers), max = Math.max(0,...numbers);
+    const span = max-min;
+    return span ? {min:min < 0 ? min-span*bottomPadding : 0,max:max+span*topPadding} : {min:0,max:1};
+  }
+  function axisTick(value, span) {
+    if(Math.abs(value)>=10000)return compact(value);
+    const step=Math.abs(span)/4;
+    const digits=step ? Math.min(8,Math.max(0,1-Math.floor(Math.log10(step)))) : 1;
+    return new Intl.NumberFormat('es-MX',{maximumFractionDigits:digits}).format(value);
+  }
+  function correlationStyle(value, samples, colors) {
+    if(!valid(value))return null;
+    const sorted=samples.filter(valid).sort((a,b)=>a-b);
+    if(!sorted.length)return null;
+    const low=sorted[0],high=sorted.at(-1),mid=(sorted[Math.floor((sorted.length-1)/2)]+sorted[Math.ceil((sorted.length-1)/2)])/2;
+    const mix=(from,to,amount)=>'#'+[0,2,4].map(i=>{
+      const a=parseInt(from.replace('#','').slice(i,i+2),16),b=parseInt(to.replace('#','').slice(i,i+2),16);
+      return Math.round(a+(b-a)*Math.max(0,Math.min(1,amount))).toString(16).padStart(2,'0');
+    }).join('').toUpperCase();
+    const fill=low===high ? colors[1] : value<=low ? colors[0] : value>=high ? colors[2] : value<=mid ? mix(colors[0],colors[1],(value-low)/(mid-low)) : mix(colors[1],colors[2],(value-mid)/(high-mid));
+    return {fill,ink:'#172c3c',low,mid,high};
+  }
+
   function models(sheet, pipeline, colors) {
     const p = sheet.pipelines[pipeline];
     const wp = (values, kind = 'line') => ({name:'Worldpanel',values,color:colors.worldpanel,kind});
@@ -50,16 +75,15 @@ window.CoverageDashboard = (() => {
     const x = i => left + (i-first+.5) / Math.max(1,n-first)*(right-left);
     const scale = axis => {
       const values = model.series.filter(s=>(s.axis || 'left')===axis).flatMap(s=>s.values.slice(first)).filter(valid);
-      const min = Math.min(0,...values), max = Math.max(1,...values), range = max-min;
-      return {min:min < 0 ? min-range*.08 : 0,max:max+range*.18};
+      return axisScale(values);
     };
     const scales = {left:scale('left'),right:scale('right')};
     const y = (v,axis='left') => bottom - (v-scales[axis].min)/(scales[axis].max-scales[axis].min)*(bottom-top);
     for (let i=0;i<=4;i++) {
       const py=bottom-i/4*(bottom-top), value=scales.left.min+i/4*(scales.left.max-scales.left.min);
       if (options.detail) graph.append(svg('line',{x1:left,x2:right,y1:py,y2:py,stroke:'#e5edf1',class:'dashboard-gridline'}));
-      graph.append(svg('text',{x:left-8,y:py+4,'text-anchor':'end','font-size':11,fill:'#637888'},model.percent ? `${compact(value)}%` : compact(value)));
-      if (dual) graph.append(svg('text',{x:right+7,y:py+4,'font-size':11,fill:'#008c95'},fmt(scales.right.min+i/4*(scales.right.max-scales.right.min),0,'%')));
+      graph.append(svg('text',{x:left-8,y:py+4,'text-anchor':'end','font-size':11,fill:'#637888',class:'dashboard-axis-tick'},axisTick(value,scales.left.max-scales.left.min)+(model.percent ? '%' : '')));
+      if (dual) graph.append(svg('text',{x:right+7,y:py+4,'font-size':11,fill:'#008c95'},axisTick(scales.right.min+i/4*(scales.right.max-scales.right.min),scales.right.max-scales.right.min)+'%'));
     }
     const step = Math.max(1,Math.ceil((n-first)/7));
     for (let i=first;i<n;i+=step) graph.append(svg('text',{x:x(i),y:bottom+23,'text-anchor':'middle','font-size':11,fill:'#637888'},`${model.annual ? 'MAT ' : ''}${month(model.dates[i])}`));
@@ -121,12 +145,25 @@ window.CoverageDashboard = (() => {
     figures.forEach((model,index)=>{
       const card=node('article',null,'dashboard-chart-card');card.id=`excel-chart-${model.key}`;card.dataset.chart=model.key;
       const heading=node('div',null,'dashboard-chart-heading'), title=node('h3',model.title);
-      const button=node('button','Ampliar ↗','text-button');button.setAttribute('aria-label',`Ampliar ${model.title}`);button.addEventListener('click',()=>open(model,options));
+      const expand=()=>open(model,options);
+      const button=node('button','Ampliar ↗','text-button');button.setAttribute('aria-label',`Ampliar ${model.title}`);
+      button.addEventListener('click',event=>{event.stopPropagation();expand();});
+      card.tabIndex=0;card.setAttribute('aria-label',`${model.title}. Clic en el cuadro para ampliar.`);card.setAttribute('aria-haspopup','dialog');
+      let pointerStart;
+      card.addEventListener('pointerdown',event=>{pointerStart={x:event.clientX,y:event.clientY};});
+      card.addEventListener('click',event=>{
+        if(event.target.closest('button') || (pointerStart && Math.hypot(event.clientX-pointerStart.x,event.clientY-pointerStart.y)>8))return;
+        expand();
+      });
+      card.addEventListener('keydown',event=>{
+        if(event.target!==card)return;
+        if(['Enter',' '].includes(event.key)){event.preventDefault();expand();}
+      });
       heading.append(title,button);card.append(heading,node('p',model.description,'section-description'));
       const content=node('div',null,'dashboard-chart-content');card.append(content);root.append(card);plot(content,model,options);
       const link=node('a',`${String(index+1).padStart(2,'0')} ${model.title}`);link.href=`#${card.id}`;nav.append(link);
     });
     return figures.length;
   }
-  return {render,plot};
+  return {render,plot,axisScale,axisTick,correlationStyle};
 })();

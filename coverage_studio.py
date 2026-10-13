@@ -1518,6 +1518,13 @@ EXCEL_DASHBOARD_KPI_COLORS = {
 }
 EXCEL_DASHBOARD_CHANGE_THRESHOLD = 0.25
 EXCEL_DASHBOARD_RANGE_THRESHOLD = 0.75
+EXCEL_CORRELATION_COLORS = ("F8696B", "FFEB84", "63BE7B")
+EXCEL_VARIATION_POSITIVE_FILL = "C6EFCE"
+EXCEL_VARIATION_POSITIVE_FONT = "006100"
+EXCEL_VARIATION_NEGATIVE_FILL = "FFC7CE"
+EXCEL_VARIATION_NEGATIVE_FONT = "9C0006"
+EXCEL_COVERAGE_CURRENT_FILL = "F8CBAD"
+EXCEL_COVERAGE_PREVIOUS_FILL = "DDEBF7"
 EXCEL_TREND_INITIAL_GAP_MONTHS = 6
 DEFAULT_TREND_CHART_HEIGHT_INCHES = 4.5
 AUTO_TREND_CHART_HEIGHT_INCHES = 5.05
@@ -10172,9 +10179,9 @@ def generate_excel_template(
                                     # Regla de escala de color 3-colores (rojo-amarillo-verde)
                                     rng = f"{_get_col_letter(start_col)}{header_row + 1}:{_get_col_letter(end_col)}{last_row}"
                                     color_scale = _ColorScaleRule(
-                                        start_type='min', start_color='F8696B',
-                                        mid_type='percentile', mid_value=50, mid_color='FFEB84',
-                                        end_type='max', end_color='63BE7B'
+                                        start_type='min', start_color=EXCEL_CORRELATION_COLORS[0],
+                                        mid_type='percentile', mid_value=50, mid_color=EXCEL_CORRELATION_COLORS[1],
+                                        end_type='max', end_color=EXCEL_CORRELATION_COLORS[2]
                                     )
                                     ws.conditional_formatting.add(rng, color_scale)
                                 found = True
@@ -10242,16 +10249,16 @@ def generate_excel_template(
                     data_range = f"{_col_letter(wp_col)}{header_row + 1}:{_col_letter(end_col)}{last_row}"
                     # Regla < 0%: relleno rojo claro (#FFC7CE), texto rojo oscuro (#9C0006)
                     dxf_red = _Diff(
-                        fill=_PatternFill(start_color='FFC7CE', end_color='FFC7CE', fill_type='solid'),
-                        font=_Font(color='9C0006')
+                        fill=_PatternFill(start_color=EXCEL_VARIATION_NEGATIVE_FILL, end_color=EXCEL_VARIATION_NEGATIVE_FILL, fill_type='solid'),
+                        font=_Font(color=EXCEL_VARIATION_NEGATIVE_FONT)
                     )
                     rule_red = _Rule(type='cellIs', operator='lessThan', formula=['0'], dxf=dxf_red)
                     ws.conditional_formatting.add(data_range, rule_red)
 
                     # Regla > 0%: relleno verde claro (#C6EFCE), texto verde oscuro (#006100)
                     dxf_green = _Diff(
-                        fill=_PatternFill(start_color='C6EFCE', end_color='C6EFCE', fill_type='solid'),
-                        font=_Font(color='006100')
+                        fill=_PatternFill(start_color=EXCEL_VARIATION_POSITIVE_FILL, end_color=EXCEL_VARIATION_POSITIVE_FILL, fill_type='solid'),
+                        font=_Font(color=EXCEL_VARIATION_POSITIVE_FONT)
                     )
                     rule_green = _Rule(type='cellIs', operator='greaterThan', formula=['0'], dxf=dxf_green)
                     ws.conditional_formatting.add(data_range, rule_green)
@@ -10295,8 +10302,8 @@ def generate_excel_template(
                 from openpyxl import load_workbook as _load_wb3
                 from openpyxl.styles import PatternFill as _PatternFill
                 wb3 = _load_wb3(xlsx_path)
-                current_cov_fill = _PatternFill(start_color="F8CBAD", end_color="F8CBAD", fill_type="solid")
-                prev12_cov_fill = _PatternFill(start_color="DDEBF7", end_color="DDEBF7", fill_type="solid")
+                current_cov_fill = _PatternFill(start_color=EXCEL_COVERAGE_CURRENT_FILL, end_color=EXCEL_COVERAGE_CURRENT_FILL, fill_type="solid")
+                prev12_cov_fill = _PatternFill(start_color=EXCEL_COVERAGE_PREVIOUS_FILL, end_color=EXCEL_COVERAGE_PREVIOUS_FILL, fill_type="solid")
                 for ws in wb3.worksheets:
                     data_col = None
                     coverage_cols = []

@@ -70,6 +70,33 @@ async function refreshFiles() {
   renderFileDetail(); renderFileCards();
 }
 function fact(label, value) { const div = item('div', null, 'fact'); div.append(item('small', label), item('strong', value || '—')); return div; }
+function paintExcelCell(cell, kind, value, sheet, monthIndex = null) {
+  const colors=state.analysis?.table_colors;if(!colors)return;
+  let style;
+  if(kind==='correlation')style=CoverageDashboard.correlationStyle(value,sheet.template.correlations.flatMap(row=>row.pipelines),colors.correlation);
+  if(kind==='variation' && value!=null && Number.isFinite(value))style=value>0 ? colors.positive : value<0 ? colors.negative : null;
+  if(kind==='coverage') {
+    if(monthIndex===sheet.dates.length-1)style={fill:colors.coverage_current,ink:'#172c3c'};
+    else if(monthIndex===sheet.dates.length-13)style={fill:colors.coverage_previous,ink:'#172c3c'};
+  }
+  if(!style)return;
+  cell.classList.add('excel-colored');cell.style.setProperty('--cell-bg',style.fill);cell.style.setProperty('--cell-ink',style.ink);
+  if(kind==='correlation')cell.title=`Pearson r=${fmt(value,3)} · Color relativo: mínimo ${fmt(style.low,3)}, mediana ${fmt(style.mid,3)}, máximo ${fmt(style.high,3)}`;
+}
+function renderColorKey(root, kinds) {
+  root.replaceChildren();const colors=state.analysis?.table_colors;root.hidden=!colors;if(!colors)return;
+  const keys=[];
+  if(kinds.includes('correlation'))keys.push(['Correlación menor',colors.correlation[0]],['Mediana',colors.correlation[1]],['Correlación mayor',colors.correlation[2]]);
+  if(kinds.includes('variation'))keys.push(['Disminuye (<0)',colors.negative.fill],['Aumenta (>0)',colors.positive.fill]);
+  if(kinds.includes('coverage'))keys.push(['Cobertura · corte actual',colors.coverage_current],['Cobertura · hace 12 meses',colors.coverage_previous]);
+  keys.forEach(([label,color])=>{const chip=item('span',label);chip.style.setProperty('--key-color',color);root.append(chip);});
+  if(kinds.includes('correlation')) {
+    root.append(item('small','Escala relativa a toda la tabla de correlaciones, como en Excel.'));
+    const sheet=state.analysis.sheets.find(entry=>entry.name===state.active);
+    const values=sheet?.template?.correlations.flatMap(row=>row.pipelines).filter(value=>value!=null&&Number.isFinite(value)) || [];
+    if(values.length && Math.max(...values)<0)root.append(item('small','Todos los coeficientes disponibles son negativos, incluso los de color verde.'));
+  }
+}
 function renderFileDetail() {
   const file = state.files.find(entry => entry.name === $('file').value);
   const panel = $('file-detail'); panel.replaceChildren(); panel.hidden = !file;
@@ -216,9 +243,16 @@ function render() {
     if (pipeline.pipeline === sheet.forced) labels.push('Prefijo de hoja');
     if (pipeline.outlier) labels.push('Pico reciente');
     if (!pipeline.available) labels.push('Historia insuficiente');
-    [ `P${pipeline.pipeline}`, fmt(pipeline.correlation, 3), fmt(pipeline.coverage, 1, '%'), fmt(pipeline.client_variation, 1, '%'), fmt(pipeline.gap), fmt(pipeline.stability), labels.join(' · ') || (pipeline.pipeline === 0 ? 'Sin desplazamiento' : '—') ].forEach((value, index) => row.append(item('td', value, index === 6 ? 'table-tag' : '')));
+    [ `P${pipeline.pipeline}`, fmt(pipeline.correlation, 3), fmt(pipeline.coverage, 1, '%'), fmt(pipeline.client_variation, 1, '%'), fmt(pipeline.gap), fmt(pipeline.stability), labels.join(' · ') || (pipeline.pipeline === 0 ? 'Sin desplazamiento' : '—') ].forEach((value, index) => {
+      const cell=item('td',value,index===6?'table-tag':'');
+      if(index===1)paintExcelCell(cell,'correlation',pipeline.correlation,sheet);
+      if(index===3)paintExcelCell(cell,'variation',pipeline.client_variation,sheet);
+      if(index===5)paintExcelCell(cell,'variation',pipeline.stability,sheet);
+      row.append(cell);
+    });
     $('pipeline-table').append(row);
   });
+  renderColorKey($('pipeline-color-key'),['correlation','variation']);
   drawChart(); controls();
 }
 
@@ -245,6 +279,8 @@ function renderTemplate() {
   $('inspect-month').replaceChildren(...sheet.dates.map(date => new Option(month(date), date)));
   $('inspect-month').value = sheet.dates.includes(inspect) ? inspect : sheet.dates.at(-1);
   const view = $('template-view').value, monthly = view === 'monthly' || view === 'all';
+  renderColorKey($('template-color-key'),monthly ? ['coverage','variation'] : view==='correlations' ? ['correlation'] : view==='variations' ? ['variation'] : []);
+  $('template-color-key').hidden=view==='averages';
   $('template-table').className = `template-${monthly ? 'monthly' : view}`;
   ['table-columns', 'table-columns-label', 'inspect-month', 'inspect-month-label', 'monthly-inspector'].forEach(id => { $(id).hidden = !monthly; });
   $('template-head').replaceChildren(); $('template-body').replaceChildren();
@@ -281,11 +317,11 @@ function renderTemplate() {
     $('template-note').textContent = `La tabla sigue el período visible del gráfico. Volumen: ${sheet.unit}. Haz clic en un mes para ver su detalle. Los hábitos de compra conservan el mes del Excel. Los YoY MAT siguen las columnas de evolución del template (denominador 1 si el MAT anterior es cero).`;
   } else if (view === 'variations') {
     columns.push(['Comparación'], ['Worldpanel'], ...sheet.pipelines.map(p => [`Sell-in P${p.pipeline}`]));
-    rows = template.variations.map(row => ({cells: [row.label, fmt(row.worldpanel, 1, '%'), ...row.pipelines.map(value => fmt(value, 1, '%'))], periods: [row.wp_period, ...row.pipeline_periods]}));
+    rows = template.variations.map(row => ({cells: [row.label, fmt(row.worldpanel, 1, '%'), ...row.pipelines.map(value => fmt(value, 1, '%'))], numeric:[null,row.worldpanel,...row.pipelines], periods: [row.wp_period, ...row.pipeline_periods]}));
     $('template-note').textContent = 'Ventanas idénticas a las fórmulas del template: semestre y trimestre vs. período anterior o mismo período del año anterior. Pasa sobre un valor para ver las fechas exactas. — indica historia insuficiente, ceros en alguna ventana o denominador cero; el template también lo omite.';
   } else if (view === 'correlations') {
     columns.push(['Ventana MAT'], ...sheet.pipelines.map(p => [`P${p.pipeline}`]));
-    rows = template.correlations.map(row => ({cells: [row.label, ...row.pipelines.map(value => fmt(value, 3))]}));
+    rows = template.correlations.map(row => ({cells: [row.label, ...row.pipelines.map(value => fmt(value, 3))],numeric:[null,...row.pipelines]}));
     $('template-note').textContent = 'Correlación Pearson entre las series MAT, respetando el desplazamiento de Sell-in. — indica falta de historia o una serie sin variación. Se destaca el pipeline elegido.';
   } else {
     columns.push(['Indicador'], ['Últimos 12 meses'], ['12 meses anteriores'], ['Cambio']);
@@ -304,6 +340,14 @@ function renderTemplate() {
     row.cells.forEach((value, index) => {
       const td = item('td', value);
       if ((view === 'variations' && index === selected + 2) || (view === 'correlations' && index === selected + 1)) td.className = 'template-selected';
+      if(view==='variations' && index>0)paintExcelCell(td,'variation',row.numeric[index],sheet);
+      if(view==='correlations' && index>0)paintExcelCell(td,'correlation',row.numeric[index],sheet);
+      if(monthly) {
+        const i=sheet.dates.indexOf(row.date),label=columns[index][0],cov=label.match(/^Cobertura P([0-6])$/);
+        if(cov)paintExcelCell(td,'coverage',sheet.pipelines[Number(cov[1])].coverage_series[i],sheet,i);
+        if(label==='YoY MAT Worldpanel')paintExcelCell(td,'variation',sheet.wp_yoy[i],sheet);
+        if(label.startsWith('YoY MAT Sell-in'))paintExcelCell(td,'variation',pipeline.yoy[i],sheet);
+      }
       const periods = row.periods?.[index - 1];
       if (periods) td.title = `${periods.current.map(month).join(' — ')} vs. ${periods.previous.map(month).join(' — ')}`;
       if (view === 'variations' && index === 0) {
@@ -323,27 +367,32 @@ function renderCompleteTables(sheet, selected, visible) {
   const avg = sheet.template.averages;
   const descriptions = [
     {key:'variations',title:'Variaciones por período · P0–P6',columns:['Comparación','Worldpanel',...sheet.pipelines.map(p=>`Sell-in P${p.pipeline}`)],chosen:selected+2,
-      rows:sheet.template.variations.map(row=>({cells:[row.label,fmt(row.worldpanel,1,'%'),...row.pipelines.map(v=>fmt(v,1,'%'))],periods:[row.wp_period,...row.pipeline_periods]})),
+      rows:sheet.template.variations.map(row=>({cells:[row.label,fmt(row.worldpanel,1,'%'),...row.pipelines.map(v=>fmt(v,1,'%'))],numeric:[null,row.worldpanel,...row.pipelines],periods:[row.wp_period,...row.pipeline_periods]})),
       note:'Las ventanas con ceros o historia insuficiente aparecen como —, igual que las fórmulas del Excel. Se muestran las fechas exactas de Worldpanel y del pipeline elegido.'},
     {key:'correlations',title:'Correlaciones MAT · P0–P6',columns:['Ventana',...sheet.pipelines.map(p=>`P${p.pipeline}`)],chosen:selected+1,
-      rows:sheet.template.correlations.map(row=>({cells:[row.label,...row.pipelines.map(v=>fmt(v,3))]})),
+      rows:sheet.template.correlations.map(row=>({cells:[row.label,...row.pipelines.map(v=>fmt(v,3))],numeric:[null,...row.pipelines]})),
       note:'Últimos 12 meses, año anterior y ventana de 24 meses. Se conserva el desplazamiento de Sell-in y la regla de base insuficiente.'},
     {key:'averages',title:'Promedios MAT',columns:['Indicador','Últimos 12 meses','12 meses anteriores'],
       rows:[{cells:['Penetración media mensual',fmt(avg.Penet_MAT_Actual,1,'%'),fmt(avg.Penet_MAT_Anterior,1,'%')]},{cells:['Compradores promedio',fmt(avg.Buyers_MAT_Actual,0),fmt(avg.Buyers_MAT_Anterior,0)]},{cells:['Frecuencia promedio',fmt(avg.Freq_MAT_Actual,2),'—']}],
       note:'Promedios mensuales; los compradores no se suman y la penetración media MAT no equivale a penetración anual de compradores únicos.'},
     {key:'annual-mat',title:'Cortes anuales MAT · volúmenes, YoY y cobertura',columns:['Corte MAT','Worldpanel',`Sell-in P${selected}`,'YoY Worldpanel',`YoY Sell-in P${selected}`,`Cobertura P${selected}`],chosen:2,
-      rows:sheet.dashboard.mat_periods.map(row=>({cells:[month(row.date),fmt(row.worldpanel),fmt(row.sell_in[selected]),fmt(row.worldpanel_yoy,1,'%'),fmt(row.sell_in_yoy[selected],1,'%'),fmt(row.coverage[selected],1,'%')]})),
+      rows:sheet.dashboard.mat_periods.map(row=>({cells:[month(row.date),fmt(row.worldpanel),fmt(row.sell_in[selected]),fmt(row.worldpanel_yoy,1,'%'),fmt(row.sell_in_yoy[selected],1,'%'),fmt(row.coverage[selected],1,'%')],numeric:[null,row.worldpanel,row.sell_in[selected],row.worldpanel_yoy,row.sell_in_yoy[selected],row.coverage[selected]],date:row.date})),
       note:'Mismo mes de corte en todos los años. Cada volumen exige 12 meses completos; el YoY anual queda vacío si falta el año previo o su volumen es cero.'},
   ];
   descriptions.forEach(data=>{
     const section=item('section',null,'complete-table-section');section.dataset.detail=data.key;section.id=`excel-table-${data.key}`;
     const heading=item('div',null,'table-heading');heading.append(item('h3',data.title));section.append(heading);
+    if(data.key!=='averages') { const key=item('div',null,'excel-color-key');renderColorKey(key,data.key==='correlations'?['correlation']:data.key==='variations'?['variation']:['coverage','variation']);section.append(key); }
     const wrapper=item('div',null,'table-scroll template-scroll'),table=item('table',null,`template-${data.key}`),thead=item('thead'),head=item('tr');
     data.columns.forEach((label,i)=>{const th=item('th',label);th.scope='col';if(i===data.chosen)th.className='template-selected';head.append(th);});thead.append(head);table.append(thead);
     const tbody=item('tbody');
     data.rows.forEach(row=>{
       const tr=item('tr');row.cells.forEach((value,i)=>{
         const td=item('td',value);if(i===data.chosen)td.className='template-selected';
+        if(data.key==='correlations' && i>0)paintExcelCell(td,'correlation',row.numeric[i],sheet);
+        if(data.key==='variations' && i>0)paintExcelCell(td,'variation',row.numeric[i],sheet);
+        if(data.key==='annual-mat' && [3,4].includes(i))paintExcelCell(td,'variation',row.numeric[i],sheet);
+        if(data.key==='annual-mat' && i===5)paintExcelCell(td,'coverage',row.numeric[i],sheet,sheet.dates.indexOf(row.date));
         const period=row.periods?.[i-1];if(period)td.title=`${period.current.map(month).join(' — ')} vs. ${period.previous.map(month).join(' — ')}`;
         if(i===0 && row.periods) [0,selected+1].forEach((p,index)=>{const dates=row.periods[p];if(dates)td.append(item('small',`${index ? `P${selected}` : 'WP'}: ${dates.current.map(month).join(' — ')} / ${dates.previous.map(month).join(' — ')}`,'period-detail'));});
         tr.append(td);
@@ -446,9 +495,7 @@ function drawChart() {
   const x = i => left + (i - first + .5) / Math.max(1, n - first) * (right - left);
   function scale(axis) {
     const values = plots.filter(plot => !dual || plot.axis === axis).flatMap(plot => plot.values.slice(first)).filter(v => v != null && Number.isFinite(v));
-    const minimum = Math.min(0, ...values), maximum = Math.max(1, ...values);
-    const spread = maximum - minimum;
-    return {min: minimum < 0 ? minimum - spread * .06 : 0, max: maximum + spread * .1};
+    return CoverageDashboard.axisScale(values,.1,.06);
   }
   const si = scale('si'), wp = dual ? scale('wp') : si;
   const y = (value, axis) => { const s = axis === 'wp' ? wp : si; return bottom - (value - s.min) / (s.max - s.min) * (bottom - top); };
@@ -456,8 +503,8 @@ function drawChart() {
   for (let tick = 0; tick <= 4; tick++) {
     const position = bottom - tick / 4 * (bottom - top);
     if (detailed) graph.append(svgElement('line', {class: 'chart-grid', x1: left, x2: right, y1: position, y2: position, stroke: '#e8eef2', 'stroke-width': 1}));
-    graph.append(svgElement('text', {x: left - 12, y: position + 4, 'text-anchor': 'end', fill: '#637888', 'font-size': 12}, compact(si.min + tick / 4 * (si.max - si.min))));
-    if (dual) graph.append(svgElement('text', {x: right + 10, y: position + 4, fill: colors.worldpanel, 'font-size': 12}, compact(wp.min + tick / 4 * (wp.max - wp.min))));
+    graph.append(svgElement('text', {x: left - 12, y: position + 4, 'text-anchor': 'end', fill: '#637888', 'font-size': 12}, CoverageDashboard.axisTick(si.min + tick / 4 * (si.max - si.min),si.max-si.min)));
+    if (dual) graph.append(svgElement('text', {x: right + 10, y: position + 4, fill: colors.worldpanel, 'font-size': 12}, CoverageDashboard.axisTick(wp.min + tick / 4 * (wp.max - wp.min),wp.max-wp.min)));
   }
   const step = Math.max(1, Math.ceil((n - first) / 10));
   for (let i = first; i < n; i += step) graph.append(svgElement('text', {x: x(i), y: bottom + 25, 'text-anchor': 'middle', fill: '#637888', 'font-size': 12}, month(sheet.dates[i])));
@@ -575,6 +622,16 @@ $('load').addEventListener('click', load);
 $('browse-files').addEventListener('click', () => { renderFileCards(); $('file-dialog').showModal(); });
 $('close-files').addEventListener('click', () => $('file-dialog').close());
 $('close-chart').addEventListener('click', () => $('chart-dialog').close());
+let chartBackdropPress=false;
+$('chart-dialog').addEventListener('pointerdown',event=>{
+  const box=$('chart-dialog').getBoundingClientRect();
+  chartBackdropPress=event.target===$('chart-dialog') && (event.clientX<box.left||event.clientX>box.right||event.clientY<box.top||event.clientY>box.bottom);
+});
+$('chart-dialog').addEventListener('click',event=>{
+  const box=$('chart-dialog').getBoundingClientRect();
+  if(chartBackdropPress && event.target===$('chart-dialog') && (event.clientX<box.left||event.clientX>box.right||event.clientY<box.top||event.clientY>box.bottom))$('chart-dialog').close();
+  chartBackdropPress=false;
+});
 ['dashboard-labels','dashboard-label-scope','dashboard-detail'].forEach(id=>$(id).addEventListener('change',renderDashboard));
 $('dashboard-window').addEventListener('change',()=>{$('window').value=$('dashboard-window').value;drawChart();});
 ['kpi-change-threshold','kpi-range-threshold'].forEach(id=>$(id).addEventListener('input',renderDiagnostics));

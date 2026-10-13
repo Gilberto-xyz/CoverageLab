@@ -147,6 +147,14 @@ cambio y amplitud relativa, con límites iniciales de 25% y 75% ajustables en la
 completa con coberturas P0–P6 y calendario, variaciones, correlaciones, promedios y
 tabla de cortes anuales. Los enlaces del panel llevan directamente a cada gráfico o
 tabla. **Revisar y generar** se usa únicamente para producir los entregables finales.
+El cuadro completo de cada gráfico permite ampliarlo con clic o con Enter/Espacio;
+también conserva un botón grande **Ampliar**. Clic fuera del diálogo, Escape o la X
+cierran la ampliación. Las escalas y los decimales del eje se adaptan a valores
+pequeños (por ejemplo, compra de Softys de Perú) sin cambiar los datos originales.
+Las tablas usan los colores del Excel: variaciones/estabilidad por signo,
+correlaciones con escala relativa mínimo/mediana/máximo y coberturas con naranja
+para el último corte y azul para el corte de hace 12 meses. Las leyendas explican
+el significado; la columna elegida sigue marcada sin ocultar el color de cada valor.
 
 La selección se aplica al PPT, al summary, al banco y a los gráficos del Excel;
 el template conserva las columnas P0–P6 para análisis posterior. Se genera también

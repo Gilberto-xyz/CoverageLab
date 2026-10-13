@@ -97,12 +97,13 @@
               <label id="table-columns-label" for="table-columns">Columnas</label><select id="table-columns"><option value="all" selected>Todos los datos</option><option value="volume">Volumen y cobertura</option><option value="shopping">Hábitos de compra</option></select>
               <label id="inspect-month-label" for="inspect-month">Detalle de mes</label><select id="inspect-month"></select>
             </div>
+            <div id="template-color-key" class="excel-color-key" hidden></div>
             <div id="monthly-inspector" class="monthly-inspector"></div>
             <div class="table-scroll template-scroll"><table id="template-table"><caption class="sr-only">Datos y cálculos del template para la hoja seleccionada</caption><thead id="template-head"></thead><tbody id="template-body"></tbody></table></div>
             <p id="template-note" class="table-note"></p>
             <div id="template-extra-tables"></div>
           </section>
-          <section class="table-card"><div class="table-heading"><h2>Todos los pipelines, lado a lado</h2><span>Selecciona una fila para elegir</span></div><div class="table-scroll"><table><thead><tr><th>Pipeline</th><th>Correlación MAT</th><th>Cobertura actual</th><th>VAR % Sell-in</th><th>Gap (pp)</th><th>Estabilidad (pp)</th><th>Referencia</th></tr></thead><tbody id="pipeline-table"></tbody></table></div><p class="table-note">— indica historia insuficiente o una base no calculable. La recomendación automática compara P1–P6; P0 queda disponible como referencia.</p></section>
+          <section class="table-card"><div class="table-heading"><h2>Todos los pipelines, lado a lado</h2><span>Selecciona una fila para elegir</span></div><div id="pipeline-color-key" class="excel-color-key"></div><div class="table-scroll"><table><thead><tr><th>Pipeline</th><th>Correlación MAT</th><th>Cobertura actual</th><th>VAR % Sell-in</th><th>Gap (pp)</th><th>Estabilidad (pp)</th><th>Referencia</th></tr></thead><tbody id="pipeline-table"></tbody></table></div><p class="table-note">— indica historia insuficiente o una base no calculable. La recomendación automática compara P1–P6; P0 queda disponible como referencia.</p></section>
         </div>
         <section class="export-bar"><div><strong id="export-summary"></strong><p>La elección por hoja se aplicará al PPT, al banco y a los gráficos del Excel.</p></div><div class="export-actions"><button id="save" class="button secondary">Guardar selección</button><button id="export" class="button primary">Revisar y generar →</button></div></section>
       </section>

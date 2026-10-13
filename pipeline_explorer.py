@@ -195,6 +195,13 @@ def analyze_workbook(path, options):
     result = {"file": path.name, "fingerprint": fingerprint(path), "country": country,
               "category": category, "manufacturer": manufacturer,
               "country_code": country_code, "category_code": category_code, "basket": basket,
+              "table_colors": {
+                  "correlation": ["#" + color for color in core.EXCEL_CORRELATION_COLORS],
+                  "positive": {"fill": "#" + core.EXCEL_VARIATION_POSITIVE_FILL, "ink": "#" + core.EXCEL_VARIATION_POSITIVE_FONT},
+                  "negative": {"fill": "#" + core.EXCEL_VARIATION_NEGATIVE_FILL, "ink": "#" + core.EXCEL_VARIATION_NEGATIVE_FONT},
+                  "coverage_current": "#" + core.EXCEL_COVERAGE_CURRENT_FILL,
+                  "coverage_previous": "#" + core.EXCEL_COVERAGE_PREVIOUS_FILL,
+              },
               "options": serialize_options(options), "sheets": [],
               "chart_colors": {
                   "worldpanel": core.COLOR_SELLOUT_TREND_LINE,

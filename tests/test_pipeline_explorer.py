@@ -5,6 +5,7 @@ import json
 import math
 from pathlib import Path
 import shutil
+import subprocess
 import tempfile
 import threading
 import unittest
@@ -184,6 +185,40 @@ class PipelineExplorerTests(unittest.TestCase):
         self.assertTrue(buyers["review"])
         self.assertEqual(buyers["change"], 0)
         self.assertEqual(buyers["range"], 0)
+
+    def test_preview_table_palette_matches_excel_constants(self):
+        colors = self.analyze()["table_colors"]
+        self.assertEqual(colors["correlation"], ["#" + value for value in self.core.EXCEL_CORRELATION_COLORS])
+        self.assertEqual(colors["positive"]["fill"], "#" + self.core.EXCEL_VARIATION_POSITIVE_FILL)
+        self.assertEqual(colors["negative"]["ink"], "#" + self.core.EXCEL_VARIATION_NEGATIVE_FONT)
+        self.assertEqual(colors["coverage_current"], "#" + self.core.EXCEL_COVERAGE_CURRENT_FILL)
+        self.assertEqual(colors["coverage_previous"], "#" + self.core.EXCEL_COVERAGE_PREVIOUS_FILL)
+
+    def test_web_small_values_remain_readable_and_heatmap_preserves_excel_colors(self):
+        node = shutil.which("node")
+        if not node:
+            self.skipTest("Node no está instalado; estas utilidades se validan en el navegador.")
+        script = r'''
+const fs=require('node:fs'),vm=require('node:vm'),assert=require('node:assert/strict');
+const context={window:{}};vm.createContext(context);
+vm.runInContext(fs.readFileSync('explorer_web/dashboard.js','utf8'),context);
+const api=context.window.CoverageDashboard;
+for(const values of [[.04,.05,.07],[.01,.01,.02],[.01,.01,.01]]) {
+  const scale=api.axisScale(values);
+  assert.ok(scale.max<.1 && scale.max>Math.max(...values),'El eje debe preservar el rango pequeño de Softys');
+  const labels=Array.from({length:5},(_,i)=>api.axisTick(scale.min+i/4*(scale.max-scale.min),scale.max-scale.min));
+  assert.equal(new Set(labels).size,5,'Las marcas pequeñas deben distinguirse');
+}
+const negatives=api.axisScale([-.02,0,.04]);assert.ok(negatives.min<-.02 && negatives.max>.04);
+const zero=api.axisScale([0,0]);assert.ok(zero.max>zero.min && Number.isFinite(zero.max));
+const palette=['#F8696B','#FFEB84','#63BE7B'];
+assert.equal(api.correlationStyle(0,[0,.5,1,null],palette).fill,palette[0]);
+assert.equal(api.correlationStyle(.5,[0,.5,1,null],palette).fill,palette[1]);
+assert.equal(api.correlationStyle(1,[0,.5,1,null],palette).fill,palette[2]);
+assert.equal(api.correlationStyle(.7,[.7,.7],palette).fill,palette[1]);
+assert.equal(api.correlationStyle(null,[0,.5,1],palette),null);
+'''
+        subprocess.run([node, "-e", script], cwd=explorer.ROOT, check=True, capture_output=True, text=True)
 
     def test_manual_p0_has_diagnostics_without_changing_auto_candidates(self):
         analysis = self.analyze()
