@@ -12,14 +12,19 @@
 <body>
   <div id="app-top" class="app-top">
   <header class="app-header">
+    <div id="header-main" class="header-main">
     <a class="brand" href="/"><span class="brand-icon">CL</span><span>Coverage<span class="brand-light">Lab</span><small>EXPLORADOR DE PIPELINES</small></span></a>
+    <div class="header-center">
     <nav class="steps" aria-label="Etapas"><span class="step active" id="step-file"><b>01</b> Cargar archivo</span><span class="step" id="step-review"><b>02</b> Explorar y elegir</span><span class="step" id="step-export"><b>03</b> Generar entregables</span></nav>
-    <div class="header-actions"><button id="header-export" class="button primary" disabled>Exportar →</button><button id="open-output" class="button secondary" title="Abrir Output con todas las entregas">Abrir Output ↗</button><span class="local-status"><i></i> Sesión local</span></div>
-  </header>
+    <div id="file-detail" class="file-detail" aria-label="Detalle del archivo seleccionado" aria-live="polite" hidden></div>
+    </div>
+    <div class="header-actions"><div class="header-buttons" role="group" aria-label="Exportación y resultados"><button id="header-export" class="button primary" disabled>Exportar →</button><button id="open-job" class="button secondary" title="Abrir la carpeta de la última entrega" disabled hidden>Abrir entrega ↗</button><button id="open-output" class="button secondary" title="Abrir Output con todas las entregas">Abrir Output ↗</button></div><div class="header-result-state"><span id="job-badge" class="pill" aria-live="polite" hidden>En curso</span><span class="local-status"><i></i> Sesión local</span></div></div>
+    </div>
   <div id="result-dock" class="result-dock" hidden>
     <div id="status" class="status" role="status" aria-live="polite" hidden></div>
-    <section id="job-panel" class="job-panel" hidden aria-live="polite"><div class="job-heading"><h2 id="job-title">Generando entregables…</h2><div class="job-heading-actions"><button id="open-job" class="button secondary" disabled>Abrir carpeta de esta entrega ↗</button><span id="job-badge" class="pill">En curso</span></div></div><p id="job-message"></p><div id="downloads" class="downloads"></div><details><summary>Ver registro de generación</summary><pre id="job-log"></pre></details></section>
+    <section id="job-panel" class="job-panel" hidden aria-live="polite" aria-labelledby="job-title"><div class="job-heading"><h2 id="job-title">Generando entregables…</h2></div><p id="job-message"></p><div id="downloads" class="downloads"></div><details><summary>Ver registro de generación</summary><pre id="job-log"></pre></details></section>
   </div>
+  </header>
   </div>
   <div class="app-layout">
     <aside class="sidebar" aria-label="Archivo y hojas">
@@ -28,7 +33,6 @@
         <label for="file">Archivo Excel</label>
         <div class="file-picker"><select id="file"><option value="">Buscando archivos…</option></select><button id="refresh-files" class="icon-button" title="Actualizar archivos" aria-label="Actualizar archivos">↻</button></div>
         <button id="browse-files" class="text-button browse-files">Ver archivos y sus detalles ↗</button>
-        <div id="file-detail" class="file-detail" aria-live="polite"></div>
         <label for="template">Template de salida</label>
         <select id="template">
           <option value="Absoluta">Cobertura absoluta</option><option value="relativa">Cobertura relativa</option>

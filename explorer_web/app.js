@@ -30,7 +30,7 @@ function status(message, error = false) {
 function syncChromeGeometry() {
   $('result-dock').hidden=$('status').hidden && $('job-panel').hidden;
   const root=document.documentElement;
-  root.style.setProperty('--header-height',`${$('app-top').querySelector('header').getBoundingClientRect().height}px`);
+  root.style.setProperty('--header-height',`${$('header-main').getBoundingClientRect().height}px`);
   root.style.setProperty('--results-height',`${$('result-dock').getBoundingClientRect().height}px`);
   root.style.setProperty('--top-height',`${$('app-top').getBoundingClientRect().height}px`);
 }
@@ -58,8 +58,11 @@ function controls() {
   $('header-export').title = refreshNeeded ? 'Cargar la configuración actual y revisar antes de generar' : !Object.keys(selectedSheets()).length ? 'Incluye al menos una hoja para exportar' : `Exportar con ${$('template').selectedOptions[0].textContent} y los pipelines elegidos`;
   $('open-output').disabled = state.openingResults;
   $('open-job').disabled = state.openingResults || !state.job || state.job.status==='running';
+  $('open-job').hidden = !state.job;
+  $('job-badge').hidden = !state.job;
   $('open-output').textContent=state.openingResults==='all' ? 'Abriendo…' : 'Abrir Output ↗';
-  $('open-job').textContent=state.openingResults==='job' ? 'Abriendo carpeta…' : 'Abrir carpeta de esta entrega ↗';
+  $('open-job').textContent=state.openingResults==='job' ? 'Abriendo…' : 'Abrir entrega ↗';
+  $('open-job').title = state.job?.directory ? `Abrir esta entrega: ${state.job.directory}` : 'Abrir la carpeta de la última entrega';
   $('select-all').disabled = working;
   $('select-none').disabled = working;
   document.querySelectorAll('.sheet-row input, .pipeline-button').forEach(control => { control.disabled = working || control.dataset.unavailable === 'true'; });
@@ -117,8 +120,9 @@ function renderFileDetail() {
   const file = state.files.find(entry => entry.name === $('file').value);
   const panel = $('file-detail'); panel.replaceChildren(); panel.hidden = !file;
   if (!file) return;
-  panel.append(item('strong', file.manufacturer || 'Nombre por revisar', 'file-manufacturer'));
-  panel.append(item('div', file.name, 'file-original-name'));
+  const identity = item('div', null, 'file-identity');
+  identity.append(item('strong', file.manufacturer || 'Nombre por revisar', 'file-manufacturer'), item('div', file.name, 'file-original-name'));
+  panel.append(identity);
   if (file.error) panel.append(item('p', file.error, 'file-warning'));
   else {
     const facts = item('div', null, 'file-facts');
@@ -126,7 +130,7 @@ function renderFileDetail() {
     panel.append(facts);
     if (file.descriptor) panel.append(item('p', file.descriptor, 'source-note'));
     if (file.per_sheet) panel.append(item('p', 'Categorías por hoja: el detalle se resuelve al cargar.', 'file-warning'));
-    panel.append(item('p', `${fmt(file.size / 1024, 0)} KB · Modificado ${new Intl.DateTimeFormat('es-MX', {dateStyle:'medium'}).format(new Date(file.modified))}`, 'file-size'));
+    identity.append(item('p', `${fmt(file.size / 1024, 0)} KB · Modificado ${new Intl.DateTimeFormat('es-MX', {dateStyle:'medium'}).format(new Date(file.modified))}`, 'file-size'));
   }
   if (state.analysis && state.analysis.file !== file.name) panel.append(item('p', 'Archivo seleccionado. Pulsa Cargar y explorar para cambiar los datos visibles.', 'file-warning'));
 }

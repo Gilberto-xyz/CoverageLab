@@ -156,12 +156,15 @@ cambio y amplitud relativa, con límites iniciales de 25% y 75% ajustables en la
 completa con coberturas P0–P6 y calendario, variaciones, correlaciones, promedios y
 tabla de cortes anuales. Los enlaces del panel llevan directamente a cada gráfico o
 tabla. **Revisar y generar** se usa únicamente para producir los entregables finales.
-El encabezado permanece fijo en todos los tamaños de pantalla. La carpeta, las
-descargas y el registro de la última entrega están debajo del encabezado y siguen
+El encabezado permanece fijo en todos los tamaños de pantalla. Exportar y las dos
+aperturas de carpeta comparten una sola barra. El título, las descargas y el registro
+de la última entrega están integrados en el mismo encabezado y siguen
 accesibles mientras se recorren los gráficos y tablas, incluso al cargar otro archivo.
 El contenido reserva el espacio de estas barras para evitar que cubran datos; el
-registro largo tiene desplazamiento propio. La sección de origen usa menos espacio
-y agrupa país/categoría en dos columnas. En escritorio la barra lateral permanece
+registro largo tiene desplazamiento propio. Debajo de los pasos centrales aparecen
+fabricante, país, categoría y cesta del archivo seleccionado, junto con su nombre y
+fecha de modificación. La barra lateral reserva más altura para las hojas.
+En escritorio la barra lateral permanece
 visible y las hojas tienen desplazamiento propio; en ventanas bajas la configuración
 también se desplaza internamente. En móvil el origen conserva el flujo vertical.
 El cuadro completo de cada gráfico permite ampliarlo con clic o con Enter/Espacio;
@@ -184,7 +187,7 @@ El encabezado fijo incluye **Exportar**, con la misma revisión y selección del
 inferior. Si aún no se han cargado los datos o cambió la configuración, los actualiza
 y abre la revisión final; todavía requiere **Generar entregables** para exportar.
 Si no hay hojas incluidas o hay una generación en curso, indica el motivo y se bloquea.
-**Abrir Output** abre la raíz de las entregas; **Abrir carpeta de esta entrega** abre
+**Abrir Output** abre la raíz de las entregas; **Abrir entrega** abre
 el resultado concreto. Los botones muestran el avance de apertura y exportación.
 Cada generación crea `Output/<nombre de entrega del script>__AAAAMMDD_HHMMSS/`:
 el nombre conserva país, categoría, fabricante, periodo y tipo de cobertura; la fecha
