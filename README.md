@@ -155,9 +155,11 @@ cambio y amplitud relativa, con límites iniciales de 25% y 75% ajustables en la
 **Todo el detalle del Excel** también queda seleccionado al cargar: serie mensual
 completa con coberturas P0–P6 y calendario, variaciones, correlaciones, promedios y
 tabla de cortes anuales. Los enlaces del panel llevan directamente a cada gráfico o
-tabla. **Revisar y generar** se usa únicamente para producir los entregables finales.
-El encabezado permanece fijo en todos los tamaños de pantalla. Exportar y las dos
-aperturas de carpeta comparten una sola barra. El título, las descargas y el registro
+tabla. **Generar archivos** abre la revisión para producir los entregables finales.
+El encabezado permanece fijo en todos los tamaños de pantalla. **Generar archivos**,
+las descargas verdes y **Abrir carpeta** comparten una sola barra junto al título de
+la entrega. Se eliminan los controles separados de la esquina superior derecha.
+El título, las descargas y el registro
 de la última entrega están integrados en el mismo encabezado y siguen
 accesibles mientras se recorren los gráficos y tablas, incluso al cargar otro archivo.
 El contenido reserva el espacio de estas barras para evitar que cubran datos; el
@@ -183,12 +185,13 @@ automáticas como referencia. Las hojas excluidas no aparecen en los entregables
 La metadata por hoja se conserva incluso al excluir una hoja total de la que
 otras hojas heredaron su categoría.
 
-El encabezado fijo incluye **Exportar**, con la misma revisión y selección del botón
-inferior. Si aún no se han cargado los datos o cambió la configuración, los actualiza
+La barra fija incluye **Generar archivos**. Si aún no se han cargado los datos o
+cambió la configuración, los actualiza
 y abre la revisión final; todavía requiere **Generar entregables** para exportar.
 Si no hay hojas incluidas o hay una generación en curso, indica el motivo y se bloquea.
-**Abrir Output** abre la raíz de las entregas; **Abrir entrega** abre
-el resultado concreto. Los botones muestran el avance de apertura y exportación.
+Las descargas corresponden a la última entrega mostrada y no generan archivos.
+**Abrir carpeta** abre esa entrega; si todavía no hay ninguna, abre `Output`.
+Los botones muestran el avance de apertura y generación en esa misma zona.
 Cada generación crea `Output/<nombre de entrega del script>__AAAAMMDD_HHMMSS/`:
 el nombre conserva país, categoría, fabricante, periodo y tipo de cobertura; la fecha
 y hora se agregan para distinguir ejecuciones. Los nombres y formatos de Excel, PPT,

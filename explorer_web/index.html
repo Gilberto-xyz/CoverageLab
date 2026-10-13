@@ -15,14 +15,15 @@
     <div id="header-main" class="header-main">
     <a class="brand" href="/"><span class="brand-icon">CL</span><span>Coverage<span class="brand-light">Lab</span><small>EXPLORADOR DE PIPELINES</small></span></a>
     <div class="header-center">
-    <nav class="steps" aria-label="Etapas"><span class="step active" id="step-file"><b>01</b> Cargar archivo</span><span class="step" id="step-review"><b>02</b> Explorar y elegir</span><span class="step" id="step-export"><b>03</b> Generar entregables</span></nav>
+    <div class="header-progress"><nav class="steps" aria-label="Etapas"><span class="step active" id="step-file"><b>01</b> Cargar archivo</span><span class="step" id="step-review"><b>02</b> Explorar y elegir</span><span class="step" id="step-export"><b>03</b> Generar entregables</span></nav><span class="local-status"><i></i> Sesión local</span></div>
     <div id="file-detail" class="file-detail" aria-label="Detalle del archivo seleccionado" aria-live="polite" hidden></div>
     </div>
-    <div class="header-actions"><div class="header-buttons" role="group" aria-label="Exportación y resultados"><button id="header-export" class="button primary" disabled>Exportar →</button><button id="open-job" class="button secondary" title="Abrir la carpeta de la última entrega" disabled hidden>Abrir entrega ↗</button><button id="open-output" class="button secondary" title="Abrir Output con todas las entregas">Abrir Output ↗</button></div><div class="header-result-state"><span id="job-badge" class="pill" aria-live="polite" hidden>En curso</span><span class="local-status"><i></i> Sesión local</span></div></div>
     </div>
-  <div id="result-dock" class="result-dock" hidden>
+  <div id="result-dock" class="result-dock">
     <div id="status" class="status" role="status" aria-live="polite" hidden></div>
-    <section id="job-panel" class="job-panel" hidden aria-live="polite" aria-labelledby="job-title"><div class="job-heading"><h2 id="job-title">Generando entregables…</h2></div><p id="job-message"></p><div id="downloads" class="downloads"></div><details><summary>Ver registro de generación</summary><pre id="job-log"></pre></details></section>
+    <section id="job-panel" class="job-panel" hidden aria-live="polite" aria-labelledby="job-title"><div class="job-heading"><h2 id="job-title">Generando entregables…</h2><span id="job-badge" class="pill">En curso</span></div><p id="job-message"></p></section>
+    <div id="delivery-actions" class="delivery-actions" role="group" aria-label="Generación, descargas y carpeta de resultados"><button id="generate-files" class="button primary" disabled>Generar archivos →</button><div id="downloads" class="downloads" aria-label="Descargas de la última entrega" hidden></div><button id="open-folder" class="button result-folder" title="Abrir la carpeta de resultados">Abrir carpeta ↗</button></div>
+    <details id="job-log-details" class="job-log-details" hidden><summary>Ver registro de generación</summary><pre id="job-log"></pre></details>
   </div>
   </header>
   </div>
@@ -115,7 +116,7 @@
           </section>
           <section class="table-card"><div class="table-heading"><h2>Todos los pipelines, lado a lado</h2><span>Selecciona una fila para elegir</span></div><div id="pipeline-color-key" class="excel-color-key"></div><div class="table-scroll"><table><thead><tr><th>Pipeline</th><th>Correlación MAT</th><th>Cobertura actual</th><th>VAR % Sell-in</th><th>Gap (pp)</th><th>Estabilidad (pp)</th><th>Referencia</th></tr></thead><tbody id="pipeline-table"></tbody></table></div><p class="table-note">— indica historia insuficiente o una base no calculable. La recomendación automática compara P1–P6; P0 queda disponible como referencia.</p></section>
         </div>
-        <section class="export-bar"><div><strong id="export-summary"></strong><p>La elección por hoja se aplicará al PPT, al banco y a los gráficos del Excel.</p></div><div class="export-actions"><button id="save" class="button secondary">Guardar selección</button><button id="export" class="button primary">Revisar y generar →</button></div></section>
+        <section class="export-bar"><div><strong id="export-summary"></strong><p>La elección por hoja se aplicará al PPT, al banco y a los gráficos del Excel. Genera los archivos desde la barra superior.</p></div><div class="export-actions"><button id="save" class="button secondary">Guardar selección</button></div></section>
       </section>
     </main>
   </div>

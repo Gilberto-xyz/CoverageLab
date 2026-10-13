@@ -28,7 +28,6 @@ function status(message, error = false) {
   syncChromeGeometry();
 }
 function syncChromeGeometry() {
-  $('result-dock').hidden=$('status').hidden && $('job-panel').hidden;
   const root=document.documentElement;
   root.style.setProperty('--header-height',`${$('header-main').getBoundingClientRect().height}px`);
   root.style.setProperty('--results-height',`${$('result-dock').getBoundingClientRect().height}px`);
@@ -51,18 +50,15 @@ function controls() {
   ['file', 'template', 'trend-axis', 'english', 'round', 'animate', 'refresh-files', 'load', 'browse-files'].forEach(id => { $(id).disabled = working; });
   const ready = state.analysis && !state.dirty && Object.keys(selectedSheets()).length && !working;
   $('save').disabled = !ready;
-  $('export').disabled = !ready;
   const refreshNeeded=!state.analysis || state.dirty;
-  $('header-export').disabled = working || !$('file').value || (!refreshNeeded && !Object.keys(selectedSheets()).length);
-  $('header-export').textContent=state.job?.status==='running' ? 'Generando…' : state.busy ? 'Procesando…' : 'Exportar →';
-  $('header-export').title = refreshNeeded ? 'Cargar la configuración actual y revisar antes de generar' : !Object.keys(selectedSheets()).length ? 'Incluye al menos una hoja para exportar' : `Exportar con ${$('template').selectedOptions[0].textContent} y los pipelines elegidos`;
-  $('open-output').disabled = state.openingResults;
-  $('open-job').disabled = state.openingResults || !state.job || state.job.status==='running';
-  $('open-job').hidden = !state.job;
-  $('job-badge').hidden = !state.job;
-  $('open-output').textContent=state.openingResults==='all' ? 'Abriendo…' : 'Abrir Output ↗';
-  $('open-job').textContent=state.openingResults==='job' ? 'Abriendo…' : 'Abrir entrega ↗';
-  $('open-job').title = state.job?.directory ? `Abrir esta entrega: ${state.job.directory}` : 'Abrir la carpeta de la última entrega';
+  $('generate-files').disabled = working || !$('file').value || (!refreshNeeded && !Object.keys(selectedSheets()).length);
+  $('generate-files').textContent=state.job?.status==='running' ? 'Generando…' : state.busy ? 'Procesando…' : 'Generar archivos →';
+  $('generate-files').title = refreshNeeded ? 'Cargar los datos y revisar antes de crear una nueva entrega' : !Object.keys(selectedSheets()).length ? 'Incluye al menos una hoja para generar' : `Generar una nueva entrega con ${$('template').selectedOptions[0].textContent} y los pipelines elegidos`;
+  $('open-folder').disabled = !!state.openingResults || state.job?.status==='running';
+  $('open-folder').textContent=state.openingResults ? 'Abriendo…' : 'Abrir carpeta ↗';
+  $('open-folder').title = state.job?.directory ? `Abrir la carpeta de esta entrega: ${state.job.directory}` : 'Abrir Output con todas las entregas';
+  $('downloads').hidden = !state.job;
+  $('job-log-details').hidden = !state.job;
   $('select-all').disabled = working;
   $('select-none').disabled = working;
   document.querySelectorAll('.sheet-row input, .pipeline-button').forEach(control => { control.disabled = working || control.dataset.unavailable === 'true'; });
@@ -150,7 +146,7 @@ function renderFileCards() {
   if (!matches.length) $('file-cards').append(item('p', 'No hay archivos con estos filtros.', 'section-description'));
 }
 function markDirty() {
-  if (state.analysis) { state.dirty = true; status('La configuración cambió. Cargar y explorar o Exportar actualizará los datos antes de la revisión final.'); }
+  if (state.analysis) { state.dirty = true; status('La configuración cambió. Cargar y explorar o Generar archivos actualizará los datos antes de la revisión final.'); }
   controls();
 }
 async function load() {
@@ -636,10 +632,12 @@ async function exportFiles() {
 function downloadLink(url, label) {
   const a = item('a', label); a.href = `${url}${url.includes('?') ? '&' : '?'}token=${encodeURIComponent(token)}`; a.setAttribute('referrerpolicy', 'no-referrer'); return a;
 }
-async function openResults(scope) {
-  if(state.openingResults)return;
+async function openResults() {
+  if(state.openingResults || state.job?.status==='running')return;
+  const scope=state.job ? 'job' : 'all';
   state.openingResults=scope;controls();
-  try { const result=await api('/api/open-results',{scope,...(scope==='job' ? {id:state.job.id} : {})});status(`${result.message} ${result.directory}`); }
+  status('Abriendo la carpeta de resultados…');
+  try { const result=await api('/api/open-results',{scope,...(scope==='job' ? {id:state.job.id} : {})});status(scope==='job' ? `${result.message} Ruta disponible debajo del título.` : `${result.message} ${result.directory}`); }
   catch(error) { status(error.message,true); }
   finally { state.openingResults=false;controls(); }
 }
@@ -711,10 +709,8 @@ try {
   }
 } catch (_) { /* Default visual settings are retained. */ }
 $('save').addEventListener('click', saveSelection);
-$('export').addEventListener('click', reviewExport);
-$('header-export').addEventListener('click', prepareExport);
-$('open-output').addEventListener('click',()=>openResults('all'));
-$('open-job').addEventListener('click',()=>openResults('job'));
+$('generate-files').addEventListener('click', prepareExport);
+$('open-folder').addEventListener('click',openResults);
 $('cancel-export').addEventListener('click', () => $('export-dialog').close());
 $('confirm-export').addEventListener('click', exportFiles);
 const chromeObserver=new ResizeObserver(syncChromeGeometry);
