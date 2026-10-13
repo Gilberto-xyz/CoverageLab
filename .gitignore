@@ -22,6 +22,7 @@
 !Abrir_Explorador.cmd
 !explorer_web/index.html
 !explorer_web/app.js
+!explorer_web/dashboard.js
 !explorer_web/style.css
 !tests/test_pipeline_explorer.py
 !requirements.txt

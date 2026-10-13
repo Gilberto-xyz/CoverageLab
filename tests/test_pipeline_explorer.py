@@ -8,6 +8,7 @@ import shutil
 import tempfile
 import threading
 import unittest
+from unittest import mock
 import urllib.error
 import urllib.request
 
@@ -136,6 +137,53 @@ class PipelineExplorerTests(unittest.TestCase):
         self.assertIsNotNone(details["variations"][0]["pipelines"][3])
         self.assertIsNotNone(details["variations"][0]["worldpanel"])
         json.dumps(details, allow_nan=False)
+
+    def test_load_exposes_complete_dashboard_without_generating_files(self):
+        before = {path.name for path in self.root.iterdir()}
+        with mock.patch.object(self.core.CoverageStudioUltraApp, "process_file", side_effect=AssertionError("No debe exportar al cargar")), mock.patch.object(explorer.subprocess, "Popen", side_effect=AssertionError("No debe iniciar un generador")):
+            analysis = self.analyze()
+        sheet = analysis["sheets"][0]
+        self.assertEqual(len(sheet["dashboard"]["kpis"]), 5)
+        self.assertEqual(len(sheet["template"]["variations"]), 9)
+        self.assertEqual(len(sheet["template"]["correlations"]), 3)
+        self.assertEqual(self.state.jobs, {})
+        self.assertEqual({path.name for path in self.root.iterdir()}, before)
+        self.assertFalse((self.root / "outputs").exists())
+        json.dumps(analysis, allow_nan=False)
+
+    def test_mat_annual_cuts_match_excel_sums_growth_and_pipeline(self):
+        sheet = self.analyze()["sheets"][0]
+        rows = sheet["dashboard"]["mat_periods"]
+        self.assertEqual([row["date"] for row in rows], ["2023-12-01", "2024-12-01", "2025-12-01"])
+        self.assertIsNone(rows[0]["sell_in"][3])
+        self.assertIsNone(rows[1]["sell_in_yoy"][3])
+        expected = sum(sheet["sell_in"][-15:-3])
+        previous = sum(sheet["sell_in"][-27:-15])
+        self.assertAlmostEqual(rows[-1]["sell_in"][3], expected)
+        self.assertAlmostEqual(rows[-1]["sell_in_yoy"][3], (expected / previous - 1) * 100)
+        self.assertAlmostEqual(rows[-1]["worldpanel"], sum(sheet["sell_out"][-12:]))
+        self.assertEqual(rows[-1]["coverage"][3], sheet["pipelines"][3]["coverage"])
+
+    def test_kpi_diagnostic_matches_excel_formulas_and_zero_average_signal(self):
+        sheet = self.analyze()["sheets"][0]
+        dashboard = sheet["dashboard"]
+        kpi = next(value for value in dashboard["kpis"] if value["key"] == "purchase_average")
+        recent = sheet["purchase_average"][-12:]
+        average = sum(recent) / 12
+        self.assertAlmostEqual(kpi["average"], average)
+        self.assertAlmostEqual(kpi["change"], recent[-1] / average - 1)
+        self.assertAlmostEqual(kpi["range"], (max(recent) - min(recent)) / abs(average))
+        self.assertEqual(kpi["color"], self.core.EXCEL_DASHBOARD_KPI_COLORS[self.core.COL_COMPRA_MEDIA])
+        self.assertEqual(dashboard["change_threshold"], .25)
+        self.assertEqual(dashboard["range_threshold"], .75)
+        with self.core.pd.ExcelFile(self.source) as workbook:
+            df, _ = self.core.load_and_preprocess_sheet(workbook, "P1_Cola")
+        df[self.core.COL_BUYERS] = 0
+        diagnostic = explorer.dashboard_details(df, self.core, sheet["pipelines"])
+        buyers = next(value for value in diagnostic["kpis"] if value["key"] == "buyers_series")
+        self.assertTrue(buyers["review"])
+        self.assertEqual(buyers["change"], 0)
+        self.assertEqual(buyers["range"], 0)
 
     def test_manual_p0_has_diagnostics_without_changing_auto_candidates(self):
         analysis = self.analyze()

@@ -1,0 +1,132 @@
+'use strict';
+// Panel de lectura: trabaja exclusivamente con el análisis cargado, sin exportar.
+window.CoverageDashboard = (() => {
+  const ns = 'http://www.w3.org/2000/svg';
+  const node = (tag, text, cls) => { const el = document.createElement(tag); if (text != null) el.textContent = text; if (cls) el.className = cls; return el; };
+  const svg = (tag, attrs, text) => { const el = document.createElementNS(ns, tag); Object.entries(attrs).forEach(([k,v]) => el.setAttribute(k, v)); if (text != null) el.textContent = text; return el; };
+  const fmt = (v, digits = 1, suffix = '') => v == null ? '—' : new Intl.NumberFormat('es-MX', {maximumFractionDigits: digits, minimumFractionDigits: digits}).format(v) + suffix;
+  const compact = v => new Intl.NumberFormat('es-MX', {notation:'compact',maximumFractionDigits:1}).format(v);
+  const month = date => new Intl.DateTimeFormat('es-MX', {month:'short',year:'2-digit'}).format(new Date(date + 'T12:00:00'));
+  const valid = v => v != null && Number.isFinite(v);
+  const signed = v => v == null ? '—' : (v > 0 ? '+' : '') + fmt(v, 1, '%');
+
+  function models(sheet, pipeline, colors) {
+    const p = sheet.pipelines[pipeline];
+    const wp = (values, kind = 'line') => ({name:'Worldpanel',values,color:colors.worldpanel,kind});
+    const si = (values, kind = 'line') => ({name:`Sell-in P${pipeline}`,values,color:colors.sellin,kind});
+    const base = (key,title,series,description,percent = false) => ({key,title,series,description,dates:sheet.dates,percent});
+    const result = [
+      base('coverage','Cobertura MAT y penetración', [{name:`Cobertura P${pipeline}`,values:p.coverage_series,color:colors.coverage,kind:'bar'}, {name:'Penetración mensual',values:sheet.penetration,color:colors.penetration,kind:'line'}], 'Cobertura MAT y penetración mensual en el mismo eje (%)',true),
+      base('monthly','Tendencia mensual de volumen',[si(p.sell_in),wp(sheet.sell_out)],`${sheet.unit} · Sell-in desplazado ${pipeline} mes(es)`),
+      base('mat','Tendencia de volumen MAT',[si(p.sell_in_mat),wp(sheet.wp_mat)],`${sheet.unit} · Sumas móviles de 12 meses`),
+      base('yoy','Evolución y variación interanual MAT',[si(p.yoy),wp(sheet.wp_yoy)],'Variación de volúmenes MAT vs. los 12 meses anteriores',true),
+    ];
+    for (const kpi of sheet.dashboard.kpis) result.push(base(kpi.key,kpi.label,[{name:kpi.label,values:sheet[kpi.key],color:kpi.color,kind:'line',digits:kpi.key === 'buyers_series' ? 0 : 2}], 'Serie mensual original · Mismo color del Excel', kpi.key === 'penetration'));
+    const periods = sheet.dashboard.mat_periods;
+    result.push({key:'annual_mat',title:'Volumen MAT, YoY y cobertura por año',dates:periods.map(row => row.date),annual:true,
+      description:'Mismo mes de corte en cada año · Barras de volumen, etiquetas YoY y cobertura en eje derecho',
+      series:[{...si(periods.map(row=>row.sell_in[pipeline]),'bar'),yoy:periods.map(row=>row.sell_in_yoy[pipeline])},
+              {...wp(periods.map(row=>row.worldpanel),'bar'),yoy:periods.map(row=>row.worldpanel_yoy)},
+              {name:`Cobertura P${pipeline}`,values:periods.map(row=>row.coverage[pipeline]),color:colors.comparison,kind:'line',axis:'right',percent:true}]});
+    return result;
+  }
+
+  function plot(container, model, options, expanded = false) {
+    container.replaceChildren();
+    const n = model.dates.length;
+    const first = model.annual || options.window === 'all' ? 0 : Math.max(0,n - Number(options.window));
+    const baseWidth = expanded ? 900 : 540;
+    const width = options.labels && options.scope === 'all' ? Math.max(baseWidth,(n-first)*58) : baseWidth;
+    const graph = svg('svg',{viewBox:`0 0 ${width} 300`,role:'img',tabindex:0,'aria-label':model.title});
+    if (width > baseWidth) graph.style.width = `${width}px`;
+    graph.append(svg('title',{},`${model.title}. ${model.description}`));
+    const scroll = node('div',null,'dashboard-chart-scroll'); scroll.append(graph); container.append(scroll);
+    const tooltip = node('p',null,'dashboard-tooltip'); container.append(tooltip);
+    const legend = node('div',null,'dashboard-legend');
+    model.series.forEach(series => { const text = node('span',series.name); text.style.setProperty('--series-color',series.color); legend.append(text); }); container.append(legend);
+    if (!n) { graph.append(svg('text',{x:width/2,y:130,'text-anchor':'middle',fill:'#637888','font-size':14},'Sin 12 meses completos para comparar cortes MAT')); tooltip.textContent='Las bases insuficientes se muestran como —.'; return; }
+    const dual = model.series.some(s=>s.axis === 'right');
+    const left = 59, right = width - (dual ? 69 : 25), top = 38, bottom = 248;
+    const x = i => left + (i-first+.5) / Math.max(1,n-first)*(right-left);
+    const scale = axis => {
+      const values = model.series.filter(s=>(s.axis || 'left')===axis).flatMap(s=>s.values.slice(first)).filter(valid);
+      const min = Math.min(0,...values), max = Math.max(1,...values), range = max-min;
+      return {min:min < 0 ? min-range*.08 : 0,max:max+range*.18};
+    };
+    const scales = {left:scale('left'),right:scale('right')};
+    const y = (v,axis='left') => bottom - (v-scales[axis].min)/(scales[axis].max-scales[axis].min)*(bottom-top);
+    for (let i=0;i<=4;i++) {
+      const py=bottom-i/4*(bottom-top), value=scales.left.min+i/4*(scales.left.max-scales.left.min);
+      if (options.detail) graph.append(svg('line',{x1:left,x2:right,y1:py,y2:py,stroke:'#e5edf1',class:'dashboard-gridline'}));
+      graph.append(svg('text',{x:left-8,y:py+4,'text-anchor':'end','font-size':11,fill:'#637888'},model.percent ? `${compact(value)}%` : compact(value)));
+      if (dual) graph.append(svg('text',{x:right+7,y:py+4,'font-size':11,fill:'#008c95'},fmt(scales.right.min+i/4*(scales.right.max-scales.right.min),0,'%')));
+    }
+    const step = Math.max(1,Math.ceil((n-first)/7));
+    for (let i=first;i<n;i+=step) graph.append(svg('text',{x:x(i),y:bottom+23,'text-anchor':'middle','font-size':11,fill:'#637888'},`${model.annual ? 'MAT ' : ''}${month(model.dates[i])}`));
+    const barSeries=model.series.filter(s=>s.kind==='bar');
+    const barWidth=Math.min(model.annual ? 54 : 22,(right-left)/Math.max(1,n-first)*.65/Math.max(1,barSeries.length));
+    const marks=[];
+    const labelIndexes=series => {
+      const indexes=series.values.map((value,i)=>valid(value) && i>=first ? i : -1).filter(i=>i>=0);
+      if (!options.labels || !indexes.length) return new Set();
+      if (model.annual || options.scope==='all') return new Set(indexes);
+      if (options.scope==='last') return new Set([indexes.at(-1)]);
+      const cutoff=model.dates.at(-1).slice(5,7);
+      return new Set([indexes[0],indexes.at(-1),...indexes.filter(i=>model.dates[i].slice(5,7)===cutoff)]);
+    };
+    model.series.forEach(series => {
+      let d='',connected=false;
+      const axis=series.axis || 'left', labels=labelIndexes(series);
+      for (let i=first;i<n;i++) {
+        const value=series.values[i];
+        if (!valid(value)) { connected=false; continue; }
+        const px=x(i)+(series.kind==='bar' && barSeries.length>1 ? (barSeries.indexOf(series)-(barSeries.length-1)/2)*barWidth*1.15 : 0), py=y(value,axis);
+        if (series.kind==='bar') graph.append(svg('rect',{x:px-barWidth/2,y:Math.min(py,y(0,axis)),width:barWidth,height:Math.abs(py-y(0,axis)),fill:series.color,stroke:options.detail ? '#637888' : 'none','stroke-width':.5,class:'dashboard-bar','data-series':series.name}));
+        else { d+=`${connected ? 'L' : 'M'}${px},${py} `; connected=true; if(options.detail) graph.append(svg('circle',{cx:px,cy:py,r:2.5,fill:series.color,class:'dashboard-point'})); }
+        if (labels.has(i)) marks.push({series,i,px,py,value});
+      }
+      if(series.kind!=='bar') graph.append(svg('path',{d,fill:'none',stroke:series.color,'stroke-width':2.6,'stroke-linejoin':'round','stroke-linecap':'round',class:'dashboard-series','data-series':series.name}));
+    });
+    const boxes=[];
+    marks.forEach(({series,i,px,py,value})=>{
+      const isPercent=series.percent || model.percent;
+      const text=isPercent ? fmt(value,1,'%') : model.annual ? compact(value) : series.digits===2 ? fmt(value,2) : compact(value);
+      const half=Math.max(17,text.length*3.4), lx=Math.max(left+half,Math.min(right-half,px));
+      let ly=Math.max(16,py-11);
+      while(boxes.some(b=>Math.abs(b.x-lx)<b.half+half+3 && Math.abs(b.y-ly)<18)) ly+=20;
+      if(ly>bottom-5) { ly=Math.min(bottom-5,py+18); while(boxes.some(b=>Math.abs(b.x-lx)<b.half+half+3 && Math.abs(b.y-ly)<18)) ly-=20; }
+      boxes.push({x:lx,y:ly,half});
+      const group=svg('g',{class:'dashboard-data-label','data-series':series.name});
+      group.append(svg('title',{},`${month(model.dates[i])} · ${series.name}: ${fmt(value,series.digits ?? 1,isPercent ? '%' : '')}`));
+      group.append(svg('line',{x1:px,y1:py,x2:lx,y2:ly,stroke:series.color,'stroke-width':.7}));
+      group.append(svg('rect',{x:lx-half,y:ly-12,width:half*2,height:18,rx:3,fill:'#fff',stroke:series.color,'stroke-width':.8}));
+      group.append(svg('text',{x:lx,y:ly+1,'text-anchor':'middle','font-size':11,fill:'#172c3c'},text)); graph.append(group);
+      if(model.annual && series.yoy && valid(series.yoy[i])) graph.append(svg('text',{x:px,y:Math.max(14,py-30),'text-anchor':'middle','font-size':11,'font-weight':600,fill:series.yoy[i]>=0 ? '#1e8449' : '#8b0000',class:'dashboard-yoy-label'},signed(series.yoy[i])));
+    });
+    if(!model.series.some(s=>s.values.slice(first).some(valid))) graph.append(svg('text',{x:width/2,y:130,'text-anchor':'middle',fill:'#637888','font-size':13},'Sin base suficiente en el período visible'));
+    const guide=svg('line',{x1:left,x2:left,y1:top,y2:bottom,stroke:'#8298a5','stroke-dasharray':'3 4',visibility:'hidden'}); graph.append(guide);
+    let active=n-1;
+    function inspect(i) {
+      active=i; guide.setAttribute('visibility',options.detail ? 'visible' : 'hidden'); guide.setAttribute('x1',x(i));guide.setAttribute('x2',x(i));
+      tooltip.textContent=`${month(model.dates[i])} · `+model.series.map(s=>`${s.name}: ${fmt(s.values[i],s.digits ?? 1,s.percent || model.percent ? '%' : '')}${model.annual && s.yoy ? ` · YoY ${signed(s.yoy[i])}` : ''}`).join(' | ');
+    }
+    graph.onpointermove=event=>{const box=graph.getBoundingClientRect(), px=(event.clientX-box.left)/box.width*width;inspect(Math.max(first,Math.min(n-1,Math.floor(first+(px-left)/(right-left)*(n-first)))));};
+    graph.onkeydown=event=>{if(['ArrowLeft','ArrowRight'].includes(event.key)){event.preventDefault();inspect(Math.max(first,Math.min(n-1,active+(event.key==='ArrowRight'?1:-1))));}};
+    inspect(n-1);
+  }
+
+  function render(root, nav, sheet, pipeline, colors, options, open) {
+    root.replaceChildren();nav.replaceChildren();
+    const figures=models(sheet,pipeline,colors);
+    figures.forEach((model,index)=>{
+      const card=node('article',null,'dashboard-chart-card');card.id=`excel-chart-${model.key}`;card.dataset.chart=model.key;
+      const heading=node('div',null,'dashboard-chart-heading'), title=node('h3',model.title);
+      const button=node('button','Ampliar ↗','text-button');button.setAttribute('aria-label',`Ampliar ${model.title}`);button.addEventListener('click',()=>open(model,options));
+      heading.append(title,button);card.append(heading,node('p',model.description,'section-description'));
+      const content=node('div',null,'dashboard-chart-content');card.append(content);root.append(card);plot(content,model,options);
+      const link=node('a',`${String(index+1).padStart(2,'0')} ${model.title}`);link.href=`#${card.id}`;nav.append(link);
+    });
+    return figures.length;
+  }
+  return {render,plot};
+})();

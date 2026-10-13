@@ -146,6 +146,47 @@ def template_details(df, core):
     }
 
 
+def dashboard_details(df, core, pipelines):
+    """Panel inline del Excel, disponible sin escribir ningún entregable."""
+    specs = [("purchase_average", core.COL_COMPRA_MEDIA, "Compra media"),
+             ("purchase_occasion", core.COL_COMPRA_OCA, "Compra por ocasión"),
+             ("frequency", core.COL_FREQ, "Frecuencia"),
+             ("penetration", core.COL_PENET, "Penetración"),
+             ("buyers_series", core.COL_BUYERS, "Compradores")]
+    kpis = []
+    for key, column, label in specs:
+        recent = df[column].tail(12)
+        latest, average = finite(recent.iloc[-1]), finite(recent.mean())
+        change = finite(latest / average - 1) if average else 0.0
+        amplitude = finite((recent.max() - recent.min()) / abs(average)) if average else 0.0
+        kpis.append({"key": key, "label": label, "color": core.EXCEL_DASHBOARD_KPI_COLORS[column],
+                     "latest": latest, "average": average, "change": change, "range": amplitude,
+                     "minimum": finite(recent.min()), "maximum": finite(recent.max()),
+                     "review": average == 0 or abs(change) > core.EXCEL_DASHBOARD_CHANGE_THRESHOLD or amplitude > core.EXCEL_DASHBOARD_RANGE_THRESHOLD})
+    dates = list(df[core.COL_DATA])
+    cutoff_month = dates[-1].month
+    wp_mat = df[core.COL_SELL_OUT].rolling(12, min_periods=12).sum()
+    rows, previous = [], {}
+    for i, date in enumerate(dates):
+        if date.month != cutoff_month or i < 11:
+            continue
+        wp = finite(wp_mat.iloc[i])
+        values = [pipeline["sell_in_mat"][i] for pipeline in pipelines]
+        prior = previous.get(date.year - 1)
+        def growth(value, old):
+            return finite((value / old - 1) * 100) if value is not None and old else None
+        row = {"date": date.isoformat(), "worldpanel": wp,
+               "worldpanel_yoy": growth(wp, prior["worldpanel"]) if prior else None,
+               "sell_in": values,
+               "sell_in_yoy": [growth(value, prior["sell_in"][p]) if prior else None for p, value in enumerate(values)],
+               "coverage": [pipeline["coverage_series"][i] for pipeline in pipelines]}
+        rows.append(row)
+        previous[date.year] = row
+    return {"kpis": kpis, "mat_periods": rows,
+            "change_threshold": core.EXCEL_DASHBOARD_CHANGE_THRESHOLD,
+            "range_threshold": core.EXCEL_DASHBOARD_RANGE_THRESHOLD}
+
+
 def analyze_workbook(path, options):
     core = engine()
     categories = core.load_categories()
@@ -249,6 +290,7 @@ def analyze_workbook(path, options):
                     "coverage_series": [finite(v) for v in cov],
                 })
             available = [p["pipeline"] for p in sheet["pipelines"] if p["available"]]
+            sheet["dashboard"] = dashboard_details(df, core, sheet["pipelines"])
             sheet["default_pipeline"] = next((p for p in [forced, recommendation.pipeline, 0] if p in available), available[0])
             buyers = finite(df[core.COL_BUYERS].tail(12).mean())
             sheet["buyers"] = buyers
@@ -488,7 +530,7 @@ def make_handler(state):
                 if path == "/":
                     html = (ASSETS / "index.html").read_text(encoding="utf-8").replace("__EXPLORER_TOKEN__", state.token)
                     self.send_bytes(html.encode("utf-8"), "text/html; charset=utf-8")
-                elif path in {"/app.js", "/style.css"}:
+                elif path in {"/app.js", "/dashboard.js", "/style.css"}:
                     file = ASSETS / path[1:]
                     self.send_bytes(file.read_bytes(), mimetypes.guess_type(str(file))[0] + "; charset=utf-8")
                 elif path == "/api/files":

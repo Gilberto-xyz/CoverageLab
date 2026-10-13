@@ -136,6 +136,18 @@ y la penetración media mensual no se interpreta como penetración anual única.
 Las variaciones del template conservan su regla de omitir ventanas con ceros;
 la evolución YoY MAT conserva la protección de denominador cero del Excel.
 
+Al pulsar **Cargar y explorar** aparece por defecto el **Panel completo del Excel**:
+los diez gráficos se muestran juntos, sin exportar ni crear entregables. Incluye
+cobertura/penetración, tendencia mensual y MAT, evolución YoY, los cinco indicadores
+de compra y la comparación de volúmenes MAT, YoY y cobertura por corte anual.
+Puedes ampliar cada gráfico, cambiar el período visible y activar etiquetas y detalle.
+El diagnóstico de KPI replica las reglas del Excel: último valor, promedio 12m,
+cambio y amplitud relativa, con límites iniciales de 25% y 75% ajustables en la web.
+**Todo el detalle del Excel** también queda seleccionado al cargar: serie mensual
+completa con coberturas P0–P6 y calendario, variaciones, correlaciones, promedios y
+tabla de cortes anuales. Los enlaces del panel llevan directamente a cada gráfico o
+tabla. **Revisar y generar** se usa únicamente para producir los entregables finales.
+
 La selección se aplica al PPT, al summary, al banco y a los gráficos del Excel;
 el template conserva las columnas P0–P6 para análisis posterior. Se genera también
 el reporte de pipelines con el motivo de selección manual y las recomendaciones

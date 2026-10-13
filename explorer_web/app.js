@@ -113,7 +113,10 @@ async function load() {
   status('Cargando hojas y calculando P0–P6…'); controls();
   try {
     const analysis = await api('/api/analyze', requestOptions());
+    if (analysis.sheets.some(sheet => !sheet.error && !sheet.dashboard)) throw new Error('Reinicia el explorador local para cargar el panel completo del Excel.');
     state.analysis = analysis; state.selections = {}; state.included = {};
+    $('window').value = 'all'; $('dashboard-window').value = 'all';
+    $('template-view').value = 'all'; $('table-columns').value = 'all';
     renderFileDetail();
     let saved;
     try { saved = JSON.parse(localStorage.getItem(draftKey()) || 'null'); } catch (_) { saved = null; }
@@ -129,7 +132,7 @@ async function load() {
     $('empty').hidden = true; $('workspace').hidden = false; $('sheet-panel').hidden = false;
     $('search').value = '';
     const invalid = analysis.sheets.filter(sheet => sheet.error).length;
-    status(invalid ? `${invalid} hoja(s) requieren corrección y quedan excluidas. Puedes revisar sus motivos en la lista.` : saved ? 'Selección anterior recuperada. Revisa las curvas antes de generar.' : 'Archivo listo. Explora cada hoja y elige su pipeline.');
+    status(invalid ? `${invalid} hoja(s) requieren corrección y quedan excluidas. Las hojas válidas tienen su panel completo disponible.` : 'Panel completo cargado: gráficos y detalle del Excel disponibles sin generar archivos.' + (saved ? ' Selección anterior recuperada.' : ''));
     $('step-file').classList.remove('active'); $('step-review').classList.add('active'); $('step-export').classList.remove('active');
     render();
   } catch (error) { status(error.message, true); }
@@ -241,8 +244,8 @@ function renderTemplate() {
   const inspect = $('inspect-month').value;
   $('inspect-month').replaceChildren(...sheet.dates.map(date => new Option(month(date), date)));
   $('inspect-month').value = sheet.dates.includes(inspect) ? inspect : sheet.dates.at(-1);
-  const view = $('template-view').value, monthly = view === 'monthly';
-  $('template-table').className = `template-${view}`;
+  const view = $('template-view').value, monthly = view === 'monthly' || view === 'all';
+  $('template-table').className = `template-${monthly ? 'monthly' : view}`;
   ['table-columns', 'table-columns-label', 'inspect-month', 'inspect-month-label', 'monthly-inspector'].forEach(id => { $(id).hidden = !monthly; });
   $('template-head').replaceChildren(); $('template-body').replaceChildren();
   const columns = [];
@@ -254,6 +257,7 @@ function renderTemplate() {
       ['Sell-in original P0', i => fmt(sheet.sell_in[i]), 'volume'],
       [`Sell-in P${selected}`, i => fmt(pipeline.sell_in[i]), 'volume'],
       ['MAT Worldpanel', i => fmt(sheet.wp_mat[i]), 'volume'],
+      ['MAT Sell-in original P0', i => fmt(sheet.pipelines[0].sell_in_mat[i]), 'volume'],
       [`MAT Sell-in P${selected}`, i => fmt(pipeline.sell_in_mat[i]), 'volume'],
       [`Cobertura P${selected}`, i => fmt(pipeline.coverage_series[i], 1, '%'), 'volume'],
       ['YoY MAT Worldpanel', i => fmt(sheet.wp_yoy[i], 1, '%'), 'volume'],
@@ -263,6 +267,10 @@ function renderTemplate() {
       ['Compra media', i => fmt(sheet.purchase_average[i], 2), 'shopping'],
       ['Compra por ocasión', i => fmt(sheet.purchase_occasion[i], 2), 'shopping'],
       ['Frecuencia', i => fmt(sheet.frequency[i], 2), 'shopping'],
+      ...sheet.pipelines.filter(p => p.pipeline !== selected).map(p => [`Cobertura P${p.pipeline}`, i => fmt(p.coverage_series[i],1,'%'),'volume']),
+      ['Año', i => sheet.dates[i].slice(0,4),'volume'],
+      ['Trimestre', i => String(Math.ceil(Number(sheet.dates[i].slice(5,7))/3)),'volume'],
+      ['Semestre', i => Number(sheet.dates[i].slice(5,7)) <= 6 ? '1' : '2','volume'],
     ];
     columns.push(...allColumns.filter(([, , group]) => group === 'date' || $('table-columns').value === 'all' || group === $('table-columns').value));
     const first = $('window').value === 'all' ? 0 : Math.max(0, sheet.dates.length - Number($('window').value));
@@ -305,6 +313,74 @@ function renderTemplate() {
       }
       tr.append(td);
     }); $('template-body').append(tr);
+  });
+  renderCompleteTables(sheet, selected, view === 'all');
+}
+
+function renderCompleteTables(sheet, selected, visible) {
+  const root = $('template-extra-tables'); root.replaceChildren(); root.hidden = !visible;
+  if (!visible) return;
+  const avg = sheet.template.averages;
+  const descriptions = [
+    {key:'variations',title:'Variaciones por período · P0–P6',columns:['Comparación','Worldpanel',...sheet.pipelines.map(p=>`Sell-in P${p.pipeline}`)],chosen:selected+2,
+      rows:sheet.template.variations.map(row=>({cells:[row.label,fmt(row.worldpanel,1,'%'),...row.pipelines.map(v=>fmt(v,1,'%'))],periods:[row.wp_period,...row.pipeline_periods]})),
+      note:'Las ventanas con ceros o historia insuficiente aparecen como —, igual que las fórmulas del Excel. Se muestran las fechas exactas de Worldpanel y del pipeline elegido.'},
+    {key:'correlations',title:'Correlaciones MAT · P0–P6',columns:['Ventana',...sheet.pipelines.map(p=>`P${p.pipeline}`)],chosen:selected+1,
+      rows:sheet.template.correlations.map(row=>({cells:[row.label,...row.pipelines.map(v=>fmt(v,3))]})),
+      note:'Últimos 12 meses, año anterior y ventana de 24 meses. Se conserva el desplazamiento de Sell-in y la regla de base insuficiente.'},
+    {key:'averages',title:'Promedios MAT',columns:['Indicador','Últimos 12 meses','12 meses anteriores'],
+      rows:[{cells:['Penetración media mensual',fmt(avg.Penet_MAT_Actual,1,'%'),fmt(avg.Penet_MAT_Anterior,1,'%')]},{cells:['Compradores promedio',fmt(avg.Buyers_MAT_Actual,0),fmt(avg.Buyers_MAT_Anterior,0)]},{cells:['Frecuencia promedio',fmt(avg.Freq_MAT_Actual,2),'—']}],
+      note:'Promedios mensuales; los compradores no se suman y la penetración media MAT no equivale a penetración anual de compradores únicos.'},
+    {key:'annual-mat',title:'Cortes anuales MAT · volúmenes, YoY y cobertura',columns:['Corte MAT','Worldpanel',`Sell-in P${selected}`,'YoY Worldpanel',`YoY Sell-in P${selected}`,`Cobertura P${selected}`],chosen:2,
+      rows:sheet.dashboard.mat_periods.map(row=>({cells:[month(row.date),fmt(row.worldpanel),fmt(row.sell_in[selected]),fmt(row.worldpanel_yoy,1,'%'),fmt(row.sell_in_yoy[selected],1,'%'),fmt(row.coverage[selected],1,'%')]})),
+      note:'Mismo mes de corte en todos los años. Cada volumen exige 12 meses completos; el YoY anual queda vacío si falta el año previo o su volumen es cero.'},
+  ];
+  descriptions.forEach(data=>{
+    const section=item('section',null,'complete-table-section');section.dataset.detail=data.key;section.id=`excel-table-${data.key}`;
+    const heading=item('div',null,'table-heading');heading.append(item('h3',data.title));section.append(heading);
+    const wrapper=item('div',null,'table-scroll template-scroll'),table=item('table',null,`template-${data.key}`),thead=item('thead'),head=item('tr');
+    data.columns.forEach((label,i)=>{const th=item('th',label);th.scope='col';if(i===data.chosen)th.className='template-selected';head.append(th);});thead.append(head);table.append(thead);
+    const tbody=item('tbody');
+    data.rows.forEach(row=>{
+      const tr=item('tr');row.cells.forEach((value,i)=>{
+        const td=item('td',value);if(i===data.chosen)td.className='template-selected';
+        const period=row.periods?.[i-1];if(period)td.title=`${period.current.map(month).join(' — ')} vs. ${period.previous.map(month).join(' — ')}`;
+        if(i===0 && row.periods) [0,selected+1].forEach((p,index)=>{const dates=row.periods[p];if(dates)td.append(item('small',`${index ? `P${selected}` : 'WP'}: ${dates.current.map(month).join(' — ')} / ${dates.previous.map(month).join(' — ')}`,'period-detail'));});
+        tr.append(td);
+      });tbody.append(tr);
+    });table.append(tbody);wrapper.append(table);section.append(wrapper,item('p',data.note,'table-note'));root.append(section);
+  });
+}
+
+function dashboardOptions() { return {window:$('dashboard-window').value,labels:$('dashboard-labels').checked,scope:$('dashboard-label-scope').value,detail:$('dashboard-detail').checked}; }
+function renderDashboard() {
+  const sheet=state.analysis?.sheets.find(entry=>entry.name===state.active);
+  if(!sheet?.dashboard)return;
+  $('dashboard-window').value=$('window').value;
+  const selected=state.selections[sheet.name];
+  const count=CoverageDashboard.render($('dashboard-grid'),$('dashboard-nav'),sheet,selected,state.analysis.chart_colors,dashboardOptions(),(model,options)=>{
+    $('chart-dialog-title').textContent=model.title;$('chart-dialog-description').textContent=`${sheet.brand} · P${selected} · ${model.description}`;
+    $('chart-dialog').showModal();CoverageDashboard.plot($('chart-dialog-content'),model,options,true);
+  });
+  $('dashboard-reference').textContent=`${count} gráficos visibles · ${sheet.brand} · P${selected} · Corte ${month(sheet.dates.at(-1))}. Todo se calcula al cargar el Excel.`;
+  [['Diagnóstico KPI','excel-diagnostics'],['Datos mensuales y P0–P6','template-table'],['Variaciones','excel-table-variations'],['Correlaciones','excel-table-correlations'],['Promedios MAT','excel-table-averages'],['Detalle anual MAT','excel-table-annual-mat']].forEach(([title,id])=>{
+    const link=item('a',title);link.href=`#${id}`;link.className='dashboard-detail-link';
+    link.addEventListener('click',()=>{if($('template-view').value!=='all'){$('template-view').value='all';renderTemplate();}});$('dashboard-nav').append(link);
+  });
+  $('dashboard-label-scope').disabled=!$('dashboard-labels').checked;
+  renderDiagnostics();
+}
+function renderDiagnostics() {
+  const sheet=state.analysis?.sheets.find(entry=>entry.name===state.active);if(!sheet?.dashboard)return;
+  const change=$('kpi-change-threshold').valueAsNumber,range=$('kpi-range-threshold').valueAsNumber;
+  const valid=Number.isFinite(change)&&change>=0&&change<=1000&&Number.isFinite(range)&&range>=0&&range<=1000;
+  $('diagnostic-body').replaceChildren();
+  sheet.dashboard.kpis.forEach(kpi=>{
+    const percent=kpi.key==='penetration',digits=kpi.key==='buyers_series'?0:2;
+    const review=kpi.average===0||Math.abs(kpi.change)>change/100||kpi.range>range/100;
+    const tr=item('tr');
+    [kpi.label,fmt(kpi.latest,digits,percent?'%':''),fmt(kpi.average,digits,percent?'%':''),fmt(kpi.change*100,1,'%'),fmt(kpi.minimum,digits,percent?'%':''),fmt(kpi.maximum,digits,percent?'%':''),fmt(kpi.range*100,1,'%'),valid?(review?'REVISAR':'OK'):'Ajusta límites'].forEach((value,i)=>tr.append(item('td',value,i===7?`diagnostic-signal ${!valid||review?'review':'ok'}`:'')));
+    $('diagnostic-body').append(tr);
   });
 }
 
@@ -444,6 +520,7 @@ function drawChart() {
   tooltip(n - 1);
   $('legend').replaceChildren(...plots.map(plot => { const legend = item('span', plot.name, plot.className); legend.style.setProperty('--series-color', plot.color); return legend; }));
   renderTemplate();
+  renderDashboard();
 }
 
 async function saveSelection() {
@@ -497,6 +574,10 @@ async function pollJob() {
 $('load').addEventListener('click', load);
 $('browse-files').addEventListener('click', () => { renderFileCards(); $('file-dialog').showModal(); });
 $('close-files').addEventListener('click', () => $('file-dialog').close());
+$('close-chart').addEventListener('click', () => $('chart-dialog').close());
+['dashboard-labels','dashboard-label-scope','dashboard-detail'].forEach(id=>$(id).addEventListener('change',renderDashboard));
+$('dashboard-window').addEventListener('change',()=>{$('window').value=$('dashboard-window').value;drawChart();});
+['kpi-change-threshold','kpi-range-threshold'].forEach(id=>$(id).addEventListener('input',renderDiagnostics));
 $('file-search').addEventListener('input', renderFileCards);
 ['file-country', 'file-category'].forEach(id => $(id).addEventListener('change', renderFileCards));
 $('file').addEventListener('change', renderFileDetail);

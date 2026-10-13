@@ -1512,6 +1512,12 @@ COLOR_POS_LABEL_ALT = '#27AE60'
 COLOR_NEG_LABEL_ALT = '#C0392B'
 COLOR_SELLIN_TREND_LINE = "#D4AC0D"
 COLOR_SELLOUT_TREND_LINE = "#2C3E50"
+EXCEL_DASHBOARD_KPI_COLORS = {
+    COL_COMPRA_MEDIA: "#4472C4", COL_COMPRA_OCA: "#70AD47",
+    COL_FREQ: "#ED7D31", COL_PENET: "#FFC000", COL_BUYERS: "#5B9BD5",
+}
+EXCEL_DASHBOARD_CHANGE_THRESHOLD = 0.25
+EXCEL_DASHBOARD_RANGE_THRESHOLD = 0.75
 EXCEL_TREND_INITIAL_GAP_MONTHS = 6
 DEFAULT_TREND_CHART_HEIGHT_INCHES = 4.5
 AUTO_TREND_CHART_HEIGHT_INCHES = 5.05
@@ -8528,11 +8534,11 @@ def add_native_excel_charts(
         },
     }[lang_code]
     dashboard_kpis = [
-        (COL_COMPRA_MEDIA, {"ES": "Compra media", "PT": "Compra média", "EN": "Average purchase"}[lang_code], "#4472C4", "#,##0.0"),
-        (COL_COMPRA_OCA, {"ES": "Compra por ocasión", "PT": "Compra por ocasião", "EN": "Purchase per occasion"}[lang_code], "#70AD47", "#,##0.00"),
-        (COL_FREQ, {"ES": "Frecuencia", "PT": "Frequência", "EN": "Frequency"}[lang_code], "#ED7D31", "0.00"),
-        (COL_PENET, {"ES": "Penetración", "PT": "Penetração", "EN": "Penetration"}[lang_code], "#FFC000", "0.0"),
-        (COL_BUYERS, "Buyers", "#5B9BD5", "#,##0"),
+        (COL_COMPRA_MEDIA, {"ES": "Compra media", "PT": "Compra média", "EN": "Average purchase"}[lang_code], EXCEL_DASHBOARD_KPI_COLORS[COL_COMPRA_MEDIA], "#,##0.0"),
+        (COL_COMPRA_OCA, {"ES": "Compra por ocasión", "PT": "Compra por ocasião", "EN": "Purchase per occasion"}[lang_code], EXCEL_DASHBOARD_KPI_COLORS[COL_COMPRA_OCA], "#,##0.00"),
+        (COL_FREQ, {"ES": "Frecuencia", "PT": "Frequência", "EN": "Frequency"}[lang_code], EXCEL_DASHBOARD_KPI_COLORS[COL_FREQ], "0.00"),
+        (COL_PENET, {"ES": "Penetración", "PT": "Penetração", "EN": "Penetration"}[lang_code], EXCEL_DASHBOARD_KPI_COLORS[COL_PENET], "0.0"),
+        (COL_BUYERS, "Buyers", EXCEL_DASHBOARD_KPI_COLORS[COL_BUYERS], "#,##0"),
     ]
     uniform_chart_height = 9.0
     uniform_chart_width = 17.8
@@ -8795,9 +8801,9 @@ def add_native_excel_charts(
         pipeline_validation.add(dashboard["Z3"])
 
         dashboard["AB3"] = dashboard_copy["change_threshold"]
-        dashboard["AC3"] = 0.25
+        dashboard["AC3"] = EXCEL_DASHBOARD_CHANGE_THRESHOLD
         dashboard["AE3"] = dashboard_copy["range_threshold"]
-        dashboard["AF3"] = 0.75
+        dashboard["AF3"] = EXCEL_DASHBOARD_RANGE_THRESHOLD
         for cell_ref in ("AB3", "AE3"):
             dashboard[cell_ref].font = _Font(name="Aptos", size=9, bold=True, color=grey)
         for cell_ref in ("AC3", "AF3"):
