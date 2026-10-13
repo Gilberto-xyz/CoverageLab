@@ -18,6 +18,13 @@
 !archivos_studio.py
 !migrar_filtros_power_view.py
 !scorecards_studio.py
+!pipeline_explorer.py
+!Abrir_Explorador.cmd
+!explorer_web/index.html
+!explorer_web/app.js
+!explorer_web/style.css
+!tests/test_pipeline_explorer.py
+!requirements.txt
 !tests/test_auto_pipeline_comparison.py
 !tests/test_scorecard_output_name.py
 !tests/test_scorecard_skipped_sheets.py

@@ -48,12 +48,15 @@ Además, hoy ya incorpora lógica específica para:
 - `coverage_studio.py`: motor principal de generación
 - `archivos_studio.py`: asistente para crear archivos base de captura
 - `scorecards_studio.py`: exportador de scorecards
+- `pipeline_explorer.py`: pantalla local para revisar y elegir pipelines antes de generar
+- `explorer_web/`: interfaz del explorador (HTML, CSS y JavaScript, sin dependencias web)
+- `Abrir_Explorador.cmd`: acceso para iniciar el explorador en Windows
 - `Modelo_PPT.pptx`: plantilla obligatoria para construir la presentación
 - `requirements.txt`: dependencias Python
 
 ## Requisitos
 
-- Python 3.8 o superior
+- Python 3.11 o superior (requerido por pandas 3.0.1)
 - `pip` actualizado
 - dependencias de `requirements.txt`
 - `Modelo_PPT.pptx` presente en la raíz del proyecto
@@ -73,6 +76,69 @@ pip install pandas numpy matplotlib openpyxl tqdm colorama rich dataframe_image 
 ```
 
 ## Uso rápido
+
+### Explorar pipelines en el navegador antes de generar
+
+En Windows puedes hacer doble clic en `Abrir_Explorador.cmd`. También puedes ejecutar:
+
+```bash
+python pipeline_explorer.py
+```
+
+O iniciar la pantalla desde el programa principal:
+
+```bash
+python coverage_studio.py --explorar
+```
+
+Abre automáticamente `http://127.0.0.1:8765/`. Mantén abierta la terminal mientras
+usas el explorador; `Ctrl+C` cierra el servidor. Si el puerto está ocupado:
+
+```bash
+python pipeline_explorer.py --port 8766
+```
+
+1. Selecciona un Excel y el template de salida; pulsa **Cargar y explorar**.
+2. Selecciona una hoja y revisa P0–P6. Puedes comparar dos pipelines, mostrar
+   Sell-in original, cambiar entre volumen mensual, volumen MAT y cobertura MAT,
+   y ver toda la historia o los últimos 12/24 meses.
+3. Consulta correlación MAT, cobertura, variaciones, gap y estabilidad. AUTO
+   Balanceado y AUTO Correlación se muestran como referencias; P0 se permite
+   como elección manual, aunque la recomendación automática compara P1–P6.
+4. Elige un pipeline por hoja y desmarca las hojas que quieras excluir.
+   La elección manual tiene prioridad sobre el prefijo de la hoja y AUTO.
+5. **Guardar selección** permite recuperar las elecciones para la misma versión
+   del Excel. **Revisar y generar** muestra la selección antes de iniciar.
+6. Descarga los entregables desde la pantalla o abre la carpeta de la ejecución.
+
+La selección se aplica al PPT, al summary, al banco y a los gráficos del Excel;
+el template conserva las columnas P0–P6 para análisis posterior. Se genera también
+el reporte de pipelines con el motivo de selección manual y las recomendaciones
+automáticas como referencia. Las hojas excluidas no aparecen en los entregables.
+La metadata por hoja se conserva incluso al excluir una hoja total de la que
+otras hojas heredaron su categoría.
+
+Cada generación crea su propia carpeta en `outputs/pipeline_explorer/`, con
+los entregables, `selection.json`, `result.json` y `generation.log`. Usa una copia
+del Excel revisado y de la plantilla PPT; conserva las entregas anteriores.
+Si el Excel cambia desde la revisión, debes volver a cargarlo. Las selecciones
+guardadas quedan en `outputs/pipeline_explorer/selections/`, ligadas a la huella
+del archivo, y los borradores también se conservan en el navegador.
+
+Las hojas con meses duplicados, desordenados o faltantes requieren corrección
+antes de generar. Un pipeline sin los meses suficientes para cobertura MAT
+queda deshabilitado. Las advertencias de compradores, ceros y valores negativos
+se muestran durante la revisión; los cálculos conservan las reglas del motor
+actual de CoverageLab.
+
+El explorador funciona en tu equipo, sin subir los Excel y sin recursos externos.
+Para iniciar sin abrir el navegador automáticamente, agrega `--no-browser`.
+
+Verificación del explorador, incluyendo una generación real con selección manual:
+
+```bash
+python -m unittest discover -s tests -p test_pipeline_explorer.py -v
+```
 
 ### Flujo A: crear base y luego procesar
 

@@ -5253,6 +5253,8 @@ class ExecutionOptions:
     auto_mode: bool = False
     trend_chart_height_inches: float = DEFAULT_TREND_CHART_HEIGHT_INCHES
     animate_trend_pipeline: bool = True
+    pipeline_overrides: Dict[str, int] = field(default_factory=dict)
+    sheet_metadata_overrides: Dict[str, SheetBankMetadata] = field(default_factory=dict)
 
     @classmethod
     def from_scenario(cls, scenario_key: str) -> Optional["ExecutionOptions"]:
@@ -5425,6 +5427,7 @@ def apply_execution_options_to_selections(options: ExecutionOptions) -> None:
     SELECTIONS['Eje tendencia'] = options.trend_axis
     SELECTIONS['Modo tendencia'] = trend_granularity_label(options.trend_granularity)
     SELECTIONS['Pipeline PPT'] = (
+        'Elegido por hoja en el explorador local' if options.pipeline_overrides else
         'Recomendado por ajuste integral (P1-P6)' if options.optimal_pipeline_mode else 'Según hoja / todos'
     )
     SELECTIONS['Idioma PPT'] = 'EN (forzado)' if options.include_english else 'ES (por pais)'
@@ -8365,6 +8368,7 @@ def add_native_excel_charts(
     evolution_slide_variant: str,
     include_english: bool,
     pais_nombre: str,
+    pipeline_overrides: Optional[Dict[str, int]] = None,
 ) -> None:
     """
     Inserta graficos nativos de Excel (editables) en cada hoja de marca,
@@ -9175,7 +9179,7 @@ def add_native_excel_charts(
 
     for ws in source_worksheets:
         headers = _build_sheet_header_index(ws)
-        pipeline = _parse_pipeline_from_sheet_name(ws.title)
+        pipeline = (pipeline_overrides or {}).get(ws.title, _parse_pipeline_from_sheet_name(ws.title))
         cov_header = f"P{pipeline}"
 
         data_col = _find_excel_header_col(headers, COL_DATA)
@@ -9549,6 +9553,7 @@ def generate_excel_template(
     include_english: bool,
     output_descriptor: str = "",
     elapsed_seconds_fn: Optional[Callable[[], Optional[float]]] = None,
+    pipeline_overrides: Optional[Dict[str, int]] = None,
 ) -> Tuple[str, str, str, str]:
     """Genera el archivo Excel temporal y devuelve datos clave."""
     try:
@@ -10369,6 +10374,7 @@ def generate_excel_template(
                 evolution_slide_variant=evolution_slide_variant,
                 include_english=include_english,
                 pais_nombre=pais_nombre,
+                pipeline_overrides=pipeline_overrides,
             )
             print(Fore.GREEN + "Graficos nativos de Excel insertados (editables).")
         except Exception as e:
@@ -10841,6 +10847,8 @@ def build_optimal_pipeline_candidates(
     df_marca: "pd.DataFrame",
     df_variations: "pd.DataFrame",
     forced_pipeline: Optional[int] = None,
+    *,
+    include_reference: bool = False,
 ) -> Tuple[OptimalPipelineCandidate, ...]:
     try:
         wp_current = df_variations.loc[df_variations["Tipo"] == "Anual", "WP by Numerator"].iloc[0]
@@ -10849,7 +10857,7 @@ def build_optimal_pipeline_candidates(
     wp_previous = compute_previous_year_annual_variation(df_marca, COL_SELL_OUT, 0)
 
     candidates: List[OptimalPipelineCandidate] = []
-    for pipeline in range(1, 7):
+    for pipeline in range(0 if include_reference else 1, 7):
         try:
             current_variation = df_variations.loc[
                 df_variations["Tipo"] == "Anual",
@@ -12292,6 +12300,8 @@ def generate_presentation_and_bank(
     elapsed_seconds_fn: Optional[Callable[[], Optional[float]]] = None,
     trend_chart_height_inches: float = DEFAULT_TREND_CHART_HEIGHT_INCHES,
     animate_trend_pipeline: bool = True,
+    pipeline_overrides: Optional[Dict[str, int]] = None,
+    sheet_metadata_overrides: Optional[Dict[str, SheetBankMetadata]] = None,
 ) -> Tuple[str, "pd.DataFrame", "pd.DataFrame", "pd.DataFrame"]:
     chosen_lang, lang_index = determine_language(include_english, pais_nombre)
     include_summary_category = any(
@@ -12354,7 +12364,9 @@ def generate_presentation_and_bank(
         if df_marca_ppt is None:
             continue
         forced_pipeline = extract_forced_pipeline_from_sheet_name(marca_sheet_name)
-        if optimal_pipeline_mode:
+        if marca_sheet_name in (pipeline_overrides or {}):
+            pipelines_to_run = [pipeline_overrides[marca_sheet_name]]
+        elif optimal_pipeline_mode:
             pipelines_to_run = [1]
         else:
             pipelines_to_run = [int(forced_pipeline)] if forced_pipeline is not None else list(range(7))
@@ -12403,6 +12415,7 @@ def generate_presentation_and_bank(
                 sheet_metadata_hints=df_marca_ppt.attrs.get("sheet_metadata_hints"),
                 inherited_category_code=current_metadata_category_code,
             )
+            sheet_bank_metadata = (sheet_metadata_overrides or {}).get(marca_sheet_name, sheet_bank_metadata)
             section_title, next_section_title = build_section_title_for_sheet(
                 marca_sheet_name,
                 current_section_title,
@@ -12451,7 +12464,21 @@ def generate_presentation_and_bank(
                 df_variations,
                 forced_pipeline,
             )
-            if optimal_pipeline_mode:
+            if marca_sheet_name in (pipeline_overrides or {}):
+                chosen_pipeline = pipeline_overrides[marca_sheet_name]
+                pipelines_to_run = [chosen_pipeline]
+                selection_reason_by_pipeline[chosen_pipeline] = "Pipeline elegido en el explorador local"
+                recommended_selection = select_optimal_pipeline(
+                    df_marca_ppt, df_variations, forced_pipeline=forced_pipeline,
+                    category_code=sheet_bank_metadata.categoria_codigo,
+                    category_name=sheet_bank_metadata.categoria_nombre,
+                    basket_name=sheet_bank_metadata.cesta_nombre,
+                )
+                auto_comparison = AutoPipelineComparison(
+                    correlation=select_correlation_pipeline(pipeline_candidates, forced_pipeline),
+                    balanced=recommended_selection,
+                )
+            elif optimal_pipeline_mode:
                 optimal_selection = select_optimal_pipeline(
                     df_marca_ppt,
                     df_variations,
@@ -12622,12 +12649,17 @@ def generate_presentation_and_bank(
                 summary_rows.append(summary_row)
                 summary_rows_by_period.setdefault(sheet_ref_month_year, []).append(summary_row)
                 bank_rows.append(bank_row)
-                if optimal_pipeline_mode:
+                if optimal_pipeline_mode or pipeline_overrides:
                     pipeline_report_rows.append(
                         build_pipeline_report_row(
                             bank_row=bank_row,
                             df_variations=df_variations,
-                            candidates=pipeline_candidates,
+                            candidates=(
+                                build_optimal_pipeline_candidates(
+                                    df_marca_ppt, df_variations, forced_pipeline,
+                                    include_reference=True,
+                                ) if pipeline == 0 and pipeline_overrides else pipeline_candidates
+                            ),
                             selection_reason=selection_reason_by_pipeline.get(
                                 int(pipeline),
                                 "Pipeline generado por configuración actual",
@@ -13431,7 +13463,7 @@ class CoverageStudioUltraApp:
         )
 
 
-    def process_file(self, excel_file_name: str, options: ExecutionOptions, idx: int, total: int) -> None:
+    def process_file(self, excel_file_name: str, options: ExecutionOptions, idx: int, total: int) -> Optional[Dict[str, str]]:
         global ROUND_COVERAGE
         ROUND_COVERAGE = options.round_coverage
         self.ensure_categories_loaded()
@@ -13453,6 +13485,11 @@ class CoverageStudioUltraApp:
             try:
                 excel_file_obj = pd.ExcelFile(excel_file_path)
                 marcas = excel_file_obj.sheet_names
+                if options.pipeline_overrides:
+                    unknown = set(options.pipeline_overrides) - set(marcas)
+                    if unknown or any(type(p) is not int or p not in range(7) for p in options.pipeline_overrides.values()):
+                        raise ValueError("Selección de hojas o pipelines inválida para el explorador.")
+                    marcas = [name for name in marcas if name in options.pipeline_overrides]
             except FileNotFoundError:
                 print(f"{Fore.RED}{Style.BRIGHT}Error: No se encontró el archivo seleccionado: {excel_file_path}")
                 return
@@ -13497,6 +13534,7 @@ class CoverageStudioUltraApp:
                 options.include_english,
                 output_descriptor=output_descriptor,
                 elapsed_seconds_fn=get_elapsed,
+                pipeline_overrides=options.pipeline_overrides,
             )
             ruta_ppt_final, df_summary, df_bank, df_pipeline_report = generate_presentation_and_bank(
                 root_dir=self.root_dir,
@@ -13530,6 +13568,8 @@ class CoverageStudioUltraApp:
                 elapsed_seconds_fn=get_elapsed,
                 trend_chart_height_inches=options.trend_chart_height_inches,
                 animate_trend_pipeline=options.animate_trend_pipeline,
+                pipeline_overrides=options.pipeline_overrides,
+                sheet_metadata_overrides=options.sheet_metadata_overrides,
             )
             ruta_banco_final = save_coverage_bank(
                 df_bank=df_bank,
@@ -13547,7 +13587,7 @@ class CoverageStudioUltraApp:
                 elapsed_seconds_fn=get_elapsed,
             )
             ruta_pipeline_report_final = ""
-            if options.optimal_pipeline_mode:
+            if options.optimal_pipeline_mode or options.pipeline_overrides:
                 ruta_pipeline_report_final = save_pipeline_report(
                     df_pipeline_report=df_pipeline_report,
                     carpeta_salida=carpeta_salida,
@@ -13569,6 +13609,8 @@ class CoverageStudioUltraApp:
                 elapsed_seconds=elapsed,
             )
             report_zero_months_exceptions()
+            return {"template": ruta_template_final, "presentation": ruta_ppt_final,
+                    "bank": ruta_banco_final, "pipeline_report": ruta_pipeline_report_final}
         except FileSaveCancelled:
             print(Fore.YELLOW + "Guardado cancelado por el usuario.")
             return
@@ -13576,6 +13618,9 @@ class CoverageStudioUltraApp:
             locked_path = getattr(exc, "filename", None) or str(exc)
             print_file_locked_error(locked_path, elapsed_seconds=elapsed)
             return
+        finally:
+            if "excel_file_obj" in locals():
+                excel_file_obj.close()
 
     def run(self) -> None:
         if self._script_start_monotonic is None:
@@ -13602,6 +13647,10 @@ class CoverageStudioUltraApp:
 
 
 def main() -> None:
+    if "--explorar" in sys.argv:
+        from pipeline_explorer import main as explorer_main
+        explorer_main([arg for arg in sys.argv[1:] if arg != "--explorar"])
+        return
     app = CoverageStudioUltraApp()
     start_mono = time.monotonic()
     try:
