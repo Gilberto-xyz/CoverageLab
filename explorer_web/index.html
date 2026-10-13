@@ -20,6 +20,8 @@
         <div class="eyebrow">ORIGEN DE LOS DATOS</div>
         <label for="file">Archivo Excel</label>
         <div class="file-picker"><select id="file"><option value="">Buscando archivos…</option></select><button id="refresh-files" class="icon-button" title="Actualizar archivos" aria-label="Actualizar archivos">↻</button></div>
+        <button id="browse-files" class="text-button browse-files">Ver archivos y sus detalles ↗</button>
+        <div id="file-detail" class="file-detail" aria-live="polite"></div>
         <label for="template">Template de salida</label>
         <select id="template">
           <option value="Absoluta">Cobertura absoluta</option><option value="relativa">Cobertura relativa</option>
@@ -51,6 +53,7 @@
       </section>
       <section id="workspace" hidden>
         <div class="workspace-heading"><div><div id="context" class="eyebrow"></div><h1 id="brand-title"></h1><p id="sheet-subtitle"></p></div><span id="included-count" class="pill"></span></div>
+        <div id="sheet-facts" class="sheet-facts"></div>
         <div id="warnings" class="warnings" hidden></div>
         <div id="sheet-error" class="sheet-error" hidden></div>
         <div id="sheet-content">
@@ -59,7 +62,7 @@
             <div class="recommendation"><span class="recommendation-symbol">✦</span><div><strong id="recommendation-title"></strong><p id="recommendation-reason"></p></div><button id="use-recommended" class="button subtle">Usar recomendado</button></div>
           </section>
           <section class="chart-card">
-            <div class="chart-heading"><div><h2 id="chart-title">Tendencia de volumen</h2><p id="chart-description"></p></div><div class="chart-controls"><label for="metric" class="sr-only">Serie del gráfico</label><select id="metric"><option value="monthly">Volumen mensual</option><option value="mat">Volumen MAT</option><option value="coverage">Cobertura MAT</option></select><label for="window" class="sr-only">Periodo visible</label><select id="window"><option value="12">Últimos 12 meses</option><option value="24" selected>Últimos 24 meses</option><option value="all">Toda la historia</option></select></div></div>
+            <div class="chart-heading"><div><h2 id="chart-title">Tendencia de volumen</h2><p id="chart-description"></p></div><div class="chart-controls"><label for="metric" class="sr-only">Serie del gráfico</label><select id="metric"><optgroup label="Volumen y cobertura"><option value="monthly">Volumen mensual</option><option value="mat">Volumen MAT</option><option value="coverage">Cobertura MAT</option><option value="yoy">Variación interanual MAT</option></optgroup><optgroup label="Indicadores de compra"><option value="penetration">Penetración mensual</option><option value="buyers_series">Compradores</option><option value="purchase_average">Compra media</option><option value="purchase_occasion">Compra por ocasión</option><option value="frequency">Frecuencia</option></optgroup></select><label for="window" class="sr-only">Periodo visible</label><select id="window"><option value="12">Últimos 12 meses</option><option value="24" selected>Últimos 24 meses</option><option value="all">Toda la historia</option></select></div></div>
             <div class="comparison-controls"><label for="compare">Comparar con</label><select id="compare"><option value="">Sin comparación</option></select><label class="original-control"><input id="original" type="checkbox" checked><span id="original-label">Mostrar Sell-in original (P0)</span></label><span id="unit-label"></span></div>
             <div class="visual-controls" role="group" aria-label="Presentación del gráfico">
               <label><input id="data-labels" type="checkbox"> Etiquetas de datos</label>
@@ -78,6 +81,18 @@
             <article><span>Variación MAT Sell-in</span><strong id="metric-var"></strong><small id="metric-var-note"></small></article>
             <article><span>Gap de variación</span><strong id="metric-gap"></strong><small>Diferencia absoluta frente a Worldpanel</small></article>
           </section>
+          <section class="template-card">
+            <div class="table-heading"><div><div class="eyebrow">EXPLORACIÓN DE DATOS</div><h2>Datos del template Excel</h2><p id="template-reference" class="section-description"></p></div><span class="pill" id="template-pipeline"></span></div>
+            <div id="purchase-metrics" class="purchase-metrics"></div>
+            <div class="template-toolbar">
+              <label for="template-view">Ver</label><select id="template-view"><option value="monthly">Serie mensual</option><option value="variations">Variaciones por período</option><option value="correlations">Correlaciones MAT</option><option value="averages">Promedios MAT</option></select>
+              <label id="table-columns-label" for="table-columns">Columnas</label><select id="table-columns"><option value="volume">Volumen y cobertura</option><option value="shopping">Hábitos de compra</option><option value="all">Todos los datos</option></select>
+              <label id="inspect-month-label" for="inspect-month">Detalle de mes</label><select id="inspect-month"></select>
+            </div>
+            <div id="monthly-inspector" class="monthly-inspector"></div>
+            <div class="table-scroll template-scroll"><table id="template-table"><caption class="sr-only">Datos y cálculos del template para la hoja seleccionada</caption><thead id="template-head"></thead><tbody id="template-body"></tbody></table></div>
+            <p id="template-note" class="table-note"></p>
+          </section>
           <section class="table-card"><div class="table-heading"><h2>Todos los pipelines, lado a lado</h2><span>Selecciona una fila para elegir</span></div><div class="table-scroll"><table><thead><tr><th>Pipeline</th><th>Correlación MAT</th><th>Cobertura actual</th><th>VAR % Sell-in</th><th>Gap (pp)</th><th>Estabilidad (pp)</th><th>Referencia</th></tr></thead><tbody id="pipeline-table"></tbody></table></div><p class="table-note">— indica historia insuficiente o una base no calculable. La recomendación automática compara P1–P6; P0 queda disponible como referencia.</p></section>
         </div>
         <section class="export-bar"><div><strong id="export-summary"></strong><p>La elección por hoja se aplicará al PPT, al banco y a los gráficos del Excel.</p></div><div class="export-actions"><button id="save" class="button secondary">Guardar selección</button><button id="export" class="button primary">Revisar y generar →</button></div></section>
@@ -86,5 +101,6 @@
     </main>
   </div>
   <dialog id="export-dialog"><div class="dialog-heading"><div class="eyebrow">REVISIÓN FINAL</div><h2>Generar con tu selección</h2><p id="dialog-file"></p></div><div id="dialog-selection" class="dialog-selection"></div><p>Se creará una carpeta nueva en <strong>outputs/pipeline_explorer</strong> con el Excel, el PPT, el banco, el reporte de pipelines y la configuración utilizada.</p><div class="dialog-actions"><button id="cancel-export" class="button secondary">Volver a explorar</button><button id="confirm-export" class="button primary">Generar entregables</button></div></dialog>
+  <dialog id="file-dialog" class="file-dialog" aria-labelledby="file-dialog-title"><div class="file-dialog-heading"><div><div class="eyebrow">ARCHIVOS DEL PROYECTO</div><h2 id="file-dialog-title">Elige por país, categoría y fabricante</h2><p>Los códigos se traducen con el catálogo de CoverageLab.</p></div><button id="close-files" class="icon-button" aria-label="Cerrar selector de archivos">×</button></div><div class="catalog-filters"><input id="file-search" type="search" placeholder="Buscar fabricante, país, categoría o archivo…" aria-label="Buscar archivos"><label for="file-country" class="sr-only">Filtrar país</label><select id="file-country"><option value="">Todos los países</option></select><label for="file-category" class="sr-only">Filtrar categoría</label><select id="file-category"><option value="">Todas las categorías</option></select></div><p id="catalog-count" class="section-description" aria-live="polite"></p><div id="file-cards" class="file-cards"></div></dialog>
 </body>
 </html>

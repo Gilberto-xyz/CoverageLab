@@ -45,7 +45,7 @@ class PipelineExplorerTests(unittest.TestCase):
             for index in range(months):
                 date = self.core.pd.Timestamp(2023, 1, 1) + self.core.pd.DateOffset(months=index)
                 volume = 1200 + index * 17 + 180 * math.sin(index * .7)
-                sheet.append([date.to_pydatetime(), volume, 20 + index * .25, 6, 2, 3, 900, volume * 1.7 + math.cos(index) * 75])
+                sheet.append([date.to_pydatetime(), volume, 20 + index * .25, 6 + index * .1, 2 + index * .03, 3 + index * .02, 900 + index * 7, volume * 1.7 + math.cos(index) * 75])
         workbook.create_sheet("Sin datos").append(["vacío"])
         workbook.save(self.source)
 
@@ -86,6 +86,56 @@ class PipelineExplorerTests(unittest.TestCase):
         self.assertEqual(colors["worldpanel"], self.core.COLOR_SELLOUT_TREND_LINE)
         self.assertEqual(colors["coverage"], self.core.COLOR_COBERTURA_BAR)
         self.assertEqual(colors["penetration"], self.core.COLOR_PENETRACION_BAR)
+
+    def test_file_catalog_decodes_names_and_retains_invalid_files(self):
+        invalid = self.root / "Archivo sin códigos.xlsx"
+        shutil.copy2(self.source, invalid)
+        entries = {entry["name"]: entry for entry in self.state.file_catalog()}
+        valid = entries[self.source.name]
+        self.assertEqual(valid["country"], "Mexico")
+        self.assertEqual(valid["country_code"], "52")
+        self.assertEqual(valid["category_code"], "CARB")
+        self.assertEqual(valid["manufacturer"], "Explorador")
+        self.assertTrue(valid["category"])
+        self.assertEqual(valid["size"], self.source.stat().st_size)
+        self.assertIsNotNone(entries[invalid.name]["error"])
+        multi = self.root / "55_MULT_Unilever.xlsx"
+        shutil.copy2(self.source, multi)
+        catalog = {entry["name"]: entry for entry in self.state.file_catalog()}
+        self.assertTrue(catalog[multi.name]["per_sheet"])
+        self.assertEqual(catalog[multi.name]["country"], "Brasil")
+
+    def test_template_details_match_excel_windows_and_monthly_indicators(self):
+        sheet = self.analyze()["sheets"][0]
+        self.assertAlmostEqual(sheet["purchase_average"][-1], 9.5)
+        self.assertAlmostEqual(sheet["purchase_occasion"][-1], 3.05)
+        self.assertAlmostEqual(sheet["frequency"][-1], 3.7)
+        self.assertEqual(sheet["buyers_series"][-1], 1145)
+        averages = sheet["template"]["averages"]
+        self.assertEqual(averages["Penet_MAT_Actual"], sum(sheet["penetration"][-12:]) / 12)
+        self.assertEqual(averages["Buyers_MAT_Anterior"], sum(sheet["buyers_series"][-24:-12]) / 12)
+        rows = sheet["template"]["variations"]
+        sell_in = sheet["sell_in"]
+        expected = (sum(sell_in[-9:-3]) / sum(sell_in[-15:-9]) - 1) * 100
+        self.assertAlmostEqual(rows[1]["pipelines"][3], expected)
+        same_period = (sum(sell_in[-9:-3]) / sum(sell_in[-21:-15]) - 1) * 100
+        self.assertAlmostEqual(rows[3]["pipelines"][3], same_period)
+        self.assertEqual(rows[3]["pipeline_periods"][3]["current"], [sheet["dates"][-9], sheet["dates"][-4]])
+        self.assertIsNone(rows[5]["pipelines"][3])
+        self.assertIsNotNone(sheet["template"]["correlations"][0]["pipelines"][3])
+        self.assertIsNone(sheet["template"]["correlations"][2]["pipelines"][3])
+        self.assertEqual(sheet["pipelines"][3]["yoy"][:26], [None] * 26)
+        self.assertAlmostEqual(sheet["wp_yoy"][-1], (sum(sheet["sell_out"][-12:]) / sum(sheet["sell_out"][-24:-12]) - 1) * 100)
+
+    def test_template_variations_keep_excel_zero_exclusions(self):
+        with self.core.pd.ExcelFile(self.source) as workbook:
+            df, _ = self.core.load_and_preprocess_sheet(workbook, "P1_Cola")
+        df.loc[df.index[-2], self.core.COL_SELL_IN] = 0
+        details = explorer.template_details(df, self.core)
+        self.assertIsNone(details["variations"][0]["pipelines"][0])
+        self.assertIsNotNone(details["variations"][0]["pipelines"][3])
+        self.assertIsNotNone(details["variations"][0]["worldpanel"])
+        json.dumps(details, allow_nan=False)
 
     def test_manual_p0_has_diagnostics_without_changing_auto_candidates(self):
         analysis = self.analyze()
@@ -138,11 +188,13 @@ class PipelineExplorerTests(unittest.TestCase):
         self.assertIsNone(second["saved_selection"])
 
     def test_http_api_requires_local_session_and_origin(self):
-        server = explorer.ThreadingHTTPServer(("127.0.0.1", 0), explorer.make_handler(self.state))
+        server = explorer.ExplorerHTTPServer(("127.0.0.1", 0), explorer.make_handler(self.state))
         thread = threading.Thread(target=server.serve_forever, daemon=True)
         thread.start()
         base = f"http://127.0.0.1:{server.server_port}"
         try:
+            with self.assertRaises(OSError):
+                explorer.ExplorerHTTPServer(("127.0.0.1", server.server_port), explorer.make_handler(self.state))
             with urllib.request.urlopen(base + "/") as response:
                 self.assertIn(self.state.token, response.read().decode())
             for headers in ({}, {"X-Explorer-Token": self.state.token, "Origin": "https://example.com"},

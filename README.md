@@ -99,6 +99,10 @@ python pipeline_explorer.py --port 8766
 ```
 
 1. Selecciona un Excel y el template de salida; pulsa **Cargar y explorar**.
+   El selector traduce los códigos a país, categoría y fabricante. **Ver archivos
+   y sus detalles** abre tarjetas con búsqueda y filtros por país/categoría.
+   La ficha conserva el nombre original, códigos, cesta, tamaño y fecha de modificación.
+   En archivos MULT la categoría se resuelve por hoja al cargar.
 2. Selecciona una hoja y revisa P0–P6. Puedes comparar dos pipelines, mostrar
    Sell-in original, cambiar entre volumen mensual, volumen MAT y cobertura MAT,
    y ver toda la historia o los últimos 12/24 meses.
@@ -111,6 +115,8 @@ python pipeline_explorer.py --port 8766
    y no cambia al desplazar Sell-in. El resumen compara cobertura, correlación
    MAT y estabilidad; evalúalos junto con el gap para decidir el ajuste.
    Estas preferencias visuales se recuerdan en el navegador y afectan la vista local.
+   El gráfico también muestra penetración, compradores, compra media, compra por
+   ocasión, frecuencia y evolución de variaciones interanuales MAT.
 3. Consulta correlación MAT, cobertura, variaciones, gap y estabilidad. AUTO
    Balanceado y AUTO Correlación se muestran como referencias; P0 se permite
    como elección manual, aunque la recomendación automática compara P1–P6.
@@ -119,6 +125,16 @@ python pipeline_explorer.py --port 8766
 5. **Guardar selección** permite recuperar las elecciones para la misma versión
    del Excel. **Revisar y generar** muestra la selección antes de iniciar.
 6. Descarga los entregables desde la pantalla o abre la carpeta de la ejecución.
+
+**Datos del template Excel** permite consultar la serie mensual (volumen/cobertura,
+hábitos de compra o todas las columnas), seleccionar un mes para ver su detalle,
+y revisar variaciones por período, correlaciones MAT y promedios. Las tablas se
+actualizan al cambiar de hoja o pipeline; la tabla mensual sigue el período visible
+del gráfico. Los períodos de variación muestran sus fechas al pasar sobre una celda.
+Los promedios MAT son promedios de los últimos 12 meses: los compradores no se suman
+y la penetración media mensual no se interpreta como penetración anual única.
+Las variaciones del template conservan su regla de omitir ventanas con ceros;
+la evolución YoY MAT conserva la protección de denominador cero del Excel.
 
 La selección se aplica al PPT, al summary, al banco y a los gráficos del Excel;
 el template conserva las columnas P0–P6 para análisis posterior. Se genera también

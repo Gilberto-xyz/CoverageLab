@@ -16,7 +16,7 @@ import subprocess
 import sys
 import threading
 from dataclasses import asdict
-from datetime import datetime
+from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, quote, urlsplit
 import webbrowser
@@ -24,6 +24,11 @@ import webbrowser
 ROOT = Path(__file__).resolve().parent
 ASSETS = ROOT / "explorer_web"
 TEMPLATES = {"Absoluta", "relativa", "3", "4", "5", "6", "7", "8"}
+
+
+class ExplorerHTTPServer(ThreadingHTTPServer):
+    # En Windows HTTPServer permite dos listeners en el mismo puerto si se reutiliza.
+    allow_reuse_address = False
 
 
 def engine():
@@ -45,6 +50,12 @@ def finite(value):
 def fingerprint(path):
     with path.open("rb") as source:
         return hashlib.file_digest(source, "sha256").hexdigest()
+
+
+def evolution_variation(series):
+    previous = series.shift(12)
+    # Las columnas de evolución del template usan 1 si la suma anterior es cero.
+    return [finite(value) for value in (series / previous.where(previous != 0, 1) - 1) * 100]
 
 
 def options_from_request(payload):
@@ -85,13 +96,64 @@ def monthly_problem(df, core):
     return None
 
 
+def template_details(df, core):
+    """Valores de las tablas del template, con las mismas ventanas y reglas de ceros."""
+    specs = [
+        ("MAT vs. MAT anterior", 12, 12, 0),
+        ("Semestre vs. semestre anterior", 6, 6, 0),
+        ("Trimestre vs. trimestre anterior", 3, 3, 0),
+        ("Semestre vs. mismo semestre del año anterior", 6, 12, 0),
+        ("Trimestre vs. mismo trimestre del año anterior", 3, 12, 0),
+        ("MAT vs. hace dos años", 12, 24, 0),
+        ("Semestre vs. hace dos años", 6, 24, 0),
+        ("Trimestre vs. hace dos años", 3, 24, 0),
+        ("MAT del año anterior vs. su año anterior", 12, 12, 12),
+    ]
+    dates = [date.isoformat() for date in df[core.COL_DATA]]
+    n = len(df)
+
+    def period(window, lag, offset, pipeline):
+        end = n - offset - pipeline
+        start = end - window
+        prev_end = end - lag
+        prev_start = prev_end - window
+        if prev_start < 0:
+            return None
+        return {"current": [dates[start], dates[end - 1]],
+                "previous": [dates[prev_start], dates[prev_end - 1]]}
+
+    def variation(column, window, lag, offset=0, pipeline=0):
+        end = n - offset - pipeline
+        start = end - window
+        prev_end = end - lag
+        prev_start = prev_end - window
+        if prev_start < 0:
+            return None
+        current, previous = df[column].iloc[start:end], df[column].iloc[prev_start:prev_end]
+        if current.isna().any() or previous.isna().any() or current.eq(0).any() or previous.eq(0).any() or previous.sum() == 0:
+            return None
+        return finite((current.sum() / previous.sum() - 1) * 100)
+
+    return {
+        "averages": {key: finite(value) for key, value in core.compute_averages(df).items()},
+        "variations": [{"label": label, "worldpanel": variation(core.COL_SELL_OUT, window, lag, offset),
+                        "pipelines": [variation(core.COL_SELL_IN, window, lag, offset, p) for p in range(7)],
+                        "wp_period": period(window, lag, offset, 0),
+                        "pipeline_periods": [period(window, lag, offset, p) for p in range(7)]}
+                       for label, window, lag, offset in specs],
+        "correlations": [{"label": label, "pipelines": [finite(core.compute_pipeline_mat_correlation(df, p, window, offset)) for p in range(7)]}
+                         for label, window, offset in [("Año actual · 12 meses", 12, 0), ("Año anterior · 12 meses", 12, 12), ("Últimos 24 meses", 24, 0)]],
+    }
+
+
 def analyze_workbook(path, options):
     core = engine()
     categories = core.load_categories()
     country, basket, category, short_category, manufacturer = core.parse_file_metadata(path.name, categories)
-    _, category_code, _ = core.parse_input_filename_parts(path.name)
+    country_code, category_code, _ = core.parse_input_filename_parts(path.name)
     result = {"file": path.name, "fingerprint": fingerprint(path), "country": country,
               "category": category, "manufacturer": manufacturer,
+              "country_code": country_code, "category_code": category_code, "basket": basket,
               "options": serialize_options(options), "sheets": [],
               "chart_colors": {
                   "worldpanel": core.COLOR_SELLOUT_TREND_LINE,
@@ -153,12 +215,19 @@ def analyze_workbook(path, options):
             sheet.update(dates=dates, sell_in=[finite(v) for v in df[core.COL_SELL_IN]],
                          sell_out=[finite(v) for v in df[core.COL_SELL_OUT]],
                          penetration=[finite(v) for v in df[core.COL_PENET]],
+                         purchase_average=[finite(v) for v in df[core.COL_COMPRA_MEDIA]],
+                         purchase_occasion=[finite(v) for v in df[core.COL_COMPRA_OCA]],
+                         frequency=[finite(v) for v in df[core.COL_FREQ]],
+                         buyers_series=[finite(v) for v in df[core.COL_BUYERS]],
+                         template=template_details(df, core),
                          wp_mat=[finite(v) for v in wp_mat], pipelines=[],
+                         wp_yoy=evolution_variation(wp_mat),
                          recommended=recommendation.pipeline, reason=recommendation.reason,
                          correlation_pipeline=by_corr.pipeline, forced=forced)
             candidates = {candidate.pipeline: candidate for candidate in recommendation.candidates}
             for pipeline in range(7):
                 shifted = df[core.COL_SELL_IN].shift(pipeline)
+                shifted_mat = shifted.rolling(12, min_periods=12).sum()
                 candidate = candidates.get(pipeline)
                 client_var = finite(annual.get(f"Cliente P{pipeline}"))
                 cov = coverage[f"P{pipeline}"]
@@ -175,7 +244,8 @@ def analyze_workbook(path, options):
                     "stability": current_cov - prev_cov if current_cov is not None and prev_cov is not None else None,
                     "outlier": candidate.recent_shipment_outlier if candidate else False,
                     "sell_in": [finite(v) for v in shifted],
-                    "sell_in_mat": [finite(v) for v in shifted.rolling(12, min_periods=12).sum()],
+                    "sell_in_mat": [finite(v) for v in shifted_mat],
+                    "yoy": evolution_variation(shifted_mat),
                     "coverage_series": [finite(v) for v in cov],
                 })
             available = [p["pipeline"] for p in sheet["pipelines"] if p["available"]]
@@ -206,6 +276,28 @@ class ExplorerState:
     def files(self):
         return sorted(path.name for path in self.root.glob("*.xlsx")
                       if not path.name.startswith("~$") and path.name != "file_temp_coverage.xlsx")
+
+    def file_catalog(self):
+        with self.analysis_lock, contextlib.redirect_stdout(io.StringIO()):
+            core = engine()
+            categories = core.load_categories()
+            details = []
+            for name in self.files():
+                entry = {"name": name, "error": None}
+                try:
+                    path = self.source(name)
+                    country, basket, category, short, manufacturer = core.parse_file_metadata(name, categories)
+                    country_code, category_code, _ = core.parse_input_filename_parts(name)
+                    info = path.stat()
+                    entry.update(country=country, country_code=country_code, basket=basket,
+                                 category=category, short_category=short, category_code=category_code,
+                                 manufacturer=manufacturer, descriptor=core.extract_input_filename_descriptor(name),
+                                 per_sheet=core._requires_metadata_category_resolution(category_code),
+                                 size=info.st_size, modified=datetime.fromtimestamp(info.st_mtime, timezone.utc).isoformat())
+                except (ValueError, OSError) as error:
+                    entry["error"] = str(error)
+                details.append(entry)
+            return details
 
     def source(self, name):
         if not isinstance(name, str) or name not in self.files():
@@ -400,7 +492,7 @@ def make_handler(state):
                     file = ASSETS / path[1:]
                     self.send_bytes(file.read_bytes(), mimetypes.guess_type(str(file))[0] + "; charset=utf-8")
                 elif path == "/api/files":
-                    self.send_json({"files": state.files()})
+                    self.send_json({"files": state.files(), "details": state.file_catalog()})
                 elif path == "/api/job":
                     self.send_json(state.job(parse_qs(urlsplit(self.path).query).get("id", [""])[0]))
                 elif path == "/api/jobs":
@@ -465,7 +557,7 @@ def main(argv=None):
         parser.error("El puerto debe estar entre 0 y 65535.")
     state = ExplorerState()
     try:
-        server = ThreadingHTTPServer(("127.0.0.1", args.port), make_handler(state))
+        server = ExplorerHTTPServer(("127.0.0.1", args.port), make_handler(state))
     except OSError as exc:
         parser.error(f"No se pudo abrir el puerto {args.port}: {exc}. Prueba --port 8766.")
     url = f"http://127.0.0.1:{server.server_port}/"
