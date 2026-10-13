@@ -10,6 +10,31 @@ window.CoverageDashboard = (() => {
   const valid = v => v != null && Number.isFinite(v);
   const signed = v => v == null ? '—' : (v > 0 ? '+' : '') + fmt(v, 1, '%');
 
+  // Recorta extremos sin base común y conserva los huecos del calendario interior.
+  function chartData(model, window = 'all') {
+    const n=model.dates.length, start=model.annual || window==='all' ? 0 : Math.max(0,n-Number(window));
+    const complete=model.dates.map((_,i)=>model.series.length>0 && model.series.every(s=>valid(s.values[i])));
+    const first=complete.findIndex((value,i)=>i>=start && value);
+    const end=first<0 ? 0 : complete.findLastIndex(value=>value)+1;
+    const begin=first<0 ? 0 : first;
+    return {...model,dates:model.dates.slice(begin,end),series:model.series.map(s=>({...s,
+      values:s.values.slice(begin,end).map((value,i)=>complete[begin+i] ? value : null),
+      ...(s.yoy ? {yoy:s.yoy.slice(begin,end)} : {})}))};
+  }
+  function kpiDigits(kpi, value) {
+    return kpi.key==='buyers_series' ? 0 : ['purchase_average','purchase_occasion'].includes(kpi.key) && valid(value) && Math.abs(value)>0 && Math.abs(value)<.1 ? 4 : 2;
+  }
+  function kpiAverages(container, kpi) {
+    const suffix=kpi.key==='penetration' ? '%' : '';
+    const summary=node('dl',null,'kpi-averages');
+    for(const [label,value,count,start] of [['Promedio 12 meses',kpi.average,kpi.recent_count,kpi.recent_start],['Promedio total',kpi.total_average,kpi.total_count,kpi.history_start]]) {
+      const entry=node('div');entry.append(node('dt',label),node('dd',fmt(value,kpiDigits(kpi,value),suffix)));
+      entry.title=`${month(start)} – ${month(kpi.end)} · ${count} mes(es) con datos`;summary.append(entry);
+    }
+    container.append(summary);
+    container.append(node('p',`Promedios mensuales · 12 meses: ${kpi.recent_count} datos · Total: ${kpi.total_count} datos hasta ${month(kpi.end)}`,'kpi-average-note'));
+  }
+
   function axisScale(values, topPadding = .18, bottomPadding = .08) {
     const numbers = values.filter(valid);
     const min = Math.min(0,...numbers), max = Math.max(0,...numbers);
@@ -46,7 +71,7 @@ window.CoverageDashboard = (() => {
       base('mat','Tendencia de volumen MAT',[si(p.sell_in_mat),wp(sheet.wp_mat)],`${sheet.unit} · Sumas móviles de 12 meses`),
       base('yoy','Evolución y variación interanual MAT',[si(p.yoy),wp(sheet.wp_yoy)],'Variación de volúmenes MAT vs. los 12 meses anteriores',true),
     ];
-    for (const kpi of sheet.dashboard.kpis) result.push(base(kpi.key,kpi.label,[{name:kpi.label,values:sheet[kpi.key],color:kpi.color,kind:'line',digits:kpi.key === 'buyers_series' ? 0 : 2}], 'Serie mensual original · Mismo color del Excel', kpi.key === 'penetration'));
+    for (const kpi of sheet.dashboard.kpis) result.push({...base(kpi.key,kpi.label,[{name:kpi.label,values:sheet[kpi.key],color:kpi.color,kind:'line',digits:kpi.key === 'buyers_series' ? 0 : 2}], 'Serie mensual original · Mismo color del Excel', kpi.key === 'penetration'),kpi});
     const periods = sheet.dashboard.mat_periods;
     result.push({key:'annual_mat',title:'Volumen MAT, YoY y cobertura por año',dates:periods.map(row => row.date),annual:true,
       description:'Mismo mes de corte en cada año · Barras de volumen, etiquetas YoY y cobertura en eje derecho',
@@ -58,8 +83,11 @@ window.CoverageDashboard = (() => {
 
   function plot(container, model, options, expanded = false) {
     container.replaceChildren();
+    model=chartData(model,options.window);
+    if(model.kpi)kpiAverages(container,model.kpi);
+    const period=node('p',model.dates.length ? `${month(model.dates[0])} – ${month(model.dates.at(-1))} · Datos disponibles en todas las series` : 'Sin período compartido con datos','chart-period');container.append(period);
     const n = model.dates.length;
-    const first = model.annual || options.window === 'all' ? 0 : Math.max(0,n - Number(options.window));
+    const first = 0;
     const baseWidth = expanded ? 900 : 540;
     const width = options.labels && options.scope === 'all' ? Math.max(baseWidth,(n-first)*58) : baseWidth;
     const graph = svg('svg',{viewBox:`0 0 ${width} 300`,role:'img',tabindex:0,'aria-label':model.title});
@@ -69,7 +97,7 @@ window.CoverageDashboard = (() => {
     const tooltip = node('p',null,'dashboard-tooltip'); container.append(tooltip);
     const legend = node('div',null,'dashboard-legend');
     model.series.forEach(series => { const text = node('span',series.name); text.style.setProperty('--series-color',series.color); legend.append(text); }); container.append(legend);
-    if (!n) { graph.append(svg('text',{x:width/2,y:130,'text-anchor':'middle',fill:'#637888','font-size':14},'Sin 12 meses completos para comparar cortes MAT')); tooltip.textContent='Las bases insuficientes se muestran como —.'; return; }
+    if (!n) { graph.append(svg('text',{x:width/2,y:130,'text-anchor':'middle',fill:'#637888','font-size':14},'Sin base común en el período elegido')); tooltip.textContent='Las bases insuficientes se muestran como —.'; return; }
     const dual = model.series.some(s=>s.axis === 'right');
     const left = 59, right = width - (dual ? 69 : 25), top = 38, bottom = 248;
     const x = i => left + (i-first+.5) / Math.max(1,n-first)*(right-left);
@@ -165,5 +193,5 @@ window.CoverageDashboard = (() => {
     });
     return figures.length;
   }
-  return {render,plot,axisScale,axisTick,correlationStyle};
+  return {render,plot,axisScale,axisTick,correlationStyle,chartData,kpiAverages,kpiDigits};
 })();

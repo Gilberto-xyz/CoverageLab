@@ -172,6 +172,12 @@ class PipelineExplorerTests(unittest.TestCase):
         recent = sheet["purchase_average"][-12:]
         average = sum(recent) / 12
         self.assertAlmostEqual(kpi["average"], average)
+        self.assertAlmostEqual(kpi["total_average"], sum(sheet["purchase_average"]) / len(sheet["dates"]))
+        self.assertEqual(kpi["recent_count"], 12)
+        self.assertEqual(kpi["total_count"], len(sheet["dates"]))
+        self.assertEqual(kpi["recent_start"], sheet["dates"][-12])
+        self.assertEqual(kpi["history_start"], sheet["dates"][0])
+        self.assertEqual(kpi["end"], sheet["dates"][-1])
         self.assertAlmostEqual(kpi["change"], recent[-1] / average - 1)
         self.assertAlmostEqual(kpi["range"], (max(recent) - min(recent)) / abs(average))
         self.assertEqual(kpi["color"], self.core.EXCEL_DASHBOARD_KPI_COLORS[self.core.COL_COMPRA_MEDIA])
@@ -185,6 +191,55 @@ class PipelineExplorerTests(unittest.TestCase):
         self.assertTrue(buyers["review"])
         self.assertEqual(buyers["change"], 0)
         self.assertEqual(buyers["range"], 0)
+
+    def test_kpi_averages_count_zero_and_exclude_missing_values(self):
+        sheet = self.analyze()["sheets"][0]
+        with self.core.pd.ExcelFile(self.source) as workbook:
+            df, _ = self.core.load_and_preprocess_sheet(workbook, "P1_Cola")
+        df = df.tail(12).copy()
+        df[self.core.COL_COMPRA_MEDIA] = [None, 0] + [0.02] * 10
+        kpi = explorer.dashboard_details(df, self.core, sheet["pipelines"])["kpis"][0]
+        self.assertEqual(kpi["recent_count"], 11)
+        self.assertEqual(kpi["total_count"], 11)
+        self.assertAlmostEqual(kpi["average"], 0.2 / 11)
+        self.assertAlmostEqual(kpi["total_average"], 0.2 / 11)
+        df[self.core.COL_COMPRA_MEDIA] = float('nan')
+        kpi = explorer.dashboard_details(df, self.core, sheet["pipelines"])["kpis"][0]
+        self.assertIsNone(kpi["average"])
+        self.assertIsNone(kpi["total_average"])
+        self.assertEqual(kpi["total_count"], 0)
+        self.assertTrue(kpi["review"])
+
+    def test_web_charts_use_shared_period_without_compressing_gaps(self):
+        node = shutil.which("node")
+        if not node:
+            self.skipTest("Node no está instalado; las ventanas se validan en el navegador.")
+        script = r'''
+const fs=require('node:fs'),vm=require('node:vm'),assert=require('node:assert/strict');
+const context={window:{}};vm.createContext(context);
+vm.runInContext(fs.readFileSync('explorer_web/dashboard.js','utf8'),context);
+const api=context.window.CoverageDashboard;
+const dates=Array.from({length:32},(_,i)=>new Date(Date.UTC(2024,i,1)).toISOString().slice(0,10));
+const series=(first,value=1)=>dates.map((_,i)=>i<first ? null : value);
+const coverage={dates,series:[{values:series(12)},{values:series(0,5.3)}]};
+assert.equal(api.chartData(coverage).dates[0],'2025-01-01');
+const yoy={dates,series:[{values:series(23)},{values:series(23,-19)}]};
+assert.equal(api.chartData(yoy).dates[0],'2025-12-01');
+const shifted={dates,series:[{values:series(26)},{values:series(23)}]};
+assert.equal(api.chartData(shifted).dates[0],'2026-03-01');
+assert.equal(api.chartData(coverage,'12').dates[0],'2025-09-01');
+const gap={dates:dates.slice(0,6),series:[{values:[null,0,1,null,2,null],yoy:[0,1,2,3,4,5]},{values:[3,4,5,6,7,8]}]};
+const view=api.chartData(gap);
+assert.equal(view.dates.length,4);assert.equal(view.dates[0],dates[1]);
+assert.equal(view.series[0].values[0],0,'Cero es un dato válido');
+assert.equal(view.series[1].values[2],null,'Los huecos deben cortar ambas curvas');
+assert.equal(view.series[0].yoy[3],4,'Las etiquetas anuales conservan su fecha');
+assert.equal(gap.series[1].values[3],6,'No modificar el análisis original');
+assert.equal(api.chartData({dates,series:[{values:series(32)}]}).dates.length,0);
+assert.equal(api.chartData({dates,series:[]}).dates.length,0);
+assert.equal(api.kpiDigits({key:'purchase_average'},.054375),4);
+'''
+        subprocess.run([node, "-e", script], cwd=explorer.ROOT, check=True, capture_output=True, text=True)
 
     def test_preview_table_palette_matches_excel_constants(self):
         colors = self.analyze()["table_colors"]

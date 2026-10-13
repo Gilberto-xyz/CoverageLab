@@ -264,15 +264,17 @@ function renderTemplate() {
   $('template-reference').textContent = `Corte ${month(sheet.dates.at(-1))} · ${sheet.months} meses · Selecciona un indicador para verlo en el gráfico.`;
   $('template-pipeline').textContent = `Sell-in P${selected}`;
   const cards = [
-    ['penetration', 'Penetración media MAT', averages.Penet_MAT_Actual, `MAT anterior: ${fmt(averages.Penet_MAT_Anterior, 1, '%')}`, '%', 1],
-    ['buyers_series', 'Compradores promedio MAT', averages.Buyers_MAT_Actual, `MAT anterior: ${fmt(averages.Buyers_MAT_Anterior, 0)}${averages.Buyers_MAT_Actual < 200 ? ' · Base baja' : ''}`, '', 0],
+    ['penetration', 'Penetración · último mes', sheet.penetration.at(-1), `MAT anterior: ${fmt(averages.Penet_MAT_Anterior, 1, '%')}`, '%', 1],
+    ['buyers_series', 'Compradores · último mes', sheet.buyers_series.at(-1), `MAT anterior: ${fmt(averages.Buyers_MAT_Anterior, 0)}${averages.Buyers_MAT_Actual < 200 ? ' · Base baja' : ''}`, '', 0],
     ['purchase_average', 'Compra media · último mes', sheet.purchase_average.at(-1), `${sheet.unit} por comprador`, '', 2],
     ['purchase_occasion', 'Compra por ocasión · último mes', sheet.purchase_occasion.at(-1), `${sheet.unit} por ocasión`, '', 2],
-    ['frequency', 'Frecuencia · último mes', sheet.frequency.at(-1), `Promedio 12 meses: ${fmt(averages.Freq_MAT_Actual, 2)}`, '', 2],
+    ['frequency', 'Frecuencia · último mes', sheet.frequency.at(-1), 'Ocasiones por comprador', '', 2],
   ];
   $('purchase-metrics').replaceChildren(...cards.map(([key, label, value, note, suffix, digits]) => {
     const card = item('button', null, 'purchase-card');
-    card.append(item('span', label), item('strong', fmt(value, digits, suffix)), item('small', note), item('span', 'Ver tendencia ↗', 'metric-action'));
+    card.append(item('span', label), item('strong', fmt(value, digits, suffix)), item('small', note));
+    CoverageDashboard.kpiAverages(card,sheet.dashboard.kpis.find(kpi=>kpi.key===key));
+    card.append(item('span', 'Ver tendencia ↗', 'metric-action'));
     card.addEventListener('click', () => { $('metric').value = key; drawChart(); $('chart-title').scrollIntoView({block:'start'}); }); return card;
   }));
   const inspect = $('inspect-month').value;
@@ -314,7 +316,7 @@ function renderTemplate() {
     const i = sheet.dates.indexOf($('inspect-month').value);
     const source = i - selected;
     $('monthly-inspector').replaceChildren(fact('Mes observado', month(sheet.dates[i])), fact('Worldpanel', fmt(sheet.sell_out[i])), fact(`Sell-in P${selected}`, fmt(pipeline.sell_in[i])), fact('Mes de origen Sell-in', source >= 0 ? month(sheet.dates[source]) : 'Sin historia'), fact('Penetración', fmt(sheet.penetration[i], 1, '%')), fact('Compradores', fmt(sheet.buyers_series[i], 0)));
-    $('template-note').textContent = `La tabla sigue el período visible del gráfico. Volumen: ${sheet.unit}. Haz clic en un mes para ver su detalle. Los hábitos de compra conservan el mes del Excel. Los YoY MAT siguen las columnas de evolución del template (denominador 1 si el MAT anterior es cero).`;
+    $('template-note').textContent = `La tabla usa el selector de período y conserva los meses originales, incluso sin base MAT. Volumen: ${sheet.unit}. Haz clic en un mes para ver su detalle. Los hábitos de compra conservan el mes del Excel. Los YoY MAT siguen las columnas de evolución del template (denominador 1 si el MAT anterior es cero).`;
   } else if (view === 'variations') {
     columns.push(['Comparación'], ['Worldpanel'], ...sheet.pipelines.map(p => [`Sell-in P${p.pipeline}`]));
     rows = template.variations.map(row => ({cells: [row.label, fmt(row.worldpanel, 1, '%'), ...row.pipelines.map(value => fmt(value, 1, '%'))], numeric:[null,row.worldpanel,...row.pipelines], periods: [row.wp_period, ...row.pipeline_periods]}));
@@ -428,7 +430,7 @@ function renderDiagnostics() {
     const percent=kpi.key==='penetration',digits=kpi.key==='buyers_series'?0:2;
     const review=kpi.average===0||Math.abs(kpi.change)>change/100||kpi.range>range/100;
     const tr=item('tr');
-    [kpi.label,fmt(kpi.latest,digits,percent?'%':''),fmt(kpi.average,digits,percent?'%':''),fmt(kpi.change*100,1,'%'),fmt(kpi.minimum,digits,percent?'%':''),fmt(kpi.maximum,digits,percent?'%':''),fmt(kpi.range*100,1,'%'),valid?(review?'REVISAR':'OK'):'Ajusta límites'].forEach((value,i)=>tr.append(item('td',value,i===7?`diagnostic-signal ${!valid||review?'review':'ok'}`:'')));
+    [kpi.label,fmt(kpi.latest,digits,percent?'%':''),fmt(kpi.average,CoverageDashboard.kpiDigits(kpi,kpi.average),percent?'%':''),fmt(kpi.total_average,CoverageDashboard.kpiDigits(kpi,kpi.total_average),percent?'%':''),fmt(kpi.change*100,1,'%'),fmt(kpi.minimum,digits,percent?'%':''),fmt(kpi.maximum,digits,percent?'%':''),fmt(kpi.range*100,1,'%'),valid?(review?'REVISAR':'OK'):'Ajusta límites'].forEach((value,i)=>tr.append(item('td',value,i===8?`diagnostic-signal ${!valid||review?'review':'ok'}`:'')));
     $('diagnostic-body').append(tr);
   });
 }
@@ -447,8 +449,6 @@ function drawChart() {
   const compare = $('compare').value;
   const metric = $('metric').value;
   const p = sheet.pipelines[selected];
-  const n = sheet.dates.length;
-  const first = $('window').value === 'all' ? 0 : Math.max(0, n - Number($('window').value));
   const plots = [];
   const colors = state.analysis.chart_colors;
   const coverageView = metric === 'coverage';
@@ -470,6 +470,13 @@ function drawChart() {
   if (compare !== '') plots.push({name: `${coverageView ? 'Cobertura' : 'Sell-in'} P${compare}`, values: sheet.pipelines[Number(compare)][dataKey], color: colors.comparison, dash: '6 5', axis: 'si', className: 'compare'});
   if ($('original').checked && selected !== 0 && compare !== '0') plots.push({name: `${coverageView ? 'Cobertura' : 'Sell-in'} original (P0)`, values: sheet.pipelines[0][dataKey], color: colors.original, dash: '3 5', axis: 'si', className: 'original'});
   }
+  const view=CoverageDashboard.chartData({dates:sheet.dates,series:plots},$('window').value);
+  const dates=view.dates,n=dates.length,first=0;
+  plots.splice(0,plots.length,...view.series);
+  $('chart-period').textContent=n ? `${month(dates[0])} – ${month(dates.at(-1))} · Datos disponibles en todas las series visibles` : 'Sin período compartido con datos';
+  $('chart-kpi-averages').replaceChildren();
+  $('chart-kpi-averages').hidden=!driver;
+  if(driver)CoverageDashboard.kpiAverages($('chart-kpi-averages'),sheet.dashboard.kpis.find(kpi=>kpi.key===metric));
   $('compare').hidden = !!driver; document.querySelector('label[for="compare"]').hidden = !!driver; document.querySelector('.original-control').hidden = !!driver;
   $('chart-title').textContent = driver ? driver.title : yoyView ? 'Variación interanual de volumen MAT' : coverageView ? ($('show-penetration').checked ? 'Cobertura MAT y penetración mensual' : 'Cobertura MAT por pipeline') : metric === 'mat' ? 'Tendencia de volumen MAT' : 'Tendencia de volumen mensual';
   $('chart-description').textContent = driver ? 'Serie mensual de Worldpanel · Conserva las fechas originales' : `P${selected}: ${selected === 0 ? 'sin desplazamiento' : `Sell-in desplazado ${selected} mes(es)`}${dual ? ' · Doble eje: Sell-in a la izquierda, Worldpanel a la derecha' : ' · Eje compartido'}${percentView ? ' (%)' : ''}`;
@@ -487,6 +494,12 @@ function drawChart() {
     : 'P1 desplaza Sell-in un mes hacia adelante; P6, seis meses. Los espacios sin datos se conservan. Correlación y variaciones se calculan sobre MAT, incluso al ver volumen mensual.';
   const graph = $('chart'); graph.replaceChildren();
   graph.append(svgElement('title', {}, `${$('chart-title').textContent}. ${$('chart-description').textContent}.`));
+  if(!n) {
+    graph.setAttribute('viewBox','0 0 640 230');graph.style.width='100%';
+    graph.append(svgElement('text',{x:320,y:115,'text-anchor':'middle',fill:'#637888','font-size':14},'Sin base común en el período elegido'));
+    graph.onpointermove=null;graph.onkeydown=null;$('chart-tooltip').textContent='Las bases insuficientes se muestran como —.';
+    $('legend').replaceChildren();renderTemplate();renderDashboard();return;
+  }
   const availableWidth = Math.max(640, graph.parentElement.clientWidth);
   const width = labelAll ? Math.max(availableWidth, (n - first) * 54) : availableWidth;
   graph.setAttribute('viewBox', `0 0 ${width} 340`);
@@ -507,7 +520,7 @@ function drawChart() {
     if (dual) graph.append(svgElement('text', {x: right + 10, y: position + 4, fill: colors.worldpanel, 'font-size': 12}, CoverageDashboard.axisTick(wp.min + tick / 4 * (wp.max - wp.min),wp.max-wp.min)));
   }
   const step = Math.max(1, Math.ceil((n - first) / 10));
-  for (let i = first; i < n; i += step) graph.append(svgElement('text', {x: x(i), y: bottom + 25, 'text-anchor': 'middle', fill: '#637888', 'font-size': 12}, month(sheet.dates[i])));
+  for (let i = first; i < n; i += step) graph.append(svgElement('text', {x: x(i), y: bottom + 25, 'text-anchor': 'middle', fill: '#637888', 'font-size': 12}, month(dates[i])));
   const barPlots = plots.filter(plot => plot.bar);
   const barWidth = (right - left) / Math.max(1, n - first) * (barPlots.length > 1 ? .28 : .55);
   const pointX = (plot, i) => x(i) + (plot.bar && barPlots.length > 1 ? (barPlots.indexOf(plot) - .5) * barWidth * 1.1 : 0);
@@ -549,7 +562,7 @@ function drawChart() {
     }
     occupied.push({x: lx, y: ly, half});
     const group = svgElement('g', {class: 'data-label', 'data-series': plot.className});
-    group.append(svgElement('title', {}, `${plot.name} · ${month(sheet.dates[i])}: ${fmt(plot.values[i], driver?.digits ?? 1, percentView ? '%' : '')}`));
+    group.append(svgElement('title', {}, `${plot.name} · ${month(dates[i])}: ${fmt(plot.values[i], driver?.digits ?? 1, percentView ? '%' : '')}`));
     group.append(svgElement('line', {x1: px, y1: py, x2: lx, y2: ly, stroke: plot.color, 'stroke-width': .8}));
     group.append(svgElement('rect', {x: lx - half, y: ly - 12, width: half * 2, height: 18, rx: 3, fill: '#fff', stroke: plot.color, 'stroke-width': .9}));
     group.append(svgElement('text', {x: lx, y: ly + 1, 'text-anchor': 'middle', fill: driver || ['coverage', 'penetration', 'sellin', 'original'].includes(plot.className) ? '#172c3c' : plot.color, 'font-size': 12, 'font-weight': 600}, text));
@@ -560,7 +573,7 @@ function drawChart() {
   let hoverIndex = n - 1;
   function tooltip(i) {
     hoverIndex = i; guide.setAttribute('visibility', detailed ? 'visible' : 'hidden'); guide.setAttribute('x1', x(i)); guide.setAttribute('x2', x(i));
-    $('chart-tooltip').textContent = `${month(sheet.dates[i])}   ·   ${plots.map(plot => `${plot.name}: ${fmt(plot.values[i], driver?.digits ?? 1, percentView ? '%' : '')}`).join('   ·   ')}`;
+    $('chart-tooltip').textContent = `${month(dates[i])}   ·   ${plots.map(plot => `${plot.name}: ${fmt(plot.values[i], driver?.digits ?? 1, percentView ? '%' : '')}`).join('   ·   ')}`;
   }
   graph.onpointermove = event => { const box = graph.getBoundingClientRect(); const px = (event.clientX - box.left) / box.width * width; tooltip(Math.max(first, Math.min(n - 1, Math.floor(first + (px - left) / (right - left) * (n - first))))); };
   graph.onkeydown = event => { if (['ArrowLeft', 'ArrowRight'].includes(event.key)) { event.preventDefault(); tooltip(Math.max(first, Math.min(n - 1, hoverIndex + (event.key === 'ArrowRight' ? 1 : -1)))); } };

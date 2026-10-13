@@ -129,8 +129,9 @@ python pipeline_explorer.py --port 8766
 **Datos del template Excel** permite consultar la serie mensual (volumen/cobertura,
 hábitos de compra o todas las columnas), seleccionar un mes para ver su detalle,
 y revisar variaciones por período, correlaciones MAT y promedios. Las tablas se
-actualizan al cambiar de hoja o pipeline; la tabla mensual sigue el período visible
-del gráfico. Los períodos de variación muestran sus fechas al pasar sobre una celda.
+actualizan al cambiar de hoja o pipeline; la tabla mensual usa el selector de período
+y conserva los meses originales, incluso antes de tener base MAT. Los períodos de
+variación muestran sus fechas al pasar sobre una celda.
 Los promedios MAT son promedios de los últimos 12 meses: los compradores no se suman
 y la penetración media mensual no se interpreta como penetración anual única.
 Las variaciones del template conservan su regla de omitir ventanas con ceros;
@@ -141,6 +142,14 @@ los diez gráficos se muestran juntos, sin exportar ni crear entregables. Incluy
 cobertura/penetración, tendencia mensual y MAT, evolución YoY, los cinco indicadores
 de compra y la comparación de volúmenes MAT, YoY y cobertura por corte anual.
 Puedes ampliar cada gráfico, cambiar el período visible y activar etiquetas y detalle.
+Cada gráfico recorta su calendario al tramo donde todas las series visibles tienen
+datos: MAT, cobertura y YoY empiezan cuando hay base comparable para el pipeline
+elegido. Los huecos interiores conservan su fecha y se muestran como interrupciones;
+no se sustituyen por ceros. Si no hay tramo compartido, se indica sin base común.
+Los cinco KPI muestran el último mes, el promedio de los últimos 12 meses del archivo
+y el promedio de toda la historia, también al ampliar. Estos promedios mensuales
+mantienen su ventana al cambiar el período visible del gráfico y muestran cuántos
+datos entran en cada cálculo. No son sumas ni tasas ponderadas.
 El diagnóstico de KPI replica las reglas del Excel: último valor, promedio 12m,
 cambio y amplitud relativa, con límites iniciales de 25% y 75% ajustables en la web.
 **Todo el detalle del Excel** también queda seleccionado al cargar: serie mensual

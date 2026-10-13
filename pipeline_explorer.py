@@ -155,14 +155,20 @@ def dashboard_details(df, core, pipelines):
              ("buyers_series", core.COL_BUYERS, "Compradores")]
     kpis = []
     for key, column, label in specs:
-        recent = df[column].tail(12)
+        values = df[column].map(finite)
+        recent = values.tail(12)
         latest, average = finite(recent.iloc[-1]), finite(recent.mean())
-        change = finite(latest / average - 1) if average else 0.0
+        change = finite(latest / average - 1) if average and latest is not None else 0.0
         amplitude = finite((recent.max() - recent.min()) / abs(average)) if average else 0.0
         kpis.append({"key": key, "label": label, "color": core.EXCEL_DASHBOARD_KPI_COLORS[column],
                      "latest": latest, "average": average, "change": change, "range": amplitude,
+                     "total_average": finite(values.mean()),
+                     "recent_count": int(recent.count()), "total_count": int(values.count()),
+                     "recent_start": df[core.COL_DATA].iloc[-len(recent)].isoformat(),
+                     "history_start": df[core.COL_DATA].iloc[0].isoformat(),
+                     "end": df[core.COL_DATA].iloc[-1].isoformat(),
                      "minimum": finite(recent.min()), "maximum": finite(recent.max()),
-                     "review": average == 0 or abs(change) > core.EXCEL_DASHBOARD_CHANGE_THRESHOLD or amplitude > core.EXCEL_DASHBOARD_RANGE_THRESHOLD})
+                     "review": average is None or average == 0 or abs(change) > core.EXCEL_DASHBOARD_CHANGE_THRESHOLD or amplitude > core.EXCEL_DASHBOARD_RANGE_THRESHOLD})
     dates = list(df[core.COL_DATA])
     cutoff_month = dates[-1].month
     wp_mat = df[core.COL_SELL_OUT].rolling(12, min_periods=12).sum()
