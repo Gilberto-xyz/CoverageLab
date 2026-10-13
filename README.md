@@ -102,6 +102,15 @@ python pipeline_explorer.py --port 8766
 2. Selecciona una hoja y revisa P0–P6. Puedes comparar dos pipelines, mostrar
    Sell-in original, cambiar entre volumen mensual, volumen MAT y cobertura MAT,
    y ver toda la historia o los últimos 12/24 meses.
+   Activa **Etiquetas de datos** para mostrar el último valor o todos los valores;
+   las historias extensas se pueden desplazar horizontalmente al etiquetarlas.
+   **Detalle visual** activa o desactiva cuadrícula, puntos y relleno de tendencia.
+   Los colores de Sell-in/Worldpanel y cobertura/penetración son los mismos del PPT.
+   En **Cobertura MAT** puedes mostrar la penetración mensual y la cobertura
+   original P0, además de otro pipeline. La penetración conserva el mes original
+   y no cambia al desplazar Sell-in. El resumen compara cobertura, correlación
+   MAT y estabilidad; evalúalos junto con el gap para decidir el ajuste.
+   Estas preferencias visuales se recuerdan en el navegador y afectan la vista local.
 3. Consulta correlación MAT, cobertura, variaciones, gap y estabilidad. AUTO
    Balanceado y AUTO Correlación se muestran como referencias; P0 se permite
    como elección manual, aunque la recomendación automática compara P1–P6.

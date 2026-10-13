@@ -60,10 +60,17 @@
           </section>
           <section class="chart-card">
             <div class="chart-heading"><div><h2 id="chart-title">Tendencia de volumen</h2><p id="chart-description"></p></div><div class="chart-controls"><label for="metric" class="sr-only">Serie del gráfico</label><select id="metric"><option value="monthly">Volumen mensual</option><option value="mat">Volumen MAT</option><option value="coverage">Cobertura MAT</option></select><label for="window" class="sr-only">Periodo visible</label><select id="window"><option value="12">Últimos 12 meses</option><option value="24" selected>Últimos 24 meses</option><option value="all">Toda la historia</option></select></div></div>
-            <div class="comparison-controls"><label for="compare">Comparar con</label><select id="compare"><option value="">Sin comparación</option></select><label class="original-control"><input id="original" type="checkbox" checked> Mostrar Sell-in original</label><span id="unit-label"></span></div>
+            <div class="comparison-controls"><label for="compare">Comparar con</label><select id="compare"><option value="">Sin comparación</option></select><label class="original-control"><input id="original" type="checkbox" checked><span id="original-label">Mostrar Sell-in original (P0)</span></label><span id="unit-label"></span></div>
+            <div class="visual-controls" role="group" aria-label="Presentación del gráfico">
+              <label><input id="data-labels" type="checkbox"> Etiquetas de datos</label>
+              <label for="label-scope" class="sr-only">Datos a etiquetar</label><select id="label-scope" disabled><option value="last">Último dato</option><option value="all">Todos los datos</option></select>
+              <label><input id="visual-detail" type="checkbox" checked> Detalle visual</label>
+              <label id="penetration-control" hidden><input id="show-penetration" type="checkbox" checked> Mostrar penetración mensual</label>
+            </div>
             <div class="chart-container"><svg id="chart" viewBox="0 0 1000 320" role="img" tabindex="0" aria-label="Gráfico de comparación de pipelines"></svg><div id="chart-tooltip" class="chart-tooltip" aria-live="off"></div></div>
             <div id="legend" class="legend"></div>
-            <p class="chart-footnote">P1 desplaza Sell-in un mes hacia adelante; P6, seis meses. Los espacios sin datos se conservan. Correlación y variaciones se calculan sobre MAT, incluso al ver volumen mensual.</p>
+            <p id="coverage-context" class="coverage-context" hidden></p>
+            <p id="chart-footnote" class="chart-footnote">P1 desplaza Sell-in un mes hacia adelante; P6, seis meses. Los espacios sin datos se conservan. Correlación y variaciones se calculan sobre MAT, incluso al ver volumen mensual.</p>
           </section>
           <section class="metrics" aria-label="Métricas del pipeline seleccionado">
             <article><span>Correlación MAT actual</span><strong id="metric-corr"></strong><small id="metric-corr-note"></small></article>

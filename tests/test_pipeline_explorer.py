@@ -45,7 +45,7 @@ class PipelineExplorerTests(unittest.TestCase):
             for index in range(months):
                 date = self.core.pd.Timestamp(2023, 1, 1) + self.core.pd.DateOffset(months=index)
                 volume = 1200 + index * 17 + 180 * math.sin(index * .7)
-                sheet.append([date.to_pydatetime(), volume, 20, 6, 2, 3, 900, volume * 1.7 + math.cos(index) * 75])
+                sheet.append([date.to_pydatetime(), volume, 20 + index * .25, 6, 2, 3, 900, volume * 1.7 + math.cos(index) * 75])
         workbook.create_sheet("Sin datos").append(["vacío"])
         workbook.save(self.source)
 
@@ -74,6 +74,18 @@ class PipelineExplorerTests(unittest.TestCase):
         self.assertIsNone(pipelines[0]["correlation"])
         with self.assertRaises(ValueError):
             self.state.reviewed_selection({"analysis_id": analysis["id"], "selections": {"P1_Cola": 6}})
+
+    def test_monthly_penetration_retains_source_dates_and_ppt_colors(self):
+        analysis = self.analyze()
+        sheet = analysis["sheets"][0]
+        self.assertEqual(sheet["penetration"], [20 + index * .25 for index in range(36)])
+        self.assertEqual(len(sheet["penetration"]), len(sheet["dates"]))
+        self.assertEqual(sheet["penetration"][-1], 28.75)
+        colors = analysis["chart_colors"]
+        self.assertEqual(colors["sellin"], self.core.COLOR_SELLIN_TREND_LINE)
+        self.assertEqual(colors["worldpanel"], self.core.COLOR_SELLOUT_TREND_LINE)
+        self.assertEqual(colors["coverage"], self.core.COLOR_COBERTURA_BAR)
+        self.assertEqual(colors["penetration"], self.core.COLOR_PENETRACION_BAR)
 
     def test_manual_p0_has_diagnostics_without_changing_auto_candidates(self):
         analysis = self.analyze()

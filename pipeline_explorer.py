@@ -92,7 +92,15 @@ def analyze_workbook(path, options):
     _, category_code, _ = core.parse_input_filename_parts(path.name)
     result = {"file": path.name, "fingerprint": fingerprint(path), "country": country,
               "category": category, "manufacturer": manufacturer,
-              "options": serialize_options(options), "sheets": []}
+              "options": serialize_options(options), "sheets": [],
+              "chart_colors": {
+                  "worldpanel": core.COLOR_SELLOUT_TREND_LINE,
+                  "sellin": core.COLOR_SELLIN_TREND_LINE,
+                  "coverage": core.COLOR_COBERTURA_BAR,
+                  "penetration": core.COLOR_PENETRACION_BAR,
+                  "trend_fill": core.COLOR_TENDENCIA_FILL,
+                  "comparison": "#008C95", "original": "#B0B0B0",
+              }}
     result["selection_key"] = hashlib.sha256((path.name + ":" + result["fingerprint"]).encode("utf-8")).hexdigest()
     group = None
     inherited_category = None
@@ -144,6 +152,7 @@ def analyze_workbook(path, options):
             wp_mat = df[core.COL_SELL_OUT].rolling(12, min_periods=12).sum()
             sheet.update(dates=dates, sell_in=[finite(v) for v in df[core.COL_SELL_IN]],
                          sell_out=[finite(v) for v in df[core.COL_SELL_OUT]],
+                         penetration=[finite(v) for v in df[core.COL_PENET]],
                          wp_mat=[finite(v) for v in wp_mat], pipelines=[],
                          recommended=recommendation.pipeline, reason=recommendation.reason,
                          correlation_pipeline=by_corr.pipeline, forced=forced)

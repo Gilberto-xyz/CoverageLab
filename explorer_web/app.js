@@ -183,20 +183,42 @@ function drawChart() {
   const n = sheet.dates.length;
   const first = $('window').value === 'all' ? 0 : Math.max(0, n - Number($('window').value));
   const plots = [];
+  const colors = state.analysis.chart_colors;
+  const coverageView = metric === 'coverage';
+  const detailed = $('visual-detail').checked;
+  const labels = $('data-labels').checked;
+  const labelAll = labels && $('label-scope').value === 'all';
+  $('label-scope').disabled = !labels;
+  $('penetration-control').hidden = !coverageView;
   const dual = state.analysis.options.trend_axis === 'doble' && metric !== 'coverage';
   const dataKey = metric === 'coverage' ? 'coverage_series' : metric === 'mat' ? 'sell_in_mat' : 'sell_in';
-  if (metric !== 'coverage') plots.push({name: 'Worldpanel', values: metric === 'mat' ? sheet.wp_mat : sheet.sell_out, color: '#078c86', axis: 'wp', className: 'wp'});
-  plots.push({name: `${metric === 'coverage' ? 'Cobertura' : 'Sell-in'} P${selected}`, values: p[dataKey], color: '#7361c5', axis: 'si', className: 'sellin'});
-  if (compare !== '') plots.push({name: `${metric === 'coverage' ? 'Cobertura' : 'Sell-in'} P${compare}`, values: sheet.pipelines[Number(compare)][dataKey], color: '#d6953b', dash: '6 5', axis: 'si', className: 'compare'});
-  if ($('original').checked && selected !== 0 && metric !== 'coverage') plots.unshift({name: 'Sell-in original', values: sheet.pipelines[0][dataKey], color: '#b3bdc7', dash: '3 5', axis: 'si', className: 'original'});
-  $('chart-title').textContent = metric === 'coverage' ? 'Cobertura MAT por pipeline' : metric === 'mat' ? 'Tendencia de volumen MAT' : 'Tendencia de volumen mensual';
-  $('chart-description').textContent = `P${selected}: ${selected === 0 ? 'sin desplazamiento' : `Sell-in desplazado ${selected} mes(es)`}${dual ? ' · Doble eje: Sell-in a la izquierda, Worldpanel a la derecha' : ' · Eje compartido'}`;
-  $('unit-label').textContent = metric === 'coverage' ? `Cobertura ${state.analysis.options.coverage_type.toLowerCase()} (%)` : sheet.unit;
-  $('original').disabled = metric === 'coverage';
+  if (!coverageView) plots.push({name: 'Worldpanel', values: metric === 'mat' ? sheet.wp_mat : sheet.sell_out, color: colors.worldpanel, axis: 'wp', className: 'wp'});
+  if (coverageView && $('show-penetration').checked) plots.push({name: 'Penetración mensual', values: sheet.penetration, color: colors.penetration, axis: 'si', className: 'penetration', bar: true});
+  plots.push({name: `${coverageView ? 'Cobertura' : 'Sell-in'} P${selected}`, values: p[dataKey], color: coverageView ? colors.coverage : colors.sellin, axis: 'si', className: coverageView ? 'coverage' : 'sellin', bar: coverageView});
+  if (compare !== '') plots.push({name: `${coverageView ? 'Cobertura' : 'Sell-in'} P${compare}`, values: sheet.pipelines[Number(compare)][dataKey], color: colors.comparison, dash: '6 5', axis: 'si', className: 'compare'});
+  if ($('original').checked && selected !== 0 && compare !== '0') plots.push({name: `${coverageView ? 'Cobertura' : 'Sell-in'} original (P0)`, values: sheet.pipelines[0][dataKey], color: colors.original, dash: '3 5', axis: 'si', className: 'original'});
+  $('chart-title').textContent = coverageView ? ($('show-penetration').checked ? 'Cobertura MAT y penetración mensual' : 'Cobertura MAT por pipeline') : metric === 'mat' ? 'Tendencia de volumen MAT' : 'Tendencia de volumen mensual';
+  $('chart-description').textContent = `P${selected}: ${selected === 0 ? 'sin desplazamiento' : `Sell-in desplazado ${selected} mes(es)`}${dual ? ' · Doble eje: Sell-in a la izquierda, Worldpanel a la derecha' : ' · Eje compartido'}${coverageView ? ' (%)' : ''}`;
+  $('unit-label').textContent = coverageView ? `Cobertura ${state.analysis.options.coverage_type.toLowerCase()}${$('show-penetration').checked ? ' y penetración' : ''} (%)` : sheet.unit;
+  $('original-label').textContent = coverageView ? 'Mostrar cobertura original (P0)' : 'Mostrar Sell-in original (P0)';
+  $('original').disabled = selected === 0 || compare === '0';
+  $('coverage-context').hidden = !coverageView;
+  const reference = compare !== '' ? Number(compare) : 0;
+  const baseline = sheet.pipelines[reference];
+  const difference = (value, previous, digits, suffix) => value == null || previous == null ? '—' : `${value - previous > 0 ? '+' : ''}${fmt(value - previous, digits, suffix)}`;
+  const pen = sheet.penetration.at(-1), penPrev = sheet.penetration.at(-2);
+  $('coverage-context').textContent = `Penetración mensual: ${fmt(pen, 1, '%')} (${difference(pen, penPrev, 1, ' pp')} vs. mes anterior). ${selected === reference ? 'P0 conserva el Sell-in sin desplazamiento.' : `P${selected} vs. P${reference}: cobertura ${difference(p.coverage, baseline.coverage, 1, ' pp')}; correlación MAT ${difference(p.correlation, baseline.correlation, 3, '')}; cambio anual de cobertura ${fmt(p.stability, 1, ' pp')} (P${reference}: ${fmt(baseline.stability, 1, ' pp')}).`}`;
+  $('chart-footnote').textContent = coverageView
+    ? 'La penetración es mensual y conserva las fechas del Excel; no cambia con el pipeline. La cobertura usa volúmenes MAT. Revisa correlación, gap y estabilidad junto con estas curvas: una cobertura más alta por sí sola no indica un mejor pipeline.'
+    : 'P1 desplaza Sell-in un mes hacia adelante; P6, seis meses. Los espacios sin datos se conservan. Correlación y variaciones se calculan sobre MAT, incluso al ver volumen mensual.';
   const graph = $('chart'); graph.replaceChildren();
   graph.append(svgElement('title', {}, `${$('chart-title').textContent}. ${$('chart-description').textContent}.`));
-  const left = 68, right = dual ? 923 : 965, top = 24, bottom = 266;
-  const x = i => left + (i - first) / Math.max(1, n - first - 1) * (right - left);
+  const availableWidth = Math.max(640, graph.parentElement.clientWidth);
+  const width = labelAll ? Math.max(availableWidth, (n - first) * 54) : availableWidth;
+  graph.setAttribute('viewBox', `0 0 ${width} 340`);
+  graph.style.width = width > availableWidth ? `${width}px` : '100%';
+  const left = 68, right = width - (dual ? 77 : 50), top = 35, bottom = 274;
+  const x = i => left + (i - first + .5) / Math.max(1, n - first) * (right - left);
   function scale(axis) {
     const values = plots.filter(plot => !dual || plot.axis === axis).flatMap(plot => plot.values.slice(first)).filter(v => v != null && Number.isFinite(v));
     const minimum = Math.min(0, ...values), maximum = Math.max(1, ...values);
@@ -208,33 +230,70 @@ function drawChart() {
   const compact = value => new Intl.NumberFormat('es-MX', {notation: 'compact', maximumFractionDigits: 1}).format(value);
   for (let tick = 0; tick <= 4; tick++) {
     const position = bottom - tick / 4 * (bottom - top);
-    graph.append(svgElement('line', {x1: left, x2: right, y1: position, y2: position, stroke: '#e8eef2', 'stroke-width': 1}));
-    graph.append(svgElement('text', {x: left - 12, y: position + 4, 'text-anchor': 'end', fill: '#91a0ac', 'font-size': 10}, compact(si.min + tick / 4 * (si.max - si.min))));
-    if (dual) graph.append(svgElement('text', {x: right + 10, y: position + 4, fill: '#078c86', 'font-size': 10}, compact(wp.min + tick / 4 * (wp.max - wp.min))));
+    if (detailed) graph.append(svgElement('line', {class: 'chart-grid', x1: left, x2: right, y1: position, y2: position, stroke: '#e8eef2', 'stroke-width': 1}));
+    graph.append(svgElement('text', {x: left - 12, y: position + 4, 'text-anchor': 'end', fill: '#637888', 'font-size': 12}, compact(si.min + tick / 4 * (si.max - si.min))));
+    if (dual) graph.append(svgElement('text', {x: right + 10, y: position + 4, fill: colors.worldpanel, 'font-size': 12}, compact(wp.min + tick / 4 * (wp.max - wp.min))));
   }
   const step = Math.max(1, Math.ceil((n - first) / 10));
-  for (let i = first; i < n; i += step) graph.append(svgElement('text', {x: x(i), y: bottom + 25, 'text-anchor': 'middle', fill: '#8c9dab', 'font-size': 10}, month(sheet.dates[i])));
+  for (let i = first; i < n; i += step) graph.append(svgElement('text', {x: x(i), y: bottom + 25, 'text-anchor': 'middle', fill: '#637888', 'font-size': 12}, month(sheet.dates[i])));
+  const barPlots = plots.filter(plot => plot.bar);
+  const barWidth = (right - left) / Math.max(1, n - first) * (barPlots.length > 1 ? .28 : .55);
+  const pointX = (plot, i) => x(i) + (plot.bar && barPlots.length > 1 ? (barPlots.indexOf(plot) - .5) * barWidth * 1.1 : 0);
+  const labelPoints = [];
   for (const plot of plots) {
     let path = '', segment = false;
+    const segments = []; let points = [];
+    const lastValid = plot.values.findLastIndex(value => value != null);
     for (let i = first; i < n; i++) {
-      if (plot.values[i] == null) { segment = false; continue; }
-      path += `${segment ? 'L' : 'M'}${x(i).toFixed(2)},${y(plot.values[i], plot.axis).toFixed(2)} `; segment = true;
+      if (plot.values[i] == null) { segment = false; if (points.length) segments.push(points); points = []; continue; }
+      const px = pointX(plot, i), py = y(plot.values[i], plot.axis);
+      path += `${segment ? 'L' : 'M'}${px.toFixed(2)},${py.toFixed(2)} `; segment = true;
+      points.push([px, py]);
+      if (plot.bar) graph.append(svgElement('rect', {class: 'chart-bar', 'data-series': plot.className, x: px - barWidth / 2, y: Math.min(py, y(0, plot.axis)), width: barWidth, height: Math.abs(py - y(0, plot.axis)), fill: plot.color, stroke: detailed ? '#637888' : 'none', 'stroke-width': plot.className === 'coverage' ? 1.2 : .5, opacity: .88}));
+      if (labels && (labelAll || i === lastValid)) labelPoints.push({plot, i, px, py});
     }
-    graph.append(svgElement('path', {d: path, fill: 'none', stroke: plot.color, 'stroke-width': plot.className === 'original' ? 1.6 : 2.6, 'stroke-linejoin': 'round', 'stroke-linecap': 'round', ...(plot.dash ? {'stroke-dasharray': plot.dash} : {})}));
+    if (points.length) segments.push(points);
+    if (!plot.bar) {
+      if (detailed && plot.className === 'wp') segments.forEach(segmentPoints => {
+        const area = `M${segmentPoints[0][0]},${y(0, plot.axis)} ` + segmentPoints.map(([px, py]) => `L${px},${py}`).join(' ') + ` L${segmentPoints.at(-1)[0]},${y(0, plot.axis)} Z`;
+        graph.append(svgElement('path', {class: 'chart-area', d: area, fill: colors.trend_fill}));
+      });
+      graph.append(svgElement('path', {class: 'chart-series', 'data-series': plot.className, d: path, fill: 'none', stroke: plot.color, 'stroke-width': plot.className === 'original' ? 1.8 : 2.6, 'stroke-linejoin': 'round', 'stroke-linecap': 'round', ...(plot.dash ? {'stroke-dasharray': plot.dash} : {})}));
+      if (detailed) segments.flat().forEach(([px, py]) => graph.append(svgElement('circle', {class: 'chart-point', cx: px, cy: py, r: 2.6, fill: plot.color, stroke: '#fff', 'stroke-width': .8})));
+    }
     const valid = plot.values.slice(first).filter(v => v != null);
     if (valid.length === 1) { const i = plot.values.findLastIndex(v => v != null); graph.append(svgElement('circle', {cx: x(i), cy: y(plot.values[i], plot.axis), r: 4, fill: plot.color})); }
   }
-  if (!plots.some(plot => plot.values.slice(first).some(value => value != null))) graph.append(svgElement('text', {x: 500, y: 145, 'text-anchor': 'middle', fill: '#718797', 'font-size': 15}, 'Sin historia suficiente en el periodo visible'));
+  const occupied = [];
+  labelPoints.forEach(({plot, i, px, py}) => {
+    const text = coverageView ? fmt(plot.values[i], 1, '%') : compact(plot.values[i]);
+    const half = Math.max(20, text.length * 3.7), lx = Math.max(left + half, Math.min(right - half, px));
+    let ly = Math.max(14, py - 12);
+    // Move neighboring labels vertically, retaining a leader to their own data point.
+    while (occupied.some(box => Math.abs(box.x - lx) < box.half + half + 3 && Math.abs(box.y - ly) < 19)) ly += 20;
+    if (ly > bottom - 5) {
+      ly = Math.min(bottom - 5, py + 19);
+      while (occupied.some(box => Math.abs(box.x - lx) < box.half + half + 3 && Math.abs(box.y - ly) < 19)) ly -= 20;
+    }
+    occupied.push({x: lx, y: ly, half});
+    const group = svgElement('g', {class: 'data-label', 'data-series': plot.className});
+    group.append(svgElement('title', {}, `${plot.name} · ${month(sheet.dates[i])}: ${fmt(plot.values[i], 1, coverageView ? '%' : '')}`));
+    group.append(svgElement('line', {x1: px, y1: py, x2: lx, y2: ly, stroke: plot.color, 'stroke-width': .8}));
+    group.append(svgElement('rect', {x: lx - half, y: ly - 12, width: half * 2, height: 18, rx: 3, fill: '#fff', stroke: plot.color, 'stroke-width': .9}));
+    group.append(svgElement('text', {x: lx, y: ly + 1, 'text-anchor': 'middle', fill: ['coverage', 'penetration', 'sellin', 'original'].includes(plot.className) ? '#172c3c' : plot.color, 'font-size': 12, 'font-weight': 600}, text));
+    graph.append(group);
+  });
+  if (!plots.some(plot => plot.values.slice(first).some(value => value != null))) graph.append(svgElement('text', {x: width / 2, y: 145, 'text-anchor': 'middle', fill: '#718797', 'font-size': 15}, 'Sin historia suficiente en el periodo visible'));
   const guide = svgElement('line', {x1: left, x2: left, y1: top, y2: bottom, stroke: '#aabac5', 'stroke-dasharray': '3 4', visibility: 'hidden'}); graph.append(guide);
   let hoverIndex = n - 1;
   function tooltip(i) {
-    hoverIndex = i; guide.setAttribute('visibility', 'visible'); guide.setAttribute('x1', x(i)); guide.setAttribute('x2', x(i));
+    hoverIndex = i; guide.setAttribute('visibility', detailed ? 'visible' : 'hidden'); guide.setAttribute('x1', x(i)); guide.setAttribute('x2', x(i));
     $('chart-tooltip').textContent = `${month(sheet.dates[i])}   ·   ${plots.map(plot => `${plot.name}: ${fmt(plot.values[i], 1, metric === 'coverage' ? '%' : '')}`).join('   ·   ')}`;
   }
-  graph.onpointermove = event => { const box = graph.getBoundingClientRect(); const px = (event.clientX - box.left) / box.width * 1000; tooltip(Math.max(first, Math.min(n - 1, Math.round(first + (px - left) / (right - left) * (n - first - 1))))); };
+  graph.onpointermove = event => { const box = graph.getBoundingClientRect(); const px = (event.clientX - box.left) / box.width * width; tooltip(Math.max(first, Math.min(n - 1, Math.floor(first + (px - left) / (right - left) * (n - first))))); };
   graph.onkeydown = event => { if (['ArrowLeft', 'ArrowRight'].includes(event.key)) { event.preventDefault(); tooltip(Math.max(first, Math.min(n - 1, hoverIndex + (event.key === 'ArrowRight' ? 1 : -1)))); } };
   tooltip(n - 1);
-  $('legend').replaceChildren(...plots.map(plot => item('span', plot.name, plot.className)));
+  $('legend').replaceChildren(...plots.map(plot => { const legend = item('span', plot.name, plot.className); legend.style.setProperty('--series-color', plot.color); return legend; }));
 }
 
 async function saveSelection() {
@@ -286,6 +345,8 @@ async function pollJob() {
 }
 
 $('load').addEventListener('click', load);
+let chartResizeFrame;
+window.addEventListener('resize', () => { cancelAnimationFrame(chartResizeFrame); chartResizeFrame = requestAnimationFrame(drawChart); });
 $('refresh-files').addEventListener('click', () => refreshFiles().then(markDirty).catch(error => status(error.message, true)));
 ['file', 'trend-axis', 'english', 'round', 'animate'].forEach(id => $(id).addEventListener('change', markDirty));
 $('template').addEventListener('change', () => { $('english').checked = $('template').value === '5'; $('trend-axis').value = $('template').value === '4' ? 'doble' : 'simple'; markDirty(); });
@@ -293,7 +354,19 @@ $('search').addEventListener('input', () => { if (state.analysis) { renderSheets
 $('select-all').addEventListener('click', () => { state.analysis.sheets.forEach(sheet => { state.included[sheet.name] = !sheet.error; }); saveDraft(); render(); });
 $('select-none').addEventListener('click', () => { Object.keys(state.included).forEach(name => { state.included[name] = false; }); saveDraft(); render(); });
 $('use-recommended').addEventListener('click', () => choose(state.analysis.sheets.find(sheet => sheet.name === state.active).recommended));
-['compare', 'metric', 'window', 'original'].forEach(id => $(id).addEventListener('change', drawChart));
+['compare', 'metric', 'window', 'original', 'data-labels', 'label-scope', 'visual-detail', 'show-penetration'].forEach(id => $(id).addEventListener('change', () => {
+  try { localStorage.setItem('coveragelab-chart-view', JSON.stringify({labels: $('data-labels').checked, scope: $('label-scope').value, detail: $('visual-detail').checked, penetration: $('show-penetration').checked})); } catch (_) { /* View remains usable without local storage. */ }
+  drawChart();
+}));
+try {
+  const view = JSON.parse(localStorage.getItem('coveragelab-chart-view') || 'null');
+  if (view) {
+    if (typeof view.labels === 'boolean') $('data-labels').checked = view.labels;
+    if (['last', 'all'].includes(view.scope)) $('label-scope').value = view.scope;
+    if (typeof view.detail === 'boolean') $('visual-detail').checked = view.detail;
+    if (typeof view.penetration === 'boolean') $('show-penetration').checked = view.penetration;
+  }
+} catch (_) { /* Default visual settings are retained. */ }
 $('save').addEventListener('click', saveSelection);
 $('export').addEventListener('click', reviewExport);
 $('cancel-export').addEventListener('click', () => $('export-dialog').close());
