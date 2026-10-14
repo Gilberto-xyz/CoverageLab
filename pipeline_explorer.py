@@ -320,7 +320,7 @@ def analyze_workbook(path, options):
 
 
 class ExplorerState:
-    def __init__(self, root=ROOT):
+    def __init__(self, root=ROOT, research_root=None):
         self.root = Path(root).resolve()
         self.token = secrets.token_urlsafe(32)
         self.lock = threading.RLock()
@@ -329,6 +329,8 @@ class ExplorerState:
         self.jobs = {}
         self.output_root = self.root / "Output"
         self.restore_jobs()
+        from studio_workflow import StudioWorkflow
+        self.workflow = StudioWorkflow(self, research_root=research_root)
 
     def restore_jobs(self):
         """Recupera entregas locales verificadas, sin mover las ejecuciones anteriores."""
@@ -395,7 +397,10 @@ class ExplorerState:
         with self.lock:
             job_id = next((key for key, job in reversed(self.jobs.items())
                            if file_name is None or job.get("file") == file_name), None)
-        return self.job(job_id) if job_id else None
+        job = self.job(job_id) if job_id else None
+        if job and file_name and job.get("fingerprint"):
+            job["source_changed"] = fingerprint(self.source(file_name)) != job["fingerprint"]
+        return job
 
     def delivery_directory(self, job):
         directory = Path(job["directory"]).resolve()
@@ -734,11 +739,26 @@ def make_handler(state):
                 if path == "/":
                     html = (ASSETS / "index.html").read_text(encoding="utf-8").replace("__EXPLORER_TOKEN__", state.token)
                     self.send_bytes(html.encode("utf-8"), "text/html; charset=utf-8")
-                elif path in {"/app.js", "/dashboard.js", "/style.css"}:
+                elif path in {"/app.js", "/dashboard.js", "/studio.js", "/research.js", "/style.css", "/studio.css"}:
                     file = ASSETS / path[1:]
                     self.send_bytes(file.read_bytes(), mimetypes.guess_type(str(file))[0] + "; charset=utf-8")
                 elif path == "/api/files":
                     self.send_json({"files": state.files(), "details": state.file_catalog()})
+                elif path.startswith("/api/studio/") or path.startswith("/api/research/"):
+                    params = {key: values[0] for key, values in parse_qs(urlsplit(self.path).query).items()}
+                    routes = {
+                        "/api/studio/catalog": lambda: state.workflow.inputs.catalog(),
+                        "/api/studio/files": lambda: state.workflow.inputs.files(),
+                        "/api/studio/workbook": lambda: state.workflow.workbook(params),
+                        "/api/research/catalog": lambda: state.workflow.research.catalog(),
+                        "/api/research/inspect": lambda: state.workflow.research.inspect(params.get("file")),
+                        "/api/research/job": lambda: state.workflow.research_job(params.get("id"), params.get("file")),
+                    }
+                    operation = routes.get(path)
+                    if operation is None:
+                        self.send_json({"error": "Ruta desconocida."}, 404)
+                    else:
+                        self.send_json(operation())
                 elif path == "/api/job":
                     self.send_json(state.job(parse_qs(urlsplit(self.path).query).get("id", [""])[0]))
                 elif path == "/api/jobs":
@@ -772,13 +792,19 @@ def make_handler(state):
                 return
             try:
                 length = int(self.headers.get("Content-Length", "0"))
-                if not 0 < length <= 1024 * 1024:
+                request_path = urlsplit(self.path).path
+                limit = 20 * 1024 * 1024 if request_path == "/api/studio/import" else 4 * 1024 * 1024 if request_path == "/api/studio/save" else 1024 * 1024
+                if not 0 < length <= limit:
                     raise ValueError("Solicitud inválida o demasiado grande.")
                 payload = json.loads(self.rfile.read(length))
                 if not isinstance(payload, dict):
                     raise ValueError("Solicitud inválida.")
                 routes = {"/api/analyze": state.analyze, "/api/save": state.save_selection, "/api/export": state.export,
-                          "/api/open-results": state.open_results, "/api/open-output": state.open_output}
+                          "/api/open-results": state.open_results, "/api/open-output": state.open_output,
+                          "/api/studio/create": state.workflow.create_input, "/api/studio/save": state.workflow.save_input,
+                          "/api/studio/add-sheet": state.workflow.add_sheet, "/api/studio/import": state.workflow.import_input,
+                          "/api/research/analyze": state.workflow.research_analyze, "/api/research/export": state.workflow.export_research,
+                          "/api/research/open-output": state.workflow.open_research_output}
                 operation = routes.get(urlsplit(self.path).path)
                 if operation is None:
                     self.send_json({"error": "Ruta desconocida."}, 404)
@@ -792,7 +818,7 @@ def make_handler(state):
 
 
 def main(argv=None):
-    parser = argparse.ArgumentParser(description="Explorar pipelines de CoverageLab en el navegador local.")
+    parser = argparse.ArgumentParser(description="Estudio integral de entradas, pipelines y 5W1H en el navegador local.")
     parser.add_argument("--port", type=int, default=8765)
     parser.add_argument("--no-browser", action="store_true")
     parser.add_argument("--worker", help=argparse.SUPPRESS)
@@ -807,7 +833,7 @@ def main(argv=None):
     except OSError as exc:
         parser.error(f"No se pudo abrir el puerto {args.port}: {exc}. Prueba --port 8766.")
     url = f"http://127.0.0.1:{server.server_port}/"
-    print(f"CoverageLab · Explorador de pipelines\n{url}\nCtrl+C para cerrar la pantalla local.", flush=True)
+    print(f"CoverageLab · Estudio integral\n{url}\nCtrl+C para cerrar la pantalla local.", flush=True)
     if not args.no_browser:
         webbrowser.open(url)
     try:

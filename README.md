@@ -10,6 +10,10 @@ Automatiza el flujo de coberturas desde un archivo Excel de entrada hasta tres e
 
 El proyecto está centrado en `coverage_studio.py`, que procesa metadata del archivo, interpreta hojas por marca o pipeline, genera slides y construye el banco final.
 
+La pantalla local integra ahora **Entradas → Pipelines → Investigación 5W1H**.
+Puedes crear y llenar los libros, explorar resultados y generar informes desde
+la misma página. Los scripts de consola siguen disponibles.
+
 ## Contenido
 
 - [Qué hace](#qué-hace)
@@ -17,6 +21,7 @@ El proyecto está centrado en `coverage_studio.py`, que procesa metadata del arc
 - [Requisitos](#requisitos)
 - [Instalación](#instalación)
 - [Uso rápido](#uso-rápido)
+- [Estudio integral en la web](#estudio-integral-en-la-web)
 - [Formato del archivo de entrada](#formato-del-archivo-de-entrada)
 - [Convenciones por hoja](#convenciones-por-hoja)
 - [Casos especiales soportados](#casos-especiales-soportados)
@@ -49,6 +54,10 @@ Además, hoy ya incorpora lógica específica para:
 - `archivos_studio.py`: asistente para crear archivos base de captura
 - `scorecards_studio.py`: exportador de scorecards
 - `pipeline_explorer.py`: pantalla local para revisar y elegir pipelines antes de generar
+- `studio_inputs.py`: creación, importación y edición de entradas con guardado atómico
+- `studio_workflow.py`: continuidad de las etapas, invalidación y trabajos 5W1H
+- `studio_5w1h.py`: investigación y exportación usando el motor original de 5W1H
+- `studio_5w1h_vendor/`: motor y modelos locales necesarios; sin depender del programa externo
 - `explorer_web/`: interfaz del explorador (HTML, CSS y JavaScript, sin dependencias web)
 - `Abrir_Explorador.cmd`: acceso para iniciar el explorador en Windows
 - `Modelo_PPT.pptx`: plantilla obligatoria para construir la presentación
@@ -124,7 +133,97 @@ python pipeline_explorer.py --port 8766
    La elección manual tiene prioridad sobre el prefijo de la hoja y AUTO.
 5. **Guardar selección** permite recuperar las elecciones para la misma versión
    del Excel. **Revisar y generar** muestra la selección antes de iniciar.
-6. Descarga los entregables desde la pantalla o abre la carpeta de la ejecución.
+6. Abre los entregables o su carpeta desde la pantalla.
+
+## Estudio integral en la web
+
+Abre `Abrir_Explorador.cmd` o ejecuta `python pipeline_explorer.py --no-browser`.
+Usa las tres opciones de la barra superior sin salir de `http://127.0.0.1:8765/`.
+
+### 1. Entradas
+
+**Nueva entrada** usa los países, categorías y nombres de `archivos_studio.py`.
+Indica fabricante y marcas; cobertura crea una hoja `P0_<marca>` por marca,
+con el orden de ocho columnas original. La unidad queda en el encabezado y se
+conserva al añadir hojas. **Importar Excel** permite cargar un `.xlsx` de hasta
+10 MiB sin sobrescribir archivos existentes.
+
+Selecciona una celda y pega el rango de Excel, o usa **Pegar bloque**. El editor
+admite bloques de varias filas/columnas, celdas vacías, doble clic/F2, Enter/Tab,
+flechas, selección con Mayús, copia de rangos y deshacer. Puedes cambiar de hoja
+conservando el borrador y guardar los cambios de todas las hojas juntos.
+Las ventanas muestran 60 filas y hasta 32 columnas; usa las coordenadas y los
+controles de rango para consultar toda la hoja. Los límites son 20 000 filas,
+256 columnas, 100 hojas y 50 000 celdas por operación de guardado.
+
+Elige el **formato numérico de la fuente**: autodetección segura, punto decimal
+o coma decimal. Una cifra ambigua como `1,234` no se guarda por adivinación;
+la selección permite distinguir miles de decimales. Las fechas se guardan como
+fechas, los números como números y los vacíos como vacíos. La penetración y las
+entradas 5W1H usan puntos porcentuales: pegar `20%` conserva el valor 20.
+
+**Guardar datos** valida el lote completo antes de escribir. Un valor inválido,
+una fórmula protegida o un archivo modificado externamente deja el archivo
+intacto. Las fechas repetidas por mes, desordenadas o con meses faltantes se
+señalan antes de explorar cobertura. Una entrada guardada invalida las revisiones
+anteriores; los análisis se recalculan y las entregas previas se identifican como
+anteriores a los datos actuales.
+
+Este editor está orientado a capturar las entradas de los motores: conserva las
+fórmulas existentes como celdas protegidas y permite pegar valores calculados.
+No ejecuta fórmulas arbitrarias ni reemplaza el motor de cálculo de Excel; las
+extensiones avanzadas de terceros no tienen garantía de preservación al editar.
+
+### 2. Pipelines
+
+**Explorar pipelines** abre el archivo guardado y conserva las funciones de
+cobertura ya disponibles: diez gráficos, KPI, tablas, comparación P0–P6 y selección
+por hoja. **Generar archivos** muestra la revisión final y genera los entregables.
+Los cambios pendientes en entradas deben guardarse o descartarse antes de generar.
+
+### 3. Investigación 5W1H
+
+La investigación usa sus propias matrices de regiones, canales, NSE, tamaños,
+marcas y demás dimensiones; esos datos no se deducen de las series de cobertura.
+Se relaciona el contexto por país, categoría y fabricante, y las marcas coincidentes
+pueden reutilizar su selección de pipelines. Si no existe una entrada para ese
+contexto, crea una nueva o selecciona otra fuente explícitamente.
+
+**Nueva entrada 5W1H** recibe el contexto de cobertura y permite elegir marcas,
+segmentos, unidad del árbol y meses. Crea encabezados, fechas y estructura **sin
+cifras de demostración**. **Llenar / editar datos** lleva al mismo editor. Las entradas
+locales quedan en `inputs/5w1h/`; los originales de la carpeta hermana `../5W1H/`
+se leen y su primera edición crea una copia local. Nunca se sobrescriben los originales.
+
+Selecciona hoja, compras/ventas, pipeline y período para explorar tendencias,
+MAT, participaciones, variaciones y aportes. Árbol, distribución e intervalos de
+confianza usan sus reglas originales. Los gráficos se amplían con clic y permiten
+etiquetas y detalle visual; tablas y origen documentan unidades, base y filtros.
+Las participaciones conservan el total de la fuente al ocultar elementos.
+
+**Generar informe 5W1H** abre una revisión para elegir las hojas con datos y los
+pipelines coincidentes. El Excel/PPT contienen las **hojas completas seleccionadas**;
+los filtros de fecha/elementos son de exploración web, no recortan ese informe.
+Se genera una carpeta nueva dentro de `Output/`, más un registro y JSON de origen,
+opciones y pipelines aplicados. Los botones se habilitan al terminar y abren
+directamente los resultados. El historial se recupera al reiniciar la aplicación.
+
+El motor y sus modelos necesarios están integrados en `studio_5w1h_vendor/`.
+La carpeta externa 5W1H aporta las entradas existentes, pero no es necesaria para
+crear nuevas entradas ni generar informes. No se instalaron dependencias web nuevas.
+
+### Verificación integral
+
+```powershell
+python -X utf8 -m unittest discover -s tests -p test_studio_inputs.py -v
+python -X utf8 -m unittest discover -s tests -p test_studio_5w1h.py -v
+python -X utf8 -m unittest discover -s tests -p test_integrated_studio.py -v
+python -X utf8 -m unittest discover -s tests -p test_pipeline_explorer.py -v
+```
+
+Las pruebas incluyen archivos aislados, edición tipada/atómica, conflictos,
+calendario, permisos HTTP, coincidencia de cálculos, preservación de originales,
+selección vacía de elementos y generación real de Excel/PPT de ambos motores.
 
 **Datos del template Excel** permite consultar la serie mensual (volumen/cobertura,
 hábitos de compra o todas las columnas), seleccionar un mes para ver su detalle,

@@ -4,18 +4,21 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="explorer-token" content="__EXPLORER_TOKEN__">
-  <title>CoverageLab · Explorador de pipelines</title>
+  <title>CoverageLab · Estudio integral</title>
   <link rel="stylesheet" href="/style.css">
+  <link rel="stylesheet" href="/studio.css">
   <script src="/dashboard.js" defer></script>
   <script src="/app.js" defer></script>
+  <script src="/research.js" defer></script>
+  <script src="/studio.js" defer></script>
 </head>
-<body>
+<body data-module="pipelines">
   <div id="app-top" class="app-top">
   <header class="app-header">
     <div id="header-main" class="header-main">
-    <a class="brand" href="/"><span class="brand-icon">CL</span><span>Coverage<span class="brand-light">Lab</span><small>EXPLORADOR DE PIPELINES</small></span></a>
+    <a class="brand" href="/"><span class="brand-icon">CL</span><span>Coverage<span class="brand-light">Lab</span><small>ESTUDIO INTEGRAL</small></span></a>
     <div class="header-progress">
-      <nav class="steps" aria-label="Etapas"><span class="step active" id="step-file"><b>01</b> Cargar archivo</span><span class="step" id="step-review"><b>02</b> Explorar y elegir</span><span class="step" id="step-export"><b>03</b> Generar entregables</span></nav>
+      <nav class="steps module-nav" aria-label="Módulos del estudio"><button class="step" data-module="inputs"><b>01</b> Entradas</button><button class="step active" data-module="pipelines" aria-current="page"><b>02</b> Pipelines</button><button class="step" data-module="research"><b>03</b> Investigación 5W1H</button></nav>
       <div id="header-actions" class="header-actions"><span class="local-status"><i></i> Sesión local</span><button id="toggle-header" class="button secondary header-toggle" aria-expanded="true" aria-controls="result-dock"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="m4 10 4-4 4 4"/></svg><span id="header-toggle-label">Contraer encabezado</span></button></div>
     </div>
     </div>
@@ -33,7 +36,7 @@
   </div>
   </header>
   </div>
-  <div class="app-layout">
+  <div id="pipeline-layout" class="app-layout">
     <aside class="sidebar" aria-label="Archivo y hojas">
       <section class="source-panel">
         <div class="eyebrow">ORIGEN DE LOS DATOS</div>
@@ -61,6 +64,7 @@
       <div class="sidebar-footer">CoverageLab <span>Revisión antes de exportar</span></div>
     </aside>
     <main>
+      <div id="input-pending-notice" class="warnings" hidden>Hay cambios sin guardar en las entradas de este archivo. Guarda o descarta en <button id="return-inputs" class="text-button">Entradas</button> antes de recalcular o generar.</div>
       <section id="empty" class="empty-state">
         <div class="empty-illustration" aria-hidden="true"><svg viewBox="0 0 230 130"><path class="grid-line" d="M20 30H210M20 65H210M20 100H210"/><path class="empty-wp" d="M20 90L50 62L80 78L110 32L140 58L170 22L210 40"/><path class="empty-si" d="M20 103L50 90L80 62L110 78L140 32L170 58L210 22"/></svg><span>P0 → P6</span></div>
         <div class="eyebrow">PRIMERO EXPLORA. DESPUÉS GENERA.</div>
@@ -126,6 +130,8 @@
       </section>
     </main>
   </div>
+  <section id="input-module" class="studio-module" aria-label="Preparar y editar entradas" hidden></section>
+  <section id="research-module" class="studio-module" aria-label="Investigar resultados 5W1H" hidden></section>
   <dialog id="export-dialog"><div class="dialog-heading"><div class="eyebrow">REVISIÓN FINAL</div><h2>Generar con tu selección</h2><p id="dialog-file"></p></div><div id="dialog-selection" class="dialog-selection"></div><p>Se creará una carpeta nueva en <strong>Output</strong>, con el nombre de país, categoría, fabricante, periodo y cobertura del script, más fecha y hora. Conserva el Excel, el PPT, el banco, el reporte de pipelines y la configuración utilizada.</p><div class="dialog-actions"><button id="cancel-export" class="button secondary">Volver a explorar</button><button id="confirm-export" class="button primary">Generar entregables</button></div></dialog>
   <dialog id="file-dialog" class="file-dialog" aria-labelledby="file-dialog-title"><div class="file-dialog-heading"><div><div class="eyebrow">ARCHIVOS DEL PROYECTO</div><h2 id="file-dialog-title">Elige por país, categoría y fabricante</h2><p>Los códigos se traducen con el catálogo de CoverageLab.</p></div><button id="close-files" class="icon-button" aria-label="Cerrar selector de archivos">×</button></div><div class="catalog-filters"><input id="file-search" type="search" placeholder="Buscar fabricante, país, categoría o archivo…" aria-label="Buscar archivos"><label for="file-country" class="sr-only">Filtrar país</label><select id="file-country"><option value="">Todos los países</option></select><label for="file-category" class="sr-only">Filtrar categoría</label><select id="file-category"><option value="">Todas las categorías</option></select></div><p id="catalog-count" class="section-description" aria-live="polite"></p><div id="file-cards" class="file-cards"></div></dialog>
   <dialog id="chart-dialog" class="chart-dialog" aria-labelledby="chart-dialog-title"><div class="file-dialog-heading"><div><div class="eyebrow">DETALLE DEL GRÁFICO</div><h2 id="chart-dialog-title"></h2><p id="chart-dialog-description"></p></div><button id="close-chart" class="icon-button" aria-label="Cerrar gráfico ampliado">×</button></div><div id="chart-dialog-content"></div></dialog>

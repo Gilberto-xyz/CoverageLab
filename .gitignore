@@ -24,6 +24,21 @@
 !explorer_web/app.js
 !explorer_web/dashboard.js
 !explorer_web/style.css
+!explorer_web/studio.js
+!explorer_web/research.js
+!explorer_web/studio.css
+!studio_inputs.py
+!studio_workflow.py
+!studio_5w1h.py
+!studio_5w1h_vendor/__init__.py
+!studio_5w1h_vendor/report_engine.py
+!studio_5w1h_vendor/template_engine.py
+!studio_5w1h_vendor/provenance.json
+!studio_5w1h_vendor/Modelo_5W1H.pptx
+!studio_5w1h_vendor/Plantilla_Entrada_5W1H.xlsx
+!tests/test_studio_inputs.py
+!tests/test_studio_5w1h.py
+!tests/test_integrated_studio.py
 !tests/test_pipeline_explorer.py
 !requirements.txt
 !tests/test_auto_pipeline_comparison.py
@@ -51,3 +66,8 @@
 #   !ruta/al/script_extra.py
 
 # Nota: los Excel u otros binarios quedan ignorados por defecto a menos que se declaren
+
+# Las excepciones por nombre nunca deben incluir datos, capturas ni entregas.
+/Output/
+/outputs/
+/inputs/

@@ -1,7 +1,7 @@
 'use strict';
 const $ = id => document.getElementById(id);
 const token = document.querySelector('meta[name="explorer-token"]').content;
-const state = {analysis: null, active: null, selections: {}, included: {}, busy: false, dirty: false, job: null, files: [], openingResults:false, openingOutput:null, resultRequest:0};
+const state = {analysis: null, active: null, selections: {}, included: {}, busy: false, dirty: false, job: null, files: [], openingResults:false, openingOutput:null, resultRequest:0, pendingInput:null};
 const outputNames = {template:'Abrir Excel', presentation:'Abrir PPT', bank:'Banco', pipeline_report:'Pipelines', selection:'Selección', log:'Registro'};
 const fmt = (value, digits = 1, suffix = '') => value == null ? '—' : new Intl.NumberFormat('es-MX', {minimumFractionDigits: digits, maximumFractionDigits: digits}).format(value) + suffix;
 const month = date => new Intl.DateTimeFormat('es-MX', {month: 'short', year: '2-digit'}).format(new Date(date + 'T12:00:00'));
@@ -61,13 +61,16 @@ function saveDraft() {
 }
 function controls() {
   const working = state.busy || state.job?.status === 'running';
+  const pendingInput=state.pendingInput===$('file').value;
   ['file', 'template', 'trend-axis', 'english', 'round', 'animate', 'refresh-files', 'load', 'browse-files'].forEach(id => { $(id).disabled = working; });
-  const ready = state.analysis && !state.dirty && Object.keys(selectedSheets()).length && !working;
+  $('load').disabled=working || pendingInput;
+  $('input-pending-notice').hidden=!pendingInput;
+  const ready = state.analysis && !state.dirty && Object.keys(selectedSheets()).length && !working && !pendingInput;
   $('save').disabled = !ready;
   const refreshNeeded=!state.analysis || state.dirty;
-  $('generate-files').disabled = working || !$('file').value || (!refreshNeeded && !Object.keys(selectedSheets()).length);
+  $('generate-files').disabled = working || pendingInput || !$('file').value || (!refreshNeeded && !Object.keys(selectedSheets()).length);
   $('generate-files').textContent=state.job?.status==='running' ? 'Generando…' : state.busy ? 'Procesando…' : 'Generar archivos';
-  $('generate-files').title = refreshNeeded ? 'Cargar los datos y revisar antes de crear una nueva entrega' : !Object.keys(selectedSheets()).length ? 'Incluye al menos una hoja para generar' : `Generar una nueva entrega con ${$('template').selectedOptions[0].textContent} y los pipelines elegidos`;
+  $('generate-files').title = pendingInput ? 'Guarda los cambios del editor de entradas antes de generar' : refreshNeeded ? 'Cargar los datos y revisar antes de crear una nueva entrega' : !Object.keys(selectedSheets()).length ? 'Incluye al menos una hoja para generar' : `Generar una nueva entrega con ${$('template').selectedOptions[0].textContent} y los pipelines elegidos`;
   const outputsReady=state.job?.file===$('file').value && state.job?.status==='complete';
   $('open-folder').disabled = !outputsReady || working || !!state.openingResults || !!state.openingOutput;
   $('open-folder').textContent=state.openingResults ? 'Abriendo…' : 'Abrir carpeta';
@@ -201,7 +204,6 @@ async function load() {
     $('search').value = '';
     const invalid = analysis.sheets.filter(sheet => sheet.error).length;
     status(invalid ? `${invalid} hoja(s) requieren corrección y quedan excluidas.` : 'Panel del Excel listo.' + (saved ? ' Selección recuperada.' : ''));
-    $('step-file').classList.remove('active'); $('step-review').classList.add('active'); $('step-export').classList.remove('active');
     render();
   } catch (error) { status(error.message, true); }
   finally { state.busy = false; controls(); }
@@ -650,7 +652,6 @@ async function exportFiles() {
     state.resultRequest++;
     status('Generación iniciada con tu selección. El registro se actualiza aquí.');
     renderResults();
-    $('step-review').classList.remove('active'); $('step-export').classList.add('active');
     pollJob();
   } catch (error) { status(error.message, true); }
   finally { state.busy = false; controls(); }
@@ -658,11 +659,11 @@ async function exportFiles() {
 function renderResults() {
   const job=state.job?.file===$('file').value ? state.job : null;
   const coverage=job?.options?.coverage_type;
-  $('job-title').textContent=!job ? 'Aún no hay una entrega para este archivo' : job.status==='complete' ? (coverage ? `Cobertura ${coverage.toLocaleLowerCase()}` : 'Entrega lista') : job.status==='failed' ? 'La generación requiere revisión' : 'Generando entregables…';
+  $('job-title').textContent=!job ? 'Aún no hay una entrega para este archivo' : job.source_changed ? 'Entrega anterior · datos modificados' : job.status==='complete' ? (coverage ? `Cobertura ${coverage.toLocaleLowerCase()}` : 'Entrega lista') : job.status==='failed' ? 'La generación requiere revisión' : 'Generando entregables…';
   $('job-badge').hidden=!job;
   $('job-badge').textContent=job?.status==='complete' ? 'Completado' : job?.status==='failed' ? 'Error' : 'En curso';
   $('job-date').textContent=job?.started_at ? new Intl.DateTimeFormat('es-MX',{dateStyle:'medium',timeStyle:'short'}).format(new Date(job.started_at)) : '';
-  $('result-hint').textContent=job?.status==='complete' ? 'Archivos de la última entrega de este Excel.' : 'Se habilitan al finalizar la generación.';
+  $('result-hint').textContent=job?.source_changed ? 'Estos resultados corresponden a los datos anteriores. Genera una nueva entrega para actualizar.' : job?.status==='complete' ? 'Archivos de la última entrega de este Excel.' : 'Se habilitan al finalizar la generación.';
   $('job-delivery-title').textContent=job?.title || '';
   $('job-message').textContent=job ? `Ruta: ${job.directory}${job.error ? `\n${job.error}` : ''}` : '';
   $('job-log').textContent=(job?.log || '').replace(/\x1b\[[0-9;]*[a-zA-Z]/g,'');
@@ -769,3 +770,36 @@ chromeObserver.observe($('app-top'));
 window.addEventListener('resize',syncChromeGeometry);
 syncChromeGeometry();controls();
 refreshFiles().catch(error => status(error.message, true));
+
+window.CoverageApp = {
+  inputPending(name, pending) {state.pendingInput=pending ? name : null;controls();},
+  context() {
+    const file = state.files.find(entry => entry.name === $('file').value);
+    const sheet = state.analysis?.sheets.find(entry => entry.name === state.active);
+    return {file, activeSheet:sheet?.name, pipeline:sheet ? state.selections[sheet.name] : 0,
+      selections:selectedSheets(), brandPipelines:Object.fromEntries((state.analysis?.sheets || []).filter(entry=>state.included[entry.name] && !entry.error).map(entry=>[entry.brand,state.selections[entry.name]])), loaded:!!state.analysis && !state.dirty};
+  },
+  async openFile(name) {
+    if (state.busy || state.job?.status === 'running') throw new Error('Espera a que termine la operación de cobertura.');
+    await refreshFiles();
+    if (![...$('file').options].some(option => option.value === name)) throw new Error('El archivo no está disponible para cobertura.');
+    $('file').value=name;renderFileDetail();await refreshJobForFile();
+    await load();
+    if (!state.analysis) throw new Error($('status').textContent || 'Revisa las entradas antes de explorar.');
+  },
+  async sourceChanged(name) {
+    if (state.analysis?.file === name || $('file').value === name) {
+      state.analysis=null;state.dirty=true;$('workspace').hidden=true;$('sheet-panel').hidden=true;$('empty').hidden=false;
+      $('export-dialog').close();
+      status('Entradas actualizadas. Carga de nuevo para recalcular los pipelines y resultados.');
+    }
+    await refreshFiles();
+    controls();
+  },
+  openChart(title, description, content) {
+    $('chart-dialog-title').textContent=title;$('chart-dialog-description').textContent=description;
+    $('chart-dialog-content').replaceChildren(content);$('chart-dialog').showModal();
+  },
+  geometry:syncChromeGeometry,
+  redraw:drawChart,
+};
