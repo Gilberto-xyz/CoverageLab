@@ -1517,6 +1517,100 @@ EXCEL_DASHBOARD_KPI_COLORS = {
     COL_FREQ: "#ED7D31", COL_PENET: "#FFC000", COL_BUYERS: "#5B9BD5",
 }
 EXCEL_DASHBOARD_CHANGE_THRESHOLD = 0.25
+PPT_EXTRA_KPIS = {
+    "purchase_average": (COL_COMPRA_MEDIA, ("Compra media", "Compra média", "Average purchase")),
+    "purchase_occasion": (COL_COMPRA_OCA, ("Compra por ocasión", "Compra por ocasião", "Purchase per occasion")),
+    "frequency": (COL_FREQ, ("Frecuencia", "Frequência", "Frequency")),
+    "penetration": (COL_PENET, ("Penetración", "Penetração", "Penetration")),
+    "buyers_series": (COL_BUYERS, ("Compradores", "Compradores", "Buyers")),
+}
+
+
+def validate_ppt_extra_charts(value, sheets):
+    if not isinstance(value, dict) or set(value) - set(sheets):
+        raise ValueError("Los gráficos extra deben corresponder a las hojas incluidas.")
+    result = {}
+    for name, keys in value.items():
+        if not isinstance(keys, list) or len(keys) > len(PPT_EXTRA_KPIS):
+            raise ValueError("Selección de gráficos extra inválida.")
+        if any(not isinstance(key, str) or key not in PPT_EXTRA_KPIS for key in keys) or len(set(keys)) != len(keys):
+            raise ValueError("Gráfico extra desconocido o duplicado.")
+        result[name] = list(keys)
+    return result
+
+
+def add_extra_kpi_slides(builder, frame, keys, brand, unit):
+    """Añade únicamente los KPI solicitados, con datos y gráficos editables."""
+    from pptx.chart.data import CategoryChartData
+    from pptx.enum.chart import XL_CHART_TYPE
+    from pptx.dml.color import RGBColor
+    from pptx.oxml.xmlchemy import OxmlElement
+    count = 0
+    language = 1 if builder.lang_index == 1 else 2 if builder.lang_index == 3 else 0
+    for key in keys:
+        column, titles = PPT_EXTRA_KPIS[key]
+        values = pd.to_numeric(frame[column], errors="coerce").replace([float("inf"), -float("inf")], float("nan"))
+        valid = values.notna()
+        if not valid.any():
+            continue
+        indexes = [i for i, flag in enumerate(valid) if flag]
+        first, last = indexes[0], indexes[-1] + 1
+        dates = pd.to_datetime(frame[COL_DATA].iloc[first:last])
+        numbers = [float(value) if pd.notna(value) else None for value in values.iloc[first:last]]
+        slide = builder.ppt.slides.add_slide(builder.ppt.slide_layouts[PPT_LAYOUT_INDEX])
+        slide.name = f"KPI:{key} | {brand}"
+        title = ensure_title_frame(slide, width=builder.ppt.slide_width - Inches(1))
+        title.text = f"{brand} | {titles[language]}"
+        for paragraph in title.paragraphs:
+            paragraph.font.name = "Arial"
+            paragraph.font.size = Pt(20)
+            paragraph.font.bold = True
+        data = CategoryChartData()
+        data.categories = [date.strftime("%m/%Y") for date in dates]
+        data.add_series(titles[language], numbers)
+        width, height = builder.ppt.slide_width, builder.ppt.slide_height
+        chart = slide.shapes.add_chart(XL_CHART_TYPE.LINE_MARKERS,
+            int(width*.07), int(height*.22), int(width*.86), int(height*.57), data).chart
+        chart.has_legend = False
+        chart.has_title = False
+        chart.chart_style = 13
+        series = chart.series[0]
+        series.format.line.color.rgb = RGBColor.from_string(EXCEL_DASHBOARD_KPI_COLORS[column].lstrip("#"))
+        series.format.line.width = Pt(2)
+        series.marker.size = 4
+        series.marker.format.fill.solid()
+        series.marker.format.fill.fore_color.rgb = series.format.line.color.rgb
+        series.marker.format.line.color.rgb = series.format.line.color.rgb
+        chart.category_axis.tick_labels.font.name = "Arial"
+        chart.category_axis.tick_labels.font.size = Pt(10)
+        spacing = OxmlElement('c:tickLblSkip')
+        spacing.set('val', str(max(1, math.ceil(len(numbers)/12))))
+        chart.category_axis._element.append(spacing)
+        chart.value_axis.tick_labels.font.size = Pt(11)
+        suffix = "%" if key == "penetration" else ""
+        decimals = 0 if key == "buyers_series" else 4 if max(abs(v) for v in numbers if v is not None) < .1 else 2
+        chart.value_axis.tick_labels.number_format = '#,##0' + ('.' + '0'*decimals if decimals else '') + ('"%"' if suffix else '')
+        chart.value_axis.tick_labels.number_format_is_linked = False
+        if values.min() >= 0:
+            chart.value_axis.minimum_scale = 0
+        latest = float(values.iloc[last-1])
+        recent = float(values.tail(12).mean())
+        average = float(values.mean())
+        labels = (("Último mes", "Promedio 12 meses", "Promedio total"),
+                  ("Último mês", "Média 12 meses", "Média total"),
+                  ("Latest month", "12-month average", "Overall average"))[language]
+        formatted = [f"{value:,.{decimals}f}{suffix}" for value in (latest, recent, average)]
+        footer = slide.shapes.add_textbox(int(width*.07), int(height*.82), int(width*.86), int(height*.12)).text_frame
+        footer.text = "   ·   ".join(f"{label}: {value}" for label, value in zip(labels, formatted))
+        if key in {"purchase_average", "purchase_occasion"}:
+            footer.text += f"   ·   {unit}"
+        for paragraph in footer.paragraphs:
+            paragraph.font.name = "Arial"
+            paragraph.font.size = Pt(14)
+        count += 1
+    return count
+
+
 EXCEL_DASHBOARD_RANGE_THRESHOLD = 0.75
 EXCEL_CORRELATION_COLORS = ("F8696B", "FFEB84", "63BE7B")
 EXCEL_VARIATION_POSITIVE_FILL = "C6EFCE"
@@ -5268,6 +5362,7 @@ class ExecutionOptions:
     animate_trend_pipeline: bool = True
     pipeline_overrides: Dict[str, int] = field(default_factory=dict)
     sheet_metadata_overrides: Dict[str, SheetBankMetadata] = field(default_factory=dict)
+    ppt_extra_charts: Dict[str, List[str]] = field(default_factory=dict)
 
     @classmethod
     def from_scenario(cls, scenario_key: str) -> Optional["ExecutionOptions"]:
@@ -12315,7 +12410,9 @@ def generate_presentation_and_bank(
     animate_trend_pipeline: bool = True,
     pipeline_overrides: Optional[Dict[str, int]] = None,
     sheet_metadata_overrides: Optional[Dict[str, SheetBankMetadata]] = None,
+    ppt_extra_charts: Optional[Dict[str, List[str]]] = None,
 ) -> Tuple[str, "pd.DataFrame", "pd.DataFrame", "pd.DataFrame"]:
+    ppt_extra_charts = validate_ppt_extra_charts(ppt_extra_charts or {}, marcas)
     chosen_lang, lang_index = determine_language(include_english, pais_nombre)
     include_summary_category = any(
         bool(parse_sheet_name_identity(sheet_name).category_code)
@@ -12385,6 +12482,7 @@ def generate_presentation_and_bank(
             pipelines_to_run = [int(forced_pipeline)] if forced_pipeline is not None else list(range(7))
         n_slides_marca = len(pipelines_to_run) * (2 + (1 if len(df_marca_ppt) >= 24 else 0))
         total_slides_to_generate += n_slides_marca
+        total_slides_to_generate += len(ppt_extra_charts.get(marca_sheet_name, []))
 
     progress = Progress(
         SpinnerColumn(),
@@ -12629,6 +12727,12 @@ def generate_presentation_and_bank(
                     progress=progress,
                     task_id=task_id,
                 )
+                if pipeline == pipelines_to_run[-1]:
+                    extras_created = add_extra_kpi_slides(builder, df_marca_ppt,
+                        ppt_extra_charts.get(marca_sheet_name, []), section_title, measure_unit)
+                    slides_created += extras_created
+                    if extras_created:
+                        progress.update(task_id, advance=extras_created)
                 current_section_title = next_section_title
                 register_section_slide_range(
                     brand_section_map,
@@ -13583,6 +13687,7 @@ class CoverageStudioUltraApp:
                 animate_trend_pipeline=options.animate_trend_pipeline,
                 pipeline_overrides=options.pipeline_overrides,
                 sheet_metadata_overrides=options.sheet_metadata_overrides,
+                ppt_extra_charts=options.ppt_extra_charts,
             )
             ruta_banco_final = save_coverage_bank(
                 df_bank=df_bank,

@@ -63,6 +63,10 @@ body{padding-top:var(--header-height)}
 .output-buttons .button{display:inline-flex;align-items:center;justify-content:center;min-height:31px;padding:6px 9px;font-size:11px;line-height:1.5;border-radius:6px}
 .result-file{color:var(--teal);background:#f3faf7;border:1px solid #c8ded5;font-weight:400}
 .result-file:hover:enabled{background:#e9f6f1}
+.ppt-chart-choice{display:inline-flex;align-items:center;gap:5px;white-space:nowrap;font-size:11px;color:var(--teal);cursor:pointer;padding:5px 7px;background:#f3faf7;border:1px solid #c8ded5;border-radius:5px}
+.ppt-chart-choice input{accent-color:var(--teal);margin:0}
+.dashboard-chart-heading{flex-wrap:wrap}
+.dashboard-chart-heading h3{order:-1;flex:1 1 120px}
 .result-file:disabled{background:#f3f5f7;border-color:#d9e1e6;color:#6e808c;opacity:.7}
 .result-file{display:inline-flex;align-items:center;justify-content:center;gap:5px}
 .output-icon{width:15px;height:15px;flex-shrink:0;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round;pointer-events:none}

@@ -1,7 +1,7 @@
 'use strict';
 const $ = id => document.getElementById(id);
 const token = document.querySelector('meta[name="explorer-token"]').content;
-const state = {analysis: null, active: null, selections: {}, included: {}, busy: false, dirty: false, job: null, files: [], openingResults:false, openingOutput:null, resultRequest:0, pendingInput:null};
+const state = {analysis: null, active: null, selections: {}, included: {}, pptExtras: {}, busy: false, dirty: false, job: null, files: [], openingResults:false, openingOutput:null, resultRequest:0, pendingInput:null};
 const outputNames = {template:'Abrir Excel', presentation:'Abrir PPT', bank:'Banco', pipeline_report:'Pipelines', selection:'Selección', log:'Registro'};
 const fmt = (value, digits = 1, suffix = '') => value == null ? '—' : new Intl.NumberFormat('es-MX', {minimumFractionDigits: digits, maximumFractionDigits: digits}).format(value) + suffix;
 const month = date => new Intl.DateTimeFormat('es-MX', {month: 'short', year: '2-digit'}).format(new Date(date + 'T12:00:00'));
@@ -72,10 +72,11 @@ function requestOptions() {
 function selectedSheets() {
   return Object.fromEntries(Object.entries(state.selections).filter(([name]) => state.included[name]));
 }
-function payload() { return {analysis_id: state.analysis.id, selections: selectedSheets()}; }
+function payload() { return {analysis_id: state.analysis.id, selections: selectedSheets(),
+  ppt_extras:Object.fromEntries(Object.keys(selectedSheets()).filter(name=>state.pptExtras[name]?.length).map(name=>[name,state.pptExtras[name]]))}; }
 function draftKey() { return `coveragelab-selection-${state.analysis.selection_key}`; }
 function saveDraft() {
-  try { localStorage.setItem(draftKey(), JSON.stringify({selections: state.selections, included: state.included})); } catch (_) { /* Disk save remains available. */ }
+  try { localStorage.setItem(draftKey(), JSON.stringify({selections: state.selections, included: state.included,ppt_extras:state.pptExtras})); } catch (_) { /* Disk save remains available. */ }
 }
 function controls() {
   const working = state.busy || state.job?.status === 'running';
@@ -102,7 +103,7 @@ function controls() {
   $('job-log-details').hidden = !state.job || state.job.file!==$('file').value;
   $('select-all').disabled = working;
   $('select-none').disabled = working;
-  document.querySelectorAll('.sheet-row input, .pipeline-button').forEach(control => { control.disabled = working || control.dataset.unavailable === 'true'; });
+  document.querySelectorAll('.sheet-row input, .pipeline-button, .ppt-extra-input').forEach(control => { control.disabled = working || control.dataset.unavailable === 'true'; });
   const active = state.analysis?.sheets.find(sheet => sheet.name === state.active);
   $('use-recommended').disabled = working || !active?.pipelines?.[active.recommended]?.available;
 }
@@ -203,19 +204,21 @@ async function load() {
   try {
     const analysis = await api('/api/analyze', requestOptions());
     if (analysis.sheets.some(sheet => !sheet.error && !sheet.dashboard)) throw new Error('Reinicia el explorador local para cargar el panel completo del Excel.');
-    state.analysis = analysis; state.selections = {}; state.included = {};
+    state.analysis = analysis; state.selections = {}; state.included = {}; state.pptExtras = {};
     $('window').value = 'all'; $('dashboard-window').value = 'all';
     $('template-view').value = 'all'; $('table-columns').value = 'all';
     renderFileDetail();
     let saved;
     try { saved = JSON.parse(localStorage.getItem(draftKey()) || 'null'); } catch (_) { saved = null; }
-    if (!saved && analysis.saved_selection) saved = {selections: analysis.saved_selection.selections,
+    if (!saved && analysis.saved_selection) saved = {selections: analysis.saved_selection.selections,ppt_extras:analysis.saved_selection.ppt_extras,
       included: Object.fromEntries(Object.keys(analysis.saved_selection.selections).map(name => [name, true]))};
     analysis.sheets.forEach(sheet => {
       if (sheet.error) { state.included[sheet.name] = false; return; }
       const previous = saved?.selections?.[sheet.name];
       state.selections[sheet.name] = Number.isInteger(previous) && sheet.pipelines[previous]?.available ? previous : sheet.default_pipeline;
       state.included[sheet.name] = saved ? !!saved.included?.[sheet.name] : true;
+      const extras=saved?.ppt_extras?.[sheet.name];
+      state.pptExtras[sheet.name] = Array.isArray(extras) ? [...new Set(extras.filter(key=>Object.hasOwn(driverMetrics,key)))] : [];
     });
     state.active = analysis.sheets.find(sheet => !sheet.error)?.name || analysis.sheets[0]?.name;
     $('empty').hidden = true; $('workspace').hidden = false; $('sheet-panel').hidden = false;
@@ -473,8 +476,11 @@ function renderDashboard() {
   const count=CoverageDashboard.render($('dashboard-grid'),$('dashboard-nav'),sheet,selected,state.analysis.chart_colors,dashboardOptions(),(model,options)=>{
     $('chart-dialog-title').textContent=model.title;$('chart-dialog-description').textContent=`${sheet.brand} · P${selected} · ${model.description}`;
     $('chart-dialog').showModal();CoverageDashboard.plot($('chart-dialog-content'),model,options,true);
-  });
-  $('dashboard-reference').textContent=`${count} gráficos visibles · ${sheet.brand} · P${selected} · Corte ${month(sheet.dates.at(-1))}. Todo se calcula al cargar el Excel.`;
+  },{selected:state.pptExtras[sheet.name] || [],disabled:state.busy || state.job?.status==='running',change:(key,checked)=>{
+    const extras=new Set(state.pptExtras[sheet.name] || []);if(checked)extras.add(key);else extras.delete(key);
+    state.pptExtras[sheet.name]=[...extras];saveDraft();
+  }});
+  $('dashboard-reference').textContent=`${count} gráficos visibles · ${sheet.brand} · P${selected} · Corte ${month(sheet.dates.at(-1))}. Los gráficos básicos se mantienen en el PPT. Marca «Incluir en PPT» en los KPI extra de esta hoja.`;
   [['Diagnóstico KPI','excel-diagnostics'],['Datos mensuales y P0–P6','template-table'],['Variaciones','excel-table-variations'],['Correlaciones','excel-table-correlations'],['Promedios MAT','excel-table-averages'],['Detalle anual MAT','excel-table-annual-mat']].forEach(([title,id])=>{
     const link=item('a',title);link.href=`#${id}`;link.className='dashboard-detail-link';
     link.addEventListener('click',()=>{if($('template-view').value!=='all'){$('template-view').value='all';renderTemplate();}});$('dashboard-nav').append(link);
@@ -653,7 +659,9 @@ async function saveSelection() {
 function reviewExport() {
   $('dialog-file').textContent = `${state.analysis.file} · ${$('template').selectedOptions[0].textContent}`;
   $('dialog-selection').replaceChildren();
-  Object.entries(selectedSheets()).forEach(([name, pipeline]) => { const row = item('div', null, 'dialog-row'); row.append(item('span', name), item('strong', `P${pipeline}`)); $('dialog-selection').append(row); });
+  Object.entries(selectedSheets()).forEach(([name, pipeline]) => { const row = item('div', null, 'dialog-row');
+    const extras=(state.pptExtras[name] || []).map(key=>driverMetrics[key].title);
+    row.append(item('span',name+(extras.length ? ` · Extra: ${extras.join(', ')}` : ' · Solo gráficos básicos')), item('strong', `P${pipeline}`)); $('dialog-selection').append(row); });
   $('export-dialog').showModal();
 }
 async function prepareExport() {

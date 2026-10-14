@@ -167,12 +167,23 @@ window.CoverageDashboard = (() => {
     inspect(n-1);
   }
 
-  function render(root, nav, sheet, pipeline, colors, options, open) {
+  function render(root, nav, sheet, pipeline, colors, options, open, ppt = {}) {
     root.replaceChildren();nav.replaceChildren();
     const figures=models(sheet,pipeline,colors);
     figures.forEach((model,index)=>{
       const card=node('article',null,'dashboard-chart-card');card.id=`excel-chart-${model.key}`;card.dataset.chart=model.key;
       const heading=node('div',null,'dashboard-chart-heading'), title=node('h3',model.title);
+      if(model.kpi) {
+        const label=node('label',null,'ppt-chart-choice'), input=node('input');
+        input.type='checkbox';input.className='ppt-extra-input';input.checked=!!ppt.selected?.includes(model.key);input.disabled=!!ppt.disabled || !model.kpi.total_count;
+        if(!model.kpi.total_count){input.dataset.unavailable='true';label.title='Este KPI no tiene datos para el PPT';}
+        input.setAttribute('aria-label',`Incluir ${model.title} en PPT`);
+        if(model.kpi.total_count)label.title='Añadir la serie mensual completa de este KPI a la presentación de esta hoja';
+        label.append(input,node('span','Incluir en PPT'));
+        label.addEventListener('click',event=>event.stopPropagation());
+        input.addEventListener('change',()=>ppt.change?.(model.key,input.checked));
+        heading.append(label);
+      }
       const expand=()=>open(model,options);
       const button=node('button','Ampliar ↗','text-button');button.setAttribute('aria-label',`Ampliar ${model.title}`);
       button.addEventListener('click',event=>{event.stopPropagation();expand();});
@@ -180,7 +191,7 @@ window.CoverageDashboard = (() => {
       let pointerStart;
       card.addEventListener('pointerdown',event=>{pointerStart={x:event.clientX,y:event.clientY};});
       card.addEventListener('click',event=>{
-        if(event.target.closest('button') || (pointerStart && Math.hypot(event.clientX-pointerStart.x,event.clientY-pointerStart.y)>8))return;
+        if(event.target.closest('button,input,label') || (pointerStart && Math.hypot(event.clientX-pointerStart.x,event.clientY-pointerStart.y)>8))return;
         expand();
       });
       card.addEventListener('keydown',event=>{

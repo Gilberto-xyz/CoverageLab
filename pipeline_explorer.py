@@ -22,6 +22,7 @@ from urllib.parse import parse_qs, quote, urlsplit
 import webbrowser
 
 from studio_desktop import open_folder
+from delivery_files import auxiliary, manifests, manifest_directory, organize_auxiliaries
 
 ROOT = Path(__file__).resolve().parent
 ASSETS = ROOT / "explorer_web"
@@ -84,7 +85,7 @@ def options_from_request(payload):
 
 def serialize_options(options):
     return {key: value for key, value in asdict(options).items()
-            if key not in {"pipeline_overrides", "sheet_metadata_overrides"}}
+            if key not in {"pipeline_overrides", "sheet_metadata_overrides", "ppt_extra_charts"}}
 
 
 def monthly_problem(df, core):
@@ -337,11 +338,11 @@ class ExplorerState:
     def restore_jobs(self):
         """Recupera entregas locales verificadas, sin mover las ejecuciones anteriores."""
         jobs = []
-        for manifest in self.output_root.glob("*/job.json"):
+        for manifest in manifests(self.output_root, "job.json"):
             try:
                 job = json.loads(manifest.read_text(encoding="utf-8"))
                 directory = Path(job["directory"]).resolve()
-                if directory != manifest.parent.resolve() or not directory.is_relative_to(self.output_root.resolve()):
+                if directory != manifest_directory(manifest).resolve() or not directory.is_relative_to(self.output_root.resolve()):
                     continue
                 if job["status"] != "complete" or not isinstance(job["id"], str):
                     continue
@@ -352,15 +353,16 @@ class ExplorerState:
                     continue
                 for out in job["outputs"]:
                     out["url"] = f"/api/download?job={quote(job['id'])}&output={quote(out['label'])}"
+                organize_auxiliaries(directory, ("job.json", "selection.json", "generation.log", "result.json"))
                 jobs.append(job)
             except (OSError, ValueError, KeyError, TypeError):
                 continue
         # Las salidas del explorador anterior siguen disponibles en su ubicación.
         legacy_root = self.root / "outputs" / "pipeline_explorer"
-        for result_path in legacy_root.glob("*/result.json"):
+        for result_path in manifests(legacy_root, "result.json"):
             try:
                 result = json.loads(result_path.read_text(encoding="utf-8"))
-                directory = result_path.parent.resolve()
+                directory = manifest_directory(result_path).resolve()
                 if not directory.is_relative_to(legacy_root.resolve()) or result.get("error") or not result.get("outputs"):
                     continue
                 outputs = []
@@ -371,6 +373,7 @@ class ExplorerState:
                     outputs.append({"label": label, "name": file.name, "path": str(file),
                                     "url": f"/api/download?job={quote(directory.name)}&output={quote(label)}"})
                 started = datetime.strptime(directory.name[:15], "%Y%m%d_%H%M%S").astimezone().isoformat()
+                organize_auxiliaries(directory, ("selection.json", "generation.log", "result.json"))
                 jobs.append({"id": directory.name, "status": "complete", "directory": str(directory),
                              "title": Path(outputs[0]["path"]).parent.name, "started_at": started,
                              "outputs": outputs, "error": None})
@@ -380,7 +383,7 @@ class ExplorerState:
             # Las entregas anteriores guardaban el origen en selection.json.
             if not job.get("file"):
                 try:
-                    config_path = (Path(job["directory"]) / "selection.json").resolve()
+                    config_path = auxiliary(job["directory"], "selection.json")
                     if not config_path.is_relative_to(Path(job["directory"]).resolve()):
                         raise ValueError("Configuración fuera de la entrega.")
                     config = json.loads(config_path.read_text(encoding="utf-8"))
@@ -442,7 +445,7 @@ class ExplorerState:
             raise ValueError("Archivo de salida desconocido.")
         directory = self.delivery_directory(job)
         if label in {"selection", "log"}:
-            file = directory / ("selection.json" if label == "selection" else "generation.log")
+            file = auxiliary(directory, "selection.json" if label == "selection" else "generation.log")
         else:
             output = next((out for out in job["outputs"] if out["label"] == label), None)
             if output is None:
@@ -539,11 +542,21 @@ class ExplorerState:
                 raise ValueError(f"{name} no tiene historia suficiente para P{pipeline}.")
         return analysis, source, selections
 
+    def reviewed_extras(self, payload, selections, analysis):
+        extras = engine().validate_ppt_extra_charts(payload.get("ppt_extras", {}), selections)
+        sheets = {sheet["name"]: sheet for sheet in analysis["sheets"]}
+        for name, keys in extras.items():
+            for key in keys:
+                if not any(value is not None for value in sheets[name][key]):
+                    raise ValueError(f"{name}: el KPI {key} no tiene datos para el PPT.")
+        return extras
+
     def save_selection(self, payload):
         with self.analysis_lock:
             analysis, _, selections = self.reviewed_selection(payload)
+            extras = self.reviewed_extras(payload, selections, analysis)
             selection = {"file": analysis["file"], "fingerprint": analysis["fingerprint"],
-                         "options": analysis["options"], "selections": selections}
+                         "options": analysis["options"], "selections": selections, "ppt_extras": extras}
             directory = self.root / "outputs" / "pipeline_explorer" / "selections"
             directory.mkdir(parents=True, exist_ok=True)
             target = directory / f"{analysis['selection_key']}.json"
@@ -558,6 +571,7 @@ class ExplorerState:
             if any(job["status"] == "running" for job in self.jobs.values()):
                 raise ValueError("Ya hay una generación en curso. Espera a que termine.")
             analysis, source, selections = self.reviewed_selection(payload)
+            extras = self.reviewed_extras(payload, selections, analysis)
             started = datetime.now().astimezone()
             job_id = started.strftime("%Y%m%d_%H%M%S") + "_" + secrets.token_hex(3)
             workdir = self.output_root / ".runs" / job_id
@@ -569,7 +583,7 @@ class ExplorerState:
                 raise ValueError("El Excel cambió al copiarlo. Vuelve a cargarlo.")
             shutil.copy2(self.root / "Modelo_PPT.pptx", workdir / "Modelo_PPT.pptx")
             config = {"file": source.name, "fingerprint": analysis["fingerprint"],
-                      "options": analysis["options"], "selections": selections,
+                      "options": analysis["options"], "selections": selections, "ppt_extras": extras,
                       "output_root": str(self.output_root), "run_suffix": started.strftime("%Y%m%d_%H%M%S"),
                       "metadata": {sheet["name"]: sheet["metadata"] for sheet in analysis["sheets"] if sheet["name"] in selections}}
             config_path = workdir / "selection.json"
@@ -603,11 +617,11 @@ class ExplorerState:
                        for label, path in result["outputs"].items() if path]
             if not outputs or any(not Path(out["path"]).resolve().is_relative_to(directory) or not Path(out["path"]).is_file() for out in outputs):
                 raise ValueError("Los entregables no pertenecen a la carpeta de resultados.")
-            shutil.copy2(workdir / "generation.log", directory / "generation.log")
-            shutil.copy2(result_path, directory / "result.json")
+            shutil.copy2(workdir / "generation.log", auxiliary(directory, "generation.log", write=True))
+            shutil.copy2(result_path, auxiliary(directory, "result.json", write=True))
             with self.lock:
                 finished = dict(self.jobs[job_id], status="complete", outputs=outputs, directory=str(directory), title=result["title"])
-                (directory / "job.json").write_text(json.dumps(finished, ensure_ascii=False, indent=2), encoding="utf-8")
+                auxiliary(directory, "job.json", write=True).write_text(json.dumps(finished, ensure_ascii=False, indent=2), encoding="utf-8")
                 self.jobs[job_id] = finished
             with contextlib.suppress(OSError):
                 for name in ("generation.log", "result.json", "selection.json"):
@@ -623,7 +637,7 @@ class ExplorerState:
             if job_id not in self.jobs:
                 raise ValueError("Generación desconocida.")
             job = dict(self.jobs[job_id])
-        path = Path(job["directory"]) / "generation.log"
+        path = auxiliary(job["directory"], "generation.log")
         if path.exists():
             with path.open("rb") as log:
                 log.seek(max(0, path.stat().st_size - 6000))
@@ -649,6 +663,7 @@ def run_worker(config_path):
     try:
         options = core.ExecutionOptions(**config["options"])
         options.pipeline_overrides = config["selections"]
+        options.ppt_extra_charts = config.get("ppt_extras", {})
         options.sheet_metadata_overrides = {name: core.SheetBankMetadata(**values) for name, values in config["metadata"].items()}
         app = core.CoverageStudioUltraApp()
         app.root_dir = str(config_path.parent)
@@ -680,7 +695,7 @@ def run_worker(config_path):
                 raise ValueError("La carpeta final debe estar directamente dentro de Output.")
             shutil.move(str(source_dir), str(directory))
             outputs = {key: str(directory / Path(path).name) for key, path in outputs.items() if path}
-            shutil.copy2(config_path, directory / "selection.json")
+            shutil.copy2(config_path, auxiliary(directory, "selection.json", write=True))
             result = {"outputs": outputs, "directory": str(directory), "title": title}
         else:
             result = {"outputs": outputs}
@@ -768,9 +783,9 @@ def make_handler(state):
                     job = state.job(params.get("job", [""])[0])
                     label = params.get("output", [""])[0]
                     if label == "log":
-                        file = Path(job["directory"]) / "generation.log"
+                        file = auxiliary(job["directory"], "generation.log")
                     elif label == "selection":
-                        file = Path(job["directory"]) / "selection.json"
+                        file = auxiliary(job["directory"], "selection.json")
                     else:
                         output = next((out for out in job["outputs"] if out["label"] == label), None)
                         if output is None:

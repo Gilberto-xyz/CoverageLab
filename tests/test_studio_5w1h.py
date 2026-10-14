@@ -239,11 +239,12 @@ class ResearchStudioTests(unittest.TestCase):
         self.assertEqual(delivery.parent, self.root / "Output")
         self.assertTrue(delivery.name.startswith(result["title"] + "__"))
         self.assertIn("-12-25_5W1H__", delivery.name)
-        self.assertTrue(all(Path(path).is_file() and Path(path).parent == delivery for path in result["outputs"].values()))
-        worker_result = json.loads((delivery / "_result.json").read_text(encoding="utf-8"))
+        self.assertTrue(all(Path(path).is_file() and Path(path).is_relative_to(delivery) for path in result["outputs"].values()))
+        self.assertEqual({path.suffix for path in delivery.iterdir() if path.is_file()}, {".xlsx", ".pptx"})
+        worker_result = json.loads((delivery / "_sistema" / "_result.json").read_text(encoding="utf-8"))
         self.assertEqual(worker_result["Excel"], result["outputs"]["Excel"])
         self.assertEqual(worker_result["PPT"], result["outputs"]["PPT"])
-        worker_request = json.loads((delivery / "_input" / "request.json").read_text(encoding="utf-8"))
+        worker_request = json.loads((delivery / "_sistema" / "_input" / "request.json").read_text(encoding="utf-8"))
         self.assertEqual(Path(worker_request["destination"]), delivery)
         self.assertTrue(Path(worker_request["source"]).is_file())
         with self.assertRaises(ValueError):
@@ -257,7 +258,7 @@ class ResearchStudioTests(unittest.TestCase):
         direct = self.root / "carpeta_explicita"
         result = self.studio.export(self.file_id, {"mode": "3", "sheets": ["5_Prueba_2"]}, direct)
         self.assertEqual(Path(result["directory"]), direct)
-        self.assertTrue(all(Path(path).is_file() and Path(path).parent == direct for path in result["outputs"].values()))
+        self.assertTrue(all(Path(path).is_file() and Path(path).is_relative_to(direct) for path in result["outputs"].values()))
         self.assertEqual(self.source.read_bytes(), initial)
 
 

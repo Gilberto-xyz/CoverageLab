@@ -32,6 +32,7 @@
 !studio_5w1h.py
 !studio_desktop.py
 !studio_drafts.py
+!delivery_files.py
 !studio_5w1h_vendor/__init__.py
 !studio_5w1h_vendor/report_engine.py
 !studio_5w1h_vendor/template_engine.py
@@ -41,6 +42,7 @@
 !tests/test_studio_inputs.py
 !tests/test_studio_desktop.py
 !tests/test_studio_drafts.py
+!tests/test_delivery_extras.py
 !tests/test_studio_entry_ui.py
 !tests/test_studio_5w1h.py
 !tests/test_integrated_studio.py

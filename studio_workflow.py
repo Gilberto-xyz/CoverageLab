@@ -11,6 +11,7 @@ import sys
 import threading
 
 from studio_desktop import open_folder
+from delivery_files import auxiliary, manifests, manifest_directory, organize_auxiliaries
 
 
 class StudioWorkflow:
@@ -189,26 +190,41 @@ class StudioWorkflow:
             with self.lock:
                 job.update(status="complete", title=result.get("title", directory.name), directory=str(directory),
                            outputs=outputs, log="Informe completo generado con los datos y pipelines revisados.")
-                (directory / "research-job.json").write_text(json.dumps(job, ensure_ascii=False, indent=2), encoding="utf-8")
+                auxiliary(directory, "research-job.json", write=True).write_text(json.dumps(job, ensure_ascii=False, indent=2), encoding="utf-8")
         except Exception as exc:
             with self.lock:
                 job.update(status="failed", error=str(exc), log=str(exc))
 
     def restore_research_jobs(self):
-        for manifest in sorted(self.explorer.output_root.glob("*/research-job.json")):
+        for manifest in manifests(self.explorer.output_root, "research-job.json"):
             try:
                 job = json.loads(manifest.read_text(encoding="utf-8"))
                 directory = Path(job["directory"]).resolve()
-                if directory != manifest.parent.resolve() or not directory.is_relative_to(self.explorer.output_root.resolve()):
+                if directory != manifest_directory(manifest).resolve() or not directory.is_relative_to(self.explorer.output_root.resolve()):
                     continue
                 if job["kind"] != "research" or job["status"] != "complete" or not isinstance(job["file"], str):
                     continue
                 if not isinstance(job["id"], str) or not isinstance(job.get("fingerprint"), str) or len(job["fingerprint"]) != 64:
                     continue
                 datetime.fromisoformat(job["started_at"])
+                for output in job["outputs"]:
+                    old_path = Path(output["path"]).resolve()
+                    if not old_path.is_relative_to(directory):
+                        raise ValueError("Resultado fuera de la entrega.")
+                    name = {"Provenance": "investigacion_5w1h.json", "Registro": "generacion_5w1h.log"}.get(output.get("label"))
+                    if name and not old_path.is_file():
+                        output["path"] = str(auxiliary(directory, name))
                 if not job["outputs"] or any(not Path(out["path"]).resolve().is_relative_to(directory)
                                              or not Path(out["path"]).is_file() for out in job["outputs"]):
                     continue
+                moved = organize_auxiliaries(directory, ("research-job.json", "_result.json", "generacion_5w1h.log", "investigacion_5w1h.json"), input_copy=True)
+                for output in job["outputs"]:
+                    output["path"] = moved.get(output["path"], output["path"])
+                if moved:
+                    try:
+                        auxiliary(directory, "research-job.json", write=True).write_text(json.dumps(job, ensure_ascii=False, indent=2), encoding="utf-8")
+                    except OSError:
+                        pass
                 self.research_jobs[job["id"]] = job
             except (KeyError, TypeError, ValueError, OSError):
                 continue

@@ -343,7 +343,7 @@ Los botones muestran el avance de apertura y generación en esa misma zona.
 Cada generación crea `Output/<nombre de entrega del script>__AAAAMMDD_HHMMSS/`:
 el nombre conserva país, categoría, fabricante, periodo y tipo de cobertura; la fecha
 y hora se agregan para distinguir ejecuciones. Los nombres y formatos de Excel, PPT,
-banco y reporte mantienen las reglas del script. La carpeta también contiene
+banco y reporte mantienen las reglas del script. La subcarpeta `_sistema/` conserva
 `selection.json`, `result.json`, `job.json` y `generation.log`; cada entrega muestra
 su fecha/hora y un botón para abrir su carpeta concreta. Las entregas se recuperan
 al reiniciar el explorador. La preparación temporal ocurre en `Output/.runs/` y se
@@ -352,6 +352,20 @@ conserva las entregas anteriores de `outputs/pipeline_explorer/` en su ubicació
 Si el Excel cambia desde la revisión, debes volver a cargarlo. Las selecciones
 guardadas quedan en `outputs/pipeline_explorer/selections/`, ligadas a la huella
 del archivo, y los borradores también se conservan en el navegador.
+
+Al iniciar, las entregas antiguas siguen siendo reconocidas: sus auxiliares conocidos
+se trasladan a `_sistema/` sin modificar los Excel ni los PPT. Las carpetas de solo
+lectura conservan la lectura del formato anterior. En 5W1H también quedan allí los
+manifiestos, registros, procedencia y copia de trabajo; al abrir una entrega solo
+quedan a la vista los archivos finales y la carpeta `_sistema`.
+
+Los cinco gráficos de hábitos de compra tienen una casilla **Incluir en PPT**:
+compra media, compra por ocasión, frecuencia, penetración y compradores. La elección
+es por hoja y se conserva al cambiar de marca, recargar o guardar la selección.
+Los gráficos básicos de cobertura permanecen siempre; sin marcar extras, el PPT
+mantiene su contenido habitual. Cada KPI elegido añade una diapositiva con gráfico
+editable de su serie mensual completa, último dato y promedios de 12 meses y total,
+usando los colores del Excel. La revisión final enumera los extras de cada hoja.
 
 Las hojas con meses duplicados, desordenados o faltantes requieren corrección
 antes de generar. Un pipeline sin los meses suficientes para cobertura MAT

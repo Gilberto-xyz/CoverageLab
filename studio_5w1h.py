@@ -6,6 +6,8 @@ does not contain a geographic/channel breakdown: these are additional inputs.
 """
 from __future__ import annotations
 
+from delivery_files import auxiliary, system_dir
+
 import dataclasses
 from datetime import date, datetime
 import hashlib
@@ -556,7 +558,7 @@ class ResearchStudio:
             raise ValueError("La carpeta de entrega debe estar vacía.")
         destination.mkdir(parents=True, exist_ok=True)
         # Only registered source paths are read. The worker never writes into the external program.
-        work_dir = destination / "_input"
+        work_dir = system_dir(destination) / "_input"
         work_dir.mkdir(exist_ok=True)
         copied = work_dir / source.name
         shutil.copy2(source, copied)
@@ -587,13 +589,13 @@ class ResearchStudio:
             wb.save(copied)
             wb.close()
         request = {"source": str(copied), "destination": str(destination), "mode": mode, "sheets": sheets,
-                   "size_threshold": options.get("size_threshold"), "result": str(destination / "_result.json")}
+                   "size_threshold": options.get("size_threshold"), "result": str(auxiliary(destination, "_result.json", write=True))}
         threshold = request["size_threshold"]
         if threshold is not None and (isinstance(threshold, bool) or not isinstance(threshold, (int, float)) or not 0 < threshold < 100):
             raise ValueError("El umbral de agrupación debe estar entre 0 y 100%.")
         request_path = work_dir / "request.json"
         request_path.write_text(json.dumps(request, ensure_ascii=False), encoding="utf-8")
-        log_path = destination / "generacion_5w1h.log"
+        log_path = auxiliary(destination, "generacion_5w1h.log", write=True)
         with log_path.open("w", encoding="utf-8") as log:
             process = subprocess.run([sys.executable, "-X", "utf8", str(ENGINE_DIR / "report_engine.py"), str(request_path)],
                                      cwd=destination, stdout=log, stderr=subprocess.STDOUT, timeout=600,
@@ -601,7 +603,7 @@ class ResearchStudio:
         if process.returncode != 0:
             excerpt = log_path.read_text(encoding="utf-8", errors="replace")[-2500:]
             raise RuntimeError("El motor 5W1H no pudo completar el informe. " + excerpt)
-        returned = json.loads((destination / "_result.json").read_text(encoding="utf-8"))
+        returned = json.loads(auxiliary(destination, "_result.json").read_text(encoding="utf-8"))
         outputs = {label: returned[label] for label in ("Excel", "PPT")}
         for path in outputs.values():
             candidate = Path(path).resolve()
@@ -624,19 +626,19 @@ class ResearchStudio:
             original_directory.rename(final_directory)
             destination = final_directory
             outputs = {label: str(destination / Path(path).name) for label, path in outputs.items()}
-            log_path = destination / log_path.name
+            log_path = auxiliary(destination, log_path.name, write=True)
             returned.update(outputs)
-            (destination / "_result.json").write_text(json.dumps(returned, ensure_ascii=False), encoding="utf-8")
-            request.update(source=str(destination / "_input" / source.name), destination=str(destination),
-                           result=str(destination / "_result.json"))
-            (destination / "_input" / "request.json").write_text(json.dumps(request, ensure_ascii=False), encoding="utf-8")
+            auxiliary(destination, "_result.json", write=True).write_text(json.dumps(returned, ensure_ascii=False), encoding="utf-8")
+            request.update(source=str(destination / "_sistema" / "_input" / source.name), destination=str(destination),
+                           result=str(auxiliary(destination, "_result.json")))
+            (destination / "_sistema" / "_input" / "request.json").write_text(json.dumps(request, ensure_ascii=False), encoding="utf-8")
             with log_path.open("a", encoding="utf-8") as log:
                 log.write(f"\nCarpeta final de esta entrega: {destination}\n")
         provenance = {"source": file_id, "source_sha256": fingerprint, "created_at": created.isoformat(),
                       "options": options, "sheets": sheets, "metadata": info["metadata"],
                       "pipelines_applied": applied,
                       "scope": "Informe completo de las hojas seleccionadas", "engine": json.loads((ENGINE_DIR / "provenance.json").read_text(encoding="utf-8"))}
-        provenance_path = destination / "investigacion_5w1h.json"
+        provenance_path = auxiliary(destination, "investigacion_5w1h.json", write=True)
         provenance_path.write_text(json.dumps(provenance, ensure_ascii=False, indent=2), encoding="utf-8")
         outputs.update(Provenance=str(provenance_path), Registro=str(log_path))
         return {"directory": str(destination), "outputs": outputs, "title": returned["title"],
