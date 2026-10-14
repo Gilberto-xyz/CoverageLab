@@ -363,13 +363,17 @@ Los cinco gráficos de hábitos de compra tienen una casilla **Incluir en PPT**:
 compra media, compra por ocasión, frecuencia, penetración y compradores. La elección
 es por hoja y se conserva al cambiar de marca, recargar o guardar la selección.
 Los gráficos básicos de cobertura permanecen siempre; sin marcar extras, el PPT
-mantiene su contenido habitual. Cada KPI elegido añade una diapositiva con gráfico
-editable de su serie mensual completa, último dato y promedios de 12 meses y total,
-usando los colores del Excel. La revisión final enumera los extras de cada hoja.
+mantiene su contenido habitual. Desde la web, cada extra añade una diapositiva con
+una imagen PNG de alta resolución del mismo gráfico ampliado, con el período,
+etiquetas y detalle visual elegidos. Los KPI conservan sus promedios de 12 meses y
+total y los colores del Excel. La revisión final enumera los extras de cada hoja.
 También puede marcarse **Volumen MAT, YoY y cobertura por año**: añade un gráfico
-combinado editable, con barras de Sell-in y Worldpanel, etiquetas de variación anual
+combinado, con barras de Sell-in y Worldpanel, etiquetas de variación anual
 y cobertura en el eje derecho. Usa el pipeline elegido, el mismo mes de corte y
 el tipo de cobertura actual, igual que la vista web.
+Las imágenes usadas se guardan dentro de `_sistema/graficos_ppt`. En el PPT son
+imágenes; los datos continúan disponibles en Excel. Las llamadas al motor sin
+capturas conservan la salida editable para compatibilidad con scripts anteriores.
 
 Las hojas con meses duplicados, desordenados o faltantes requieren corrección
 antes de generar. Un pipeline sin los meses suficientes para cobertura MAT

@@ -555,6 +555,36 @@ assert.equal(api.correlationStyle(null,[0,.5,1],palette),null);
         self.assertEqual(self.state.jobs, {})
         self.assertFalse((self.root / "Output").exists())
 
+    def test_web_export_embeds_png_and_archives_capture_inside_system(self):
+        import base64
+        from PIL import Image
+        buffer = io.BytesIO()
+        Image.new('RGB',(2400,1350),'#E9F6F2').save(buffer,format='PNG')
+        png = 'data:image/png;base64,'+base64.b64encode(buffer.getvalue()).decode()
+        analysis = self.analyze()
+        payload = {'analysis_id':analysis['id'], 'selections':{'P1_Cola':1},
+                   'ppt_extras':{'P1_Cola':['annual_mat']}}
+        with self.assertRaises(ValueError):
+            self.state.export(payload | {'ppt_images':{}})
+        self.assertFalse((self.root/'Output').exists())
+        job = self.state.export(payload | {'ppt_images':{'P1_Cola':{'annual_mat':png}}})
+        deadline = time.monotonic()+90
+        while self.state.job(job['id'])['status']=='running' and time.monotonic()<deadline:
+            time.sleep(.1)
+        job = self.state.job(job['id'])
+        self.assertEqual(job['status'],'complete',job.get('error') or job.get('log'))
+        directory = Path(job['directory'])
+        manifest = json.loads((directory/'_sistema'/'selection.json').read_text(encoding='utf8'))
+        capture = directory/manifest['ppt_images']['P1_Cola']['annual_mat']
+        self.assertTrue(capture.is_relative_to(directory/'_sistema'))
+        self.assertTrue(capture.is_file())
+        outputs = {out['label']:out['path'] for out in job['outputs']}
+        ppt = self.core.Presentation(outputs['presentation'])
+        slide = next(slide for slide in ppt.slides if slide.name.startswith('KPI:annual_mat'))
+        self.assertFalse(any(shape.has_chart or shape.has_table for shape in slide.shapes))
+        self.assertTrue(any(shape.shape_type==13 and shape.image.blob==capture.read_bytes() for shape in slide.shapes))
+        self.assertFalse((self.root/'Output'/'.runs'/job['id']).exists())
+
 
 if __name__ == "__main__":
     unittest.main()

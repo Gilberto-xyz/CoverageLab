@@ -1,5 +1,7 @@
 """Compatibilidad de auxiliares y contrato de los gráficos adicionales del PPT."""
 import json
+import base64
+import io
 from pathlib import Path
 import tempfile
 import types
@@ -110,6 +112,30 @@ class DeliveryExtrasTests(unittest.TestCase):
             self.assertIn("Promedio 12 meses: 8" if slide.name.startswith("KPI:buyers_series") else "Promedio 12 meses: 8.50", texts)
             self.assertIn("Promedio total", texts)
             self.assertTrue(all(shape.left >= 0 and shape.top >= 0 and shape.left+shape.width <= ppt.slide_width and shape.top+shape.height <= ppt.slide_height for shape in slide.shapes))
+
+    def test_web_capture_is_validated_and_inserted_without_native_chart(self):
+        from PIL import Image
+        core = self.core
+        buffer = io.BytesIO()
+        Image.new('RGB', (2400,1350), '#FFFFFF').save(buffer,format='PNG')
+        encoded = 'data:image/png;base64,'+base64.b64encode(buffer.getvalue()).decode()
+        extras = {'A':['annual_mat']}
+        images = explorer.validate_ppt_images({'A':{'annual_mat':encoded}},extras)
+        for value in ({}, {'A':{}}, {'B':{'annual_mat':encoded}}, {'A':{'frequency':encoded}},
+                      {'A':{'annual_mat':'C:/private/file.png'}}, {'A':{'annual_mat':'data:image/png;base64,invalid'}}):
+            with self.subTest(value=str(value)[:70]), self.assertRaises(ValueError):
+                explorer.validate_ppt_images(value,extras)
+        target = self.root/'capture.png';target.write_bytes(images['A']['annual_mat'])
+        ppt = core.Presentation(explorer.ROOT/'Modelo_PPT.pptx')
+        builder = types.SimpleNamespace(ppt=ppt,lang_index=2)
+        self.assertEqual(core.add_extra_kpi_slides(builder,None,['annual_mat'],'Marca','kg',images={'annual_mat':str(target)}),1)
+        ppt.save(self.root/'captured.pptx')
+        slide = core.Presentation(self.root/'captured.pptx').slides[-1]
+        self.assertFalse(any(shape.has_chart or shape.has_table for shape in slide.shapes))
+        picture = next(shape for shape in slide.shapes if shape.shape_type == 13)
+        self.assertEqual(picture.image.blob,images['A']['annual_mat'])
+        self.assertAlmostEqual(picture.width/picture.height,16/9,places=5)
+        self.assertTrue(picture.left>=0 and picture.top>=0 and picture.left+picture.width<=ppt.slide_width and picture.top+picture.height<=ppt.slide_height)
 
     def test_annual_comparison_preserves_pipeline_yoy_coverage_and_editable_data(self):
         from io import BytesIO

@@ -1697,7 +1697,7 @@ def add_annual_mat_slide(builder, frame, brand, unit, pipeline, coverage_series)
     return 1
 
 
-def add_extra_kpi_slides(builder, frame, keys, brand, unit, pipeline=0, coverage_series=None):
+def add_extra_kpi_slides(builder, frame, keys, brand, unit, pipeline=0, coverage_series=None, images=None):
     """Añade únicamente los KPI solicitados, con datos y gráficos editables."""
     from pptx.chart.data import CategoryChartData
     from pptx.enum.chart import XL_CHART_TYPE
@@ -1706,6 +1706,24 @@ def add_extra_kpi_slides(builder, frame, keys, brand, unit, pipeline=0, coverage
     count = 0
     language = 1 if builder.lang_index == 1 else 2 if builder.lang_index == 3 else 0
     for key in keys:
+        if images and key in images:
+            slide = builder.ppt.slides.add_slide(builder.ppt.slide_layouts[PPT_LAYOUT_INDEX])
+            slide.name = f"KPI:{key} | {brand}"
+            # La captura ya contiene título, promedios, leyenda y etiquetas de la web.
+            for shape in list(slide.shapes):
+                if shape.is_placeholder:
+                    shape._element.getparent().remove(shape._element)
+            from PIL import Image
+            with Image.open(images[key]) as captured:
+                image_width, image_height = captured.size
+            width, height = builder.ppt.slide_width, builder.ppt.slide_height
+            max_width, max_height = int(width*.94), int(height*.90)
+            scale = min(max_width/image_width, max_height/image_height)
+            picture_width, picture_height = int(image_width*scale), int(image_height*scale)
+            slide.shapes.add_picture(images[key], int((width-picture_width)/2), int(height*.02),
+                                     width=picture_width, height=picture_height)
+            count += 1
+            continue
         if key == "annual_mat":
             if coverage_series is None:
                 raise ValueError("La comparación anual requiere la cobertura del pipeline seleccionado.")
@@ -5526,6 +5544,7 @@ class ExecutionOptions:
     pipeline_overrides: Dict[str, int] = field(default_factory=dict)
     sheet_metadata_overrides: Dict[str, SheetBankMetadata] = field(default_factory=dict)
     ppt_extra_charts: Dict[str, List[str]] = field(default_factory=dict)
+    ppt_extra_images: Dict[str, Dict[str, str]] = field(default_factory=dict)
 
     @classmethod
     def from_scenario(cls, scenario_key: str) -> Optional["ExecutionOptions"]:
@@ -12574,6 +12593,7 @@ def generate_presentation_and_bank(
     pipeline_overrides: Optional[Dict[str, int]] = None,
     sheet_metadata_overrides: Optional[Dict[str, SheetBankMetadata]] = None,
     ppt_extra_charts: Optional[Dict[str, List[str]]] = None,
+    ppt_extra_images: Optional[Dict[str, Dict[str, str]]] = None,
 ) -> Tuple[str, "pd.DataFrame", "pd.DataFrame", "pd.DataFrame"]:
     ppt_extra_charts = validate_ppt_extra_charts(ppt_extra_charts or {}, marcas)
     chosen_lang, lang_index = determine_language(include_english, pais_nombre)
@@ -12893,7 +12913,8 @@ def generate_presentation_and_bank(
                 if pipeline == pipelines_to_run[-1]:
                     extras_created = add_extra_kpi_slides(builder, df_marca_ppt,
                         ppt_extra_charts.get(marca_sheet_name, []), section_title, measure_unit,
-                        pipeline=pipeline, coverage_series=coverage_series)
+                        pipeline=pipeline, coverage_series=coverage_series,
+                        images=(ppt_extra_images or {}).get(marca_sheet_name))
                     slides_created += extras_created
                     if extras_created:
                         progress.update(task_id, advance=extras_created)
@@ -13852,6 +13873,7 @@ class CoverageStudioUltraApp:
                 pipeline_overrides=options.pipeline_overrides,
                 sheet_metadata_overrides=options.sheet_metadata_overrides,
                 ppt_extra_charts=options.ppt_extra_charts,
+                ppt_extra_images=options.ppt_extra_images,
             )
             ruta_banco_final = save_coverage_bank(
                 df_bank=df_bank,

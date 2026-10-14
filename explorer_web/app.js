@@ -675,8 +675,15 @@ async function prepareExport() {
 async function exportFiles() {
   $('export-dialog').close(); state.busy = true; controls();
   try {
-    await api('/api/save', payload());
-    state.job = await api('/api/export', payload());
+    const request=payload(),captureOptions=dashboardOptions();
+    await api('/api/save', request);
+    status('Preparando las imágenes de los gráficos para el PPT…');
+    const images={};
+    for(const [name,keys] of Object.entries(request.ppt_extras)) {
+      const sheet=state.analysis.sheets.find(sheet=>sheet.name===name);
+      images[name]=await CoverageDashboard.capturePpt(sheet,request.selections[name],state.analysis.chart_colors,captureOptions,keys);
+    }
+    state.job = await api('/api/export', {...request,ppt_images:images});
     state.resultRequest++;
     status('Generación iniciada con tu selección. El registro se actualiza aquí.');
     renderResults();

@@ -205,5 +205,42 @@ window.CoverageDashboard = (() => {
     });
     return figures.length;
   }
-  return {render,plot,axisScale,axisTick,correlationStyle,chartData,kpiAverages,kpiDigits};
+  async function capturePpt(sheet, pipeline, colors, options, keys) {
+    const images={};
+    for(const model of models(sheet,pipeline,colors).filter(model=>keys.includes(model.key))) {
+      const content=node('div');plot(content,model,options,true);
+      const graph=content.querySelector('svg');
+      const root=svg('svg',{xmlns:ns,width:1200,height:675,viewBox:'0 0 1200 675','font-family':'Segoe UI, Arial, sans-serif'});
+      root.append(svg('rect',{width:1200,height:675,fill:'#fff'}));
+      root.append(svg('text',{x:42,y:40,'font-size':23,'font-weight':650,fill:'#172c3c'},model.title));
+      root.append(svg('text',{x:42,y:66,'font-size':13,fill:'#637888'},`${sheet.brand} · P${pipeline} · ${model.description}`));
+      if(model.kpi) {
+        for(const [i,label,value] of [[0,'Promedio 12 meses',model.kpi.average],[1,'Promedio total',model.kpi.total_average]]) {
+          root.append(svg('text',{x:42+i*310,y:99,'font-size':13,fill:'#637888'},label));
+          root.append(svg('text',{x:42+i*310,y:127,'font-size':23,'font-weight':650,fill:'#172c3c'},fmt(value,kpiDigits(model.kpi,value),model.key==='penetration'?'%':'')));
+        }
+      }
+      root.append(svg('text',{x:42,y:153,'font-size':12,fill:'#637888'},content.querySelector('.chart-period').textContent));
+      // Mismo SVG que la vista ampliada, sin cursor ni controles interactivos.
+      graph.querySelectorAll('line[stroke-dasharray]').forEach(line=>line.remove());
+      graph.setAttribute('x','30');graph.setAttribute('y','164');graph.setAttribute('width','1140');graph.setAttribute('height','407');
+      graph.removeAttribute('style');graph.removeAttribute('tabindex');root.append(graph);
+      const legendWidth=model.series.reduce((sum,series)=>sum+series.name.length*7+42,0);
+      let legendX=Math.max(42,(1200-legendWidth)/2);
+      for(const series of model.series) {
+        root.append(svg('line',{x1:legendX,x2:legendX+18,y1:598,y2:598,stroke:series.color,'stroke-width':3}));
+        root.append(svg('text',{x:legendX+24,y:602,'font-size':13,fill:'#637888'},series.name));legendX+=series.name.length*7+42;
+      }
+      const visible=chartData(model,options.window),last=visible.dates.length-1;
+      if(last>=0)root.append(svg('text',{x:42,y:642,'font-size':12,fill:'#637888'},`${month(visible.dates[last])} · `+
+        visible.series.map(s=>`${s.name}: ${fmt(s.values[last],s.digits??1,s.percent||model.percent?'%':'')}${model.annual&&s.yoy?` · YoY ${signed(s.yoy[last])}`:''}`).join(' | ')));
+      const img=new Image();img.src='data:image/svg+xml;charset=utf-8,'+encodeURIComponent(new XMLSerializer().serializeToString(root));
+      await img.decode();
+      const canvas=document.createElement('canvas');canvas.width=2400;canvas.height=1350;
+      canvas.getContext('2d').drawImage(img,0,0,canvas.width,canvas.height);
+      images[model.key]=canvas.toDataURL('image/png');
+    }
+    return images;
+  }
+  return {render,plot,capturePpt,axisScale,axisTick,correlationStyle,chartData,kpiAverages,kpiDigits};
 })();

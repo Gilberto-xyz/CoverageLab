@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import argparse
+import base64
+import binascii
 import contextlib
 import hashlib
 import io
@@ -85,7 +87,40 @@ def options_from_request(payload):
 
 def serialize_options(options):
     return {key: value for key, value in asdict(options).items()
-            if key not in {"pipeline_overrides", "sheet_metadata_overrides", "ppt_extra_charts"}}
+            if key not in {"pipeline_overrides", "sheet_metadata_overrides", "ppt_extra_charts", "ppt_extra_images"}}
+
+
+def validate_ppt_images(value, extras):
+    """Solo PNG de los extras solicitados; nunca rutas enviadas por el navegador."""
+    from PIL import Image, UnidentifiedImageError
+    expected = {name: set(keys) for name, keys in extras.items() if keys}
+    if not isinstance(value, dict) or set(value) != set(expected):
+        raise ValueError("Faltan las imágenes de los gráficos seleccionados para el PPT.")
+    result, total = {}, 0
+    for name, captures in value.items():
+        if not isinstance(captures, dict) or set(captures) != expected[name]:
+            raise ValueError("Las imágenes deben corresponder a los gráficos seleccionados.")
+        result[name] = {}
+        for key, encoded in captures.items():
+            try:
+                if not isinstance(encoded, str) or not encoded.startswith('data:image/png;base64,') or len(encoded) > 4*1024*1024:
+                    raise ValueError("Captura PNG inválida o demasiado grande.")
+                raw = base64.b64decode(encoded.split(',',1)[1], validate=True)
+                total += len(raw)
+                if total > 22*1024*1024:
+                    raise ValueError("Hay demasiadas imágenes para una entrega. Reduce los gráficos extra.")
+                with Image.open(io.BytesIO(raw)) as image:
+                    if image.format != 'PNG' or not (800 <= image.width <= 4800 and 400 <= image.height <= 3000) or image.width*image.height > 12_000_000:
+                        raise ValueError("La captura debe ser un PNG de alta resolución.")
+                    image.verify()
+                # Decodifica antes de iniciar el trabajo y elimina metadatos innecesarios.
+                clean = io.BytesIO()
+                with Image.open(io.BytesIO(raw)) as image:
+                    image.convert('RGB').save(clean, format='PNG')
+                result[name][key] = clean.getvalue()
+            except (binascii.Error, OSError, UnidentifiedImageError, Image.DecompressionBombError) as exc:
+                raise ValueError("No se pudo leer la imagen del gráfico para el PPT.") from exc
+    return result
 
 
 def monthly_problem(df, core):
@@ -565,6 +600,7 @@ class ExplorerState:
             analysis, source, selections = self.reviewed_selection(payload)
             extras = self.reviewed_extras(payload, selections, analysis)
             started = datetime.now().astimezone()
+            images = validate_ppt_images(payload["ppt_images"], extras) if "ppt_images" in payload else {}
             job_id = started.strftime("%Y%m%d_%H%M%S") + "_" + secrets.token_hex(3)
             workdir = self.output_root / ".runs" / job_id
             if not workdir.resolve().is_relative_to(self.root):
@@ -578,6 +614,16 @@ class ExplorerState:
                       "options": analysis["options"], "selections": selections, "ppt_extras": extras,
                       "output_root": str(self.output_root), "run_suffix": started.strftime("%Y%m%d_%H%M%S"),
                       "metadata": {sheet["name"]: sheet["metadata"] for sheet in analysis["sheets"] if sheet["name"] in selections}}
+            if images:
+                captures = workdir / "_sistema" / "graficos_ppt"
+                captures.mkdir(parents=True)
+                config["ppt_images"] = {}
+                for name, charts in images.items():
+                    config["ppt_images"][name] = {}
+                    for key, png in charts.items():
+                        target = captures / f"{hashlib.sha256(name.encode()).hexdigest()[:16]}_{key}.png"
+                        target.write_bytes(png)
+                        config["ppt_images"][name][key] = target.relative_to(workdir).as_posix()
             config_path = workdir / "selection.json"
             config_path.write_text(json.dumps(config, ensure_ascii=False, indent=2), encoding="utf-8")
             job = {"id": job_id, "status": "running", "directory": str(workdir), "outputs": [], "error": None,
@@ -656,6 +702,13 @@ def run_worker(config_path):
         options = core.ExecutionOptions(**config["options"])
         options.pipeline_overrides = config["selections"]
         options.ppt_extra_charts = config.get("ppt_extras", {})
+        for name, charts in config.get("ppt_images", {}).items():
+            options.ppt_extra_images[name] = {}
+            for key, relative in charts.items():
+                path = (config_path.parent / relative).resolve()
+                if not path.is_relative_to(config_path.parent / "_sistema" / "graficos_ppt") or not path.is_file():
+                    raise ValueError("Captura fuera de la ejecución o inexistente.")
+                options.ppt_extra_images[name][key] = str(path)
         options.sheet_metadata_overrides = {name: core.SheetBankMetadata(**values) for name, values in config["metadata"].items()}
         app = core.CoverageStudioUltraApp()
         app.root_dir = str(config_path.parent)
@@ -687,6 +740,11 @@ def run_worker(config_path):
                 raise ValueError("La carpeta final debe estar directamente dentro de Output.")
             shutil.move(str(source_dir), str(directory))
             outputs = {key: str(directory / Path(path).name) for key, path in outputs.items() if path}
+            captures = config_path.parent / "_sistema" / "graficos_ppt"
+            if captures.is_dir():
+                destination = auxiliary(directory, "job.json", write=True).parent / "graficos_ppt"
+                shutil.move(str(captures), str(destination))
+                captures.parent.rmdir()
             shutil.copy2(config_path, auxiliary(directory, "selection.json", write=True))
             result = {"outputs": outputs, "directory": str(directory), "title": title}
         else:
@@ -799,7 +857,7 @@ def make_handler(state):
             try:
                 length = int(self.headers.get("Content-Length", "0"))
                 request_path = urlsplit(self.path).path
-                limit = 20 * 1024 * 1024 if request_path == "/api/studio/import" else 4 * 1024 * 1024 if request_path in {"/api/studio/save", "/api/studio/draft"} else 1024 * 1024
+                limit = 32 * 1024 * 1024 if request_path == "/api/export" else 20 * 1024 * 1024 if request_path == "/api/studio/import" else 4 * 1024 * 1024 if request_path in {"/api/studio/save", "/api/studio/draft"} else 1024 * 1024
                 if not 0 < length <= limit:
                     raise ValueError("Solicitud inválida o demasiado grande.")
                 payload = json.loads(self.rfile.read(length))
