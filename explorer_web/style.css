@@ -25,10 +25,14 @@ body{padding-top:var(--header-height)}
 .header-main .brand{font-size:19px;gap:8px}
 .header-main .brand-icon{font-size:14px;padding:10px 8px;border-radius:9px}
 .header-main .brand small{font-size:8px;letter-spacing:1.2px}
-.header-progress{position:relative;min-width:0}
+.header-progress{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:12px;min-width:0}
 .header-progress .steps{display:flex;justify-content:center;gap:18px;font-size:11px;margin:0}
 .header-progress .step{white-space:nowrap}
-.header-progress .local-status{position:absolute;right:0;top:2px;font-size:10px}
+.header-actions{display:flex;align-items:center;gap:12px}
+.header-progress .local-status{position:static;font-size:10px}
+.header-toggle{display:inline-flex;align-items:center;gap:6px;min-height:33px;padding:6px 10px;font-size:11px;white-space:nowrap}
+.header-toggle svg{width:14px;height:14px;fill:none;stroke:currentColor;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round;flex-shrink:0}
+.header-toggle[aria-expanded="false"] svg{transform:rotate(180deg)}
 .result-dock{margin-left:var(--sidebar-width);pointer-events:auto;max-height:max(150px,min(340px,calc(58dvh - var(--header-height))));overflow-y:auto;overscroll-behavior-y:contain;background:#fff;border-bottom:1px solid var(--line);box-shadow:0 4px 12px #172c3c08}
 .context-panel{display:grid;grid-template-columns:minmax(0,2fr) minmax(0,3fr);align-items:start;gap:18px;padding:10px 18px}
 .context-panel .eyebrow{font-size:9px;letter-spacing:1px;margin-bottom:4px}
@@ -87,10 +91,13 @@ body{padding-top:var(--header-height)}
 @media(max-width:800px){
   :root{--sidebar-width:0px}
   body{padding-top:var(--top-height)}
-  .header-main{grid-template-columns:1fr;padding:8px 12px;gap:8px}
+  .header-main{grid-template-columns:minmax(0,1fr) auto;padding:8px 12px;gap:8px}
   .header-main .brand{font-size:17px}
   .header-main .brand small{font-size:7px}
-  .header-progress .steps{font-size:9px;gap:10px}
+  .header-progress{display:contents}
+  .header-actions{grid-column:2;grid-row:1}
+  .header-toggle{font-size:10px;padding:5px 8px}
+  .header-progress .steps{grid-column:1/-1;grid-row:2;font-size:9px;gap:10px}
   .header-progress .step b{font-size:8px;padding:3px;margin-right:3px}
   .result-dock{margin-left:0;max-height:max(170px,min(380px,calc(72dvh - var(--header-height))))}
   .context-panel{grid-template-columns:1fr;gap:9px;padding:9px 12px}

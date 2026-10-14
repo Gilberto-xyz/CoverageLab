@@ -34,6 +34,16 @@ function syncChromeGeometry() {
   root.style.setProperty('--results-height',`${$('result-dock').getBoundingClientRect().height}px`);
   root.style.setProperty('--top-height',`${$('app-top').getBoundingClientRect().height}px`);
 }
+function setHeaderCollapsed(collapsed, persist = true) {
+  $('result-dock').hidden = collapsed;
+  $('toggle-header').setAttribute('aria-expanded', String(!collapsed));
+  $('header-toggle-label').textContent = collapsed ? 'Mostrar encabezado' : 'Contraer encabezado';
+  $('toggle-header').title = collapsed ? 'Mostrar archivo actual y resultados' : 'Ocultar archivo actual y resultados para dar más espacio a los gráficos';
+  if (persist) {
+    try { localStorage.setItem('coveragelab-header-collapsed', String(collapsed)); } catch (_) { /* El control funciona sin almacenamiento local. */ }
+  }
+  syncChromeGeometry();
+}
 function requestOptions() {
   return {file: $('file').value, template: $('template').value, trend_axis: $('trend-axis').value,
     include_english: $('english').checked, round_coverage: $('round').checked, animate_trend_pipeline: $('animate').checked};
@@ -747,6 +757,10 @@ $('open-folder').addEventListener('click',openResults);
 document.querySelectorAll('[data-output]').forEach(button=>button.addEventListener('click',()=>openOutput(button.dataset.output)));
 $('cancel-export').addEventListener('click', () => $('export-dialog').close());
 $('confirm-export').addEventListener('click', exportFiles);
+$('toggle-header').addEventListener('click', () => setHeaderCollapsed(!$('result-dock').hidden));
+let headerCollapsed = false;
+try { headerCollapsed = localStorage.getItem('coveragelab-header-collapsed') === 'true'; } catch (_) { /* El encabezado se muestra por defecto. */ }
+setHeaderCollapsed(headerCollapsed, false);
 const chromeObserver=new ResizeObserver(syncChromeGeometry);
 chromeObserver.observe($('app-top'));
 window.addEventListener('resize',syncChromeGeometry);

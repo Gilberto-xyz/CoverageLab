@@ -183,6 +183,11 @@ automáticas como referencia. Las hojas excluidas no aparecen en los entregables
 La metadata por hoja se conserva incluso al excluir una hoja total de la que
 otras hojas heredaron su categoría.
 
+**Contraer encabezado**, en la barra superior, oculta el panel de archivo y resultados
+para dejar más espacio a los gráficos. **Mostrar encabezado** lo recupera y permite
+generar o abrir las entregas. La preferencia se recuerda al recargar; la barra superior
+y el selector de hojas siguen visibles.
+
 El panel fijo incluye **Generar archivos**. Si aún no se han cargado los datos o
 cambió la configuración, los actualiza
 y abre la revisión final; todavía requiere **Generar entregables** para exportar.

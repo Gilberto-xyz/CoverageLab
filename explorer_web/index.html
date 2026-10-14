@@ -14,7 +14,10 @@
   <header class="app-header">
     <div id="header-main" class="header-main">
     <a class="brand" href="/"><span class="brand-icon">CL</span><span>Coverage<span class="brand-light">Lab</span><small>EXPLORADOR DE PIPELINES</small></span></a>
-    <div class="header-progress"><nav class="steps" aria-label="Etapas"><span class="step active" id="step-file"><b>01</b> Cargar archivo</span><span class="step" id="step-review"><b>02</b> Explorar y elegir</span><span class="step" id="step-export"><b>03</b> Generar entregables</span></nav><span class="local-status"><i></i> Sesión local</span></div>
+    <div class="header-progress">
+      <nav class="steps" aria-label="Etapas"><span class="step active" id="step-file"><b>01</b> Cargar archivo</span><span class="step" id="step-review"><b>02</b> Explorar y elegir</span><span class="step" id="step-export"><b>03</b> Generar entregables</span></nav>
+      <div class="header-actions"><span class="local-status"><i></i> Sesión local</span><button id="toggle-header" class="button secondary header-toggle" aria-expanded="true" aria-controls="result-dock"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="m4 10 4-4 4 4"/></svg><span id="header-toggle-label">Contraer encabezado</span></button></div>
+    </div>
     </div>
   <div id="result-dock" class="result-dock">
     <section class="context-panel" aria-label="Archivo actual y resultados">
