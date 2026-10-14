@@ -184,9 +184,11 @@ La metadata por hoja se conserva incluso al excluir una hoja total de la que
 otras hojas heredaron su categoría.
 
 **Contraer encabezado**, en la barra superior, oculta el panel de archivo y resultados
-para dejar más espacio a los gráficos. **Mostrar encabezado** lo recupera y permite
-generar o abrir las entregas. La preferencia se recuerda al recargar; la barra superior
-y el selector de hojas siguen visibles.
+para dejar más espacio a los gráficos. **Generar archivos** permanece accesible en
+la barra superior al contraerlo, con la misma revisión final y selección de hojas.
+**Mostrar encabezado** recupera los detalles y las acciones para abrir las entregas.
+La preferencia se recuerda al recargar; la barra superior y el selector de hojas
+siguen visibles.
 
 El panel fijo incluye **Generar archivos**. Si aún no se han cargado los datos o
 cambió la configuración, los actualiza

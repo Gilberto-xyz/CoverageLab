@@ -35,6 +35,9 @@ function syncChromeGeometry() {
   root.style.setProperty('--top-height',`${$('app-top').getBoundingClientRect().height}px`);
 }
 function setHeaderCollapsed(collapsed, persist = true) {
+  const generateContainer = $(collapsed ? 'header-actions' : 'result-heading');
+  if ($('generate-files').parentElement !== generateContainer) generateContainer.append($('generate-files'));
+  $('app-top').classList.toggle('header-collapsed', collapsed);
   $('result-dock').hidden = collapsed;
   $('toggle-header').setAttribute('aria-expanded', String(!collapsed));
   $('header-toggle-label').textContent = collapsed ? 'Mostrar encabezado' : 'Contraer encabezado';

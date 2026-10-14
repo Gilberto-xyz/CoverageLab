@@ -16,14 +16,14 @@
     <a class="brand" href="/"><span class="brand-icon">CL</span><span>Coverage<span class="brand-light">Lab</span><small>EXPLORADOR DE PIPELINES</small></span></a>
     <div class="header-progress">
       <nav class="steps" aria-label="Etapas"><span class="step active" id="step-file"><b>01</b> Cargar archivo</span><span class="step" id="step-review"><b>02</b> Explorar y elegir</span><span class="step" id="step-export"><b>03</b> Generar entregables</span></nav>
-      <div class="header-actions"><span class="local-status"><i></i> Sesión local</span><button id="toggle-header" class="button secondary header-toggle" aria-expanded="true" aria-controls="result-dock"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="m4 10 4-4 4 4"/></svg><span id="header-toggle-label">Contraer encabezado</span></button></div>
+      <div id="header-actions" class="header-actions"><span class="local-status"><i></i> Sesión local</span><button id="toggle-header" class="button secondary header-toggle" aria-expanded="true" aria-controls="result-dock"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="m4 10 4-4 4 4"/></svg><span id="header-toggle-label">Contraer encabezado</span></button></div>
     </div>
     </div>
   <div id="result-dock" class="result-dock">
     <section class="context-panel" aria-label="Archivo actual y resultados">
       <div class="source-context"><div class="eyebrow">ARCHIVO ACTUAL</div><div id="file-detail" class="file-detail" aria-label="Detalle del archivo seleccionado" aria-live="polite" hidden></div></div>
       <div class="result-context">
-        <div class="result-heading"><div><div class="eyebrow">RESULTADOS</div><h2 id="job-title">Aún no hay una entrega para este archivo</h2></div><button id="generate-files" class="button primary" disabled>Generar archivos</button></div>
+        <div id="result-heading" class="result-heading"><div><div class="eyebrow">RESULTADOS</div><h2 id="job-title">Aún no hay una entrega para este archivo</h2></div><button id="generate-files" class="button primary" disabled>Generar archivos</button></div>
         <div class="result-state"><span id="job-badge" class="pill" hidden></span><span id="job-date"></span><span id="result-hint">Se habilitan al finalizar la generación.</span></div>
         <div id="output-buttons" class="output-buttons" role="group" aria-label="Abrir resultados en sus aplicaciones"><button class="button result-file" data-output="template" disabled>Abrir Excel</button><button class="button result-file" data-output="presentation" disabled>Abrir PPT</button><button class="button result-file" data-output="bank" disabled>Banco</button><button class="button result-file" data-output="pipeline_report" disabled>Pipelines</button><button class="button result-file" data-output="selection" disabled>Selección</button><button class="button result-file" data-output="log" disabled>Registro</button><button id="open-folder" class="button result-file" disabled>Abrir carpeta</button></div>
         <details id="job-log-details" class="job-log-details" hidden><summary>Ruta y registro</summary><p id="job-delivery-title"></p><p id="job-message"></p><pre id="job-log"></pre></details>

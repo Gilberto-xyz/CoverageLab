@@ -26,9 +26,10 @@ body{padding-top:var(--header-height)}
 .header-main .brand-icon{font-size:14px;padding:10px 8px;border-radius:9px}
 .header-main .brand small{font-size:8px;letter-spacing:1.2px}
 .header-progress{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:12px;min-width:0}
-.header-progress .steps{display:flex;justify-content:center;gap:18px;font-size:11px;margin:0}
+.header-progress .steps{display:flex;justify-content:center;flex-wrap:wrap;gap:6px 18px;font-size:11px;margin:0}
 .header-progress .step{white-space:nowrap}
 .header-actions{display:flex;align-items:center;gap:12px}
+.header-actions>#generate-files{font-size:11px;padding:6px 10px;min-height:33px;white-space:nowrap;flex-shrink:0}
 .header-progress .local-status{position:static;font-size:10px}
 .header-toggle{display:inline-flex;align-items:center;gap:6px;min-height:33px;padding:6px 10px;font-size:11px;white-space:nowrap}
 .header-toggle svg{width:14px;height:14px;fill:none;stroke:currentColor;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round;flex-shrink:0}
@@ -96,6 +97,8 @@ body{padding-top:var(--header-height)}
   .header-main .brand small{font-size:7px}
   .header-progress{display:contents}
   .header-actions{grid-column:2;grid-row:1}
+  .header-collapsed .header-actions{grid-column:1/-1;grid-row:2;justify-content:flex-end;gap:8px}
+  .header-collapsed .header-progress .steps{grid-row:3}
   .header-toggle{font-size:10px;padding:5px 8px}
   .header-progress .steps{grid-column:1/-1;grid-row:2;font-size:9px;gap:10px}
   .header-progress .step b{font-size:8px;padding:3px;margin-right:3px}
