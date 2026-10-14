@@ -499,7 +499,7 @@ const context={editor,byId,URLSearchParams,Option:class{constructor(text,value){
   module:'research',pipelineHash:'#pipelines',location:{hash:'#research'},history:{replaceState(){}},
   document:{body:{dataset:{}},querySelectorAll(){return[];}},valueTarget:null,
   window:{CoverageApp:{context:()=>({file:{name:coverageFile}}),geometry(){},redraw(){}}},
-  fillFiles(){},commitValue(){},renderGrid(){},validation(){},busy(value){editor.busy=value;},
+  fillFiles(){},summary(){},commitValue(){},renderGrid(){},validation(){},busy(value){editor.busy=value;},
   message(text,error){if(text)messages.push({text,error});},
   api(path){
     if(path==='/api/studio/files')return Promise.resolve({coverage:[],research:[]});

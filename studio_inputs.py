@@ -47,6 +47,7 @@ _MONTHS = {name: index for index, names in enumerate([
     ("oct", "octubre", "october"), ("nov", "noviembre", "november"),
     ("dic", "dec", "diciembre", "december"),
 ], 1) for name in names}
+_DISPLAY_MONTHS = ("ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic")
 
 
 class InputConflictError(ValueError):
@@ -264,6 +265,62 @@ def _coverage_header(sheet) -> int:
     return weighted or 2
 
 
+def _date_columns(sheet, kind: str, *, epoch) -> dict[int, int]:
+    """Columnas de períodos del contrato, sin inferir fechas de las métricas.
+
+    Un número de ventas nunca se trata como un serial por su magnitud. En los
+    bloques 5W1H el título y su separador identifican la columna del calendario.
+    Los árboles y la distribución contienen encabezados MAT, no fechas de filas.
+    """
+    if kind == "coverage":
+        return {1: _coverage_header(sheet) + 1}
+    segment = re.match(r"^([1-8])[-_]", sheet.title)
+    if not segment or segment[1] in {"2", "7"}:
+        return {}
+    columns = {}
+    if segment[1] in {"3", "4", "5", "6"}:
+        for row in sheet.iter_rows(min_row=1, max_row=min(50, sheet.max_row)):
+            for cell in row:
+                if not isinstance(cell.value, str) or not re.fullmatch(
+                        r"(?:compras|ventas(?:[_ -]?\d+)?|fecha|periodo)", _normalized(cell.value)):
+                    continue
+                # Un bloque de ventas empieza después de una columna vacía;
+                # evita confundir una métrica titulada Ventas con su calendario.
+                if cell.column != 1 and sheet.cell(cell.row, cell.column - 1).value is not None:
+                    continue
+                columns.setdefault(cell.column, cell.row + 1)
+        return columns
+    # Evolución (1) y confianza (8) tienen su calendario en A. La confianza
+    # incluye una marca encima; busca el primer mes sin convertir su encabezado.
+    for row in range(1, min(sheet.max_row, 50) + 1):
+        value = sheet.cell(row, 1).value
+        if segment[1] == "1" and isinstance(value, str) and _normalized(value) in {"fecha", "periodo", "base"}:
+            return {1: row + 1}
+        if segment[1] == "8" and isinstance(value, str):
+            headers = [sheet.cell(row, col).value for col in (2, 3)]
+            if all(isinstance(header, str) for header in headers) and (
+                    "penet" in _normalized(headers[0]) and "buyers" in _normalized(headers[1])):
+                return {1: row + 1}
+        if not isinstance(value, (date, datetime, str)):
+            continue
+        try:
+            _date_value(value, epoch=epoch)
+        except ValueError:
+            continue
+        return {1: row}
+    return {}
+
+
+def _display_date(value, *, epoch) -> tuple[str | None, str]:
+    if value is None or value == "":
+        return None, "blank"
+    try:
+        parsed = _date_value(value, epoch=epoch)
+    except (ValueError, OverflowError, TypeError):
+        return str(value), "invalid-date"
+    return f"{_DISPLAY_MONTHS[parsed.month - 1]} {parsed.year}", "date"
+
+
 def _coverage_sheet(workbook, name: str, manufacturer: str, unit: str | None = None) -> None:
     sheet = workbook.create_sheet(name)
     sheet.append(["Linea PowerView", "Weighted " + unit if unit else None])
@@ -329,8 +386,29 @@ class InputStudio:
                            "columns": MAX_COLUMNS, "sheets": MAX_SHEETS,
                            "edit_cells": MAX_EDIT_CELLS, "read_cells": MAX_READ_CELLS}}
 
+    def _metadata(self, name: str, kind: str, catalog: dict | None = None) -> dict:
+        """La identidad se lee del nombre que utilizan los scripts existentes."""
+        match = re.fullmatch(r"(\d+)_([^_]+)_(.+)\.xlsx", name, re.I)
+        if not match:
+            return {"recognized": False, "country_code": None, "country": None,
+                    "category_code": None, "category": None, "category_id": None,
+                    "basket": None, "manufacturer": None}
+        catalog = catalog or self.catalog()
+        country_code, category_code, manufacturer = match.groups()
+        country = next((item for item in catalog["countries"] if item["code"] == country_code), None)
+        categories = [item for item in catalog["categories"] if item["code"].casefold() == category_code.casefold()]
+        category = categories[0] if categories else None
+        if kind == "research":
+            manufacturer = re.sub(r"[_\s]+5w1h(?= ?\(\d+\)$|$)", "", manufacturer, flags=re.I)
+        return {"recognized": bool(country and category), "country_code": country_code,
+                "country": country["name"] if country else None,
+                "category_code": category_code.upper(), "category": category["name"] if category else None,
+                "category_id": category["id"] if len(categories) == 1 else None,
+                "basket": category["basket"] if category else None, "manufacturer": manufacturer}
+
     def files(self) -> dict:
         result = {"coverage": [], "research": []}
+        catalog = self.catalog()
         for kind, origin, base in (("coverage", "local", self.root),
                                    ("research", "local", self.research_local),
                                    ("research", "external", self.research_external)):
@@ -349,7 +427,8 @@ class InputStudio:
                     ref = path.name if kind == "coverage" else f"{origin}/{path.name}"
                     result[kind].append({"file": ref, "kind": kind, "name": path.name,
                                          "origin": origin, "editable": origin == "local",
-                                         "size": stat.st_size, "modified": stat.st_mtime})
+                                         "size": stat.st_size, "modified": stat.st_mtime,
+                                         "metadata": self._metadata(path.name, kind, catalog)})
                 except OSError:
                     continue
         return result
@@ -500,11 +579,14 @@ class InputStudio:
             ws = workbook[selected]
             end_row = min(row + limit - 1, max(row, ws.max_row))
             end_column = min(column + columns - 1, max(column, ws.max_column))
+            date_columns = _date_columns(ws, kind, epoch=workbook.epoch)
             values, types, readonly, formats, fills = [], [], [], [], []
+            display_values, display_types = [], []
             for cells in ws.iter_rows(min_row=row, max_row=end_row, min_col=column, max_col=end_column):
                 vals, typs, locked, fmts, colors = [], [], [], [], []
+                shown, shown_types = [], []
                 for cell in cells:
-                    value = cell.value
+                    raw = value = cell.value
                     is_formula = cell.data_type == "f"
                     if isinstance(value, (datetime, date)):
                         value, typ = value.isoformat()[:10], "date"
@@ -516,18 +598,32 @@ class InputStudio:
                         value, typ = (value if math.isfinite(value) else None), "number"
                     else:
                         typ = "text" if value is not None else "blank"
+                    if not is_formula and cell.column in date_columns and cell.row >= date_columns[cell.column]:
+                        display, display_type = _display_date(raw, epoch=workbook.epoch)
+                        if (display_type == "invalid-date" and kind == "research"
+                                and ws.title.startswith(("8_", "8-")) and cell.column == 1
+                                and all(ws.cell(cell.row, col).value is None for col in (2, 3))):
+                            display_type = typ  # Separador/título de otra marca.
+                    else:
+                        display, display_type = (str(value) if value is not None else None), typ
                     vals.append(value)
                     typs.append(typ)
+                    shown.append(display)
+                    shown_types.append(display_type)
                     locked.append(is_formula or isinstance(cell, MergedCell) or bool(ws.protection.sheet))
                     fmts.append(cell.number_format)
                     color = cell.fill.fgColor
                     colors.append(color.rgb[-6:] if cell.fill.fill_type == "solid" and color.type == "rgb" else None)
                 values.append(vals); types.append(typs); readonly.append(locked); formats.append(fmts); fills.append(colors)
+                display_values.append(shown); display_types.append(shown_types)
             result = {"file": file, "kind": kind, "name": path.name, "fingerprint": before,
+                      "metadata": self._metadata(path.name, kind),
                       "origin": origin, "editable": origin == "local", "copy_on_save": origin == "external",
                       "sheets": [{"name": ws.title, "rows": ws.max_row, "columns": ws.max_column}
                                  for ws in workbook.worksheets], "sheet": selected,
                       "row": row, "column": column, "values": values, "types": types,
+                      "display_values": display_values, "display_types": display_types,
+                      "date_columns": [{"column": col, "data_row": first} for col, first in sorted(date_columns.items())],
                       "readonly": readonly, "formats": formats, "fills": fills,
                       "validation": self._validation(workbook, kind)}
             if kind == "coverage":

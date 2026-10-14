@@ -18,6 +18,7 @@ class StudioWorkflow:
         self.research_root = Path(research_root) if research_root else self.root.parent / "5W1H"
         self._inputs = None
         self._research = None
+        self._desktop = None
         self.lock = threading.RLock()
         self.research_jobs = {}
         self.research_analyses = {}
@@ -47,6 +48,22 @@ class StudioWorkflow:
     def workbook(self, payload):
         return self.inputs.workbook(payload.get("file"), kind=payload.get("kind", "coverage"),
                                     sheet=payload.get("sheet") or None, **self.coordinates(payload))
+
+    @property
+    def desktop(self):
+        with self.lock:
+            if self._desktop is None:
+                from studio_desktop import DesktopStudio
+                self._desktop = DesktopStudio(self.inputs)
+            return self._desktop
+
+    def open_excel(self, payload):
+        with self.explorer.analysis_lock:
+            return self.invalidate(self.desktop.open(payload))
+
+    def reload_excel(self, payload):
+        with self.explorer.analysis_lock:
+            return self.invalidate(self.desktop.reload(payload))
 
     def invalidate(self, result):
         if result.get("kind") == "coverage":

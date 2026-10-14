@@ -10,6 +10,17 @@ body:not([data-module="pipelines"]) .header-actions{grid-column:auto;grid-row:au
 .studio-heading p{font-size:12px;color:var(--muted);margin:6px 0 0;line-height:1.5}
 .studio-actions{display:flex;flex-wrap:wrap;align-items:center;gap:8px}
 .studio-actions .button{font-size:11px;padding:8px 12px;min-height:33px}
+.input-context{padding:12px 14px;margin-bottom:14px}
+.input-context-selectors{display:grid;grid-template-columns:minmax(130px,.65fr) minmax(180px,1fr) minmax(150px,1fr) auto;align-items:end;gap:12px}
+.input-context-selectors label{display:block;font-size:11px;color:var(--muted);margin-bottom:5px}
+.input-context-selectors select{width:100%;min-height:34px;font-size:12px}
+.input-context-selectors .text-button{min-height:34px;white-space:nowrap}
+.input-file-summary{display:flex;align-items:center;gap:8px 16px;flex-wrap:wrap;margin-top:9px;font-size:11px;line-height:1.5}
+.input-file-summary .studio-note{margin:0}
+.studio-grid td.date-cell{color:#245a77;font-variant-numeric:tabular-nums}
+.studio-grid td.invalid-date{color:#8c522d;box-shadow:inset 0 -2px #e2b182}
+@media(max-width:800px){.input-context-selectors{grid-template-columns:repeat(2,minmax(0,1fr))}.input-context-selectors>div:nth-child(3){grid-column:1/-1}.input-context-selectors .text-button{justify-self:start}}
+@media(max-width:450px){.input-context-selectors{grid-template-columns:1fr}.input-context-selectors>div:nth-child(3){grid-column:auto}}
 .studio-layout{display:grid;grid-template-columns:255px minmax(0,1fr);gap:16px;align-items:start}
 .studio-panel{background:white;border:1px solid var(--line);border-radius:9px;min-width:0}
 .studio-panel.padded{padding:16px}

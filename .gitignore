@@ -30,6 +30,7 @@
 !studio_inputs.py
 !studio_workflow.py
 !studio_5w1h.py
+!studio_desktop.py
 !studio_5w1h_vendor/__init__.py
 !studio_5w1h_vendor/report_engine.py
 !studio_5w1h_vendor/template_engine.py
@@ -37,6 +38,8 @@
 !studio_5w1h_vendor/Modelo_5W1H.pptx
 !studio_5w1h_vendor/Plantilla_Entrada_5W1H.xlsx
 !tests/test_studio_inputs.py
+!tests/test_studio_desktop.py
+!tests/test_studio_entry_ui.py
 !tests/test_studio_5w1h.py
 !tests/test_integrated_studio.py
 !tests/test_pipeline_explorer.py

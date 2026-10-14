@@ -9,8 +9,9 @@ import unittest
 
 from openpyxl import Workbook, load_workbook
 from openpyxl.styles import PatternFill
+from openpyxl.utils.datetime import CALENDAR_MAC_1904, CALENDAR_WINDOWS_1900, to_excel
 
-from studio_inputs import InputConflictError, InputStudio
+from studio_inputs import InputConflictError, InputStudio, file_fingerprint
 
 
 class InputStudioTests(unittest.TestCase):
@@ -204,6 +205,151 @@ class InputStudioTests(unittest.TestCase):
         # True typed numbers never need string-format inference.
         saved = self.save(book, [[{"type": "number", "value": 1.234}]], column=2)
         self.assertEqual(saved["values"][2][1], 1.234)
+
+    def test_month_display_is_consistent_without_changing_source_values_or_bytes(self):
+        book = self.create()
+        path = self.root / book["file"]
+        with closing(load_workbook(path)) as workbook:
+            sheet = workbook[book["sheet"]]
+            sheet["A1"] = "Jan-22"  # Metadata does not become a calendar cell.
+            for row, value in enumerate(["Jan-24  ", datetime(2024, 2, 1), "mar 24",
+                                          to_excel(datetime(2024, 4, 1)), "mes inválido"], 3):
+                sheet.cell(row, 1, value)
+                sheet.cell(row, 2, 45323)
+                sheet.cell(row, 8, 10)
+            sheet["A4"].number_format = "mmm-yy"
+            workbook.save(path)
+        before, fingerprint = path.read_bytes(), file_fingerprint(path)
+        shown = self.studio.workbook(book["file"])
+        self.assertEqual(shown["date_columns"], [{"column": 1, "data_row": 3}])
+        self.assertEqual([row[0] for row in shown["display_values"]][2:6],
+                         ["ene 2024", "feb 2024", "mar 2024", "abr 2024"])
+        self.assertEqual(shown["display_values"][0][0], "Jan-22")
+        self.assertEqual(shown["display_types"][0][0], "text")
+        self.assertEqual(shown["display_values"][6][0], "mes inválido")
+        self.assertEqual(shown["display_types"][6][0], "invalid-date")
+        self.assertEqual(shown["values"][2][0], "Jan-24  ")
+        self.assertEqual(shown["types"][2][0], "text")
+        self.assertEqual(shown["values"][3][0], "2024-02-01")
+        self.assertEqual(shown["formats"][3][0], "mmm-yy")
+        self.assertEqual(shown["values"][5][0], to_excel(datetime(2024, 4, 1)))
+        self.assertEqual(shown["types"][5][0], "number")
+        self.assertEqual(shown["values"][2][1], 45323)
+        self.assertEqual(shown["display_values"][2][1], "45323")
+        self.assertEqual(shown["display_types"][2][1], "number")
+        self.assertFalse(shown["validation"]["ready"])
+        self.assertEqual(shown["fingerprint"], fingerprint)
+        self.assertEqual(file_fingerprint(path), fingerprint)
+        self.assertEqual(path.read_bytes(), before)
+
+    def test_month_display_uses_each_workbook_excel_epoch(self):
+        for epoch in [CALENDAR_WINDOWS_1900, CALENDAR_MAC_1904]:
+            with self.subTest(epoch=epoch):
+                book = self.create()
+                path = self.root / book["file"]
+                workbook = Workbook()
+                workbook.epoch = epoch
+                sheet = workbook.active
+                sheet.title = "P0_Marca"
+                sheet.append(["Linea PowerView", "Weighted VOL1_P"])
+                sheet.append(["Base", "Weighted VOL1_P"])
+                serial = to_excel(datetime(2024, 2, 1), epoch)
+                sheet.append([serial, serial])
+                workbook.save(path)
+                workbook.close()
+                shown = self.studio.workbook(book["file"])
+                self.assertEqual(shown["display_values"][2][0], "feb 2024")
+                self.assertEqual(shown["values"][2][0], serial)
+                self.assertEqual(shown["display_types"][2][1], "number")
+                confidence = workbook.create_sheet("8_Categoria")
+                confidence.append(["table"])
+                confidence.append(["Marca", "Weighted PENET", "BUYERS"])
+                confidence.append([serial, 10, 100])
+                research_path = self.external / f"52_CARB_Epoch{epoch.year}.xlsx"
+                workbook.save(research_path)
+                research = self.studio.workbook(f"external/{research_path.name}", kind="research", sheet="8_Categoria")
+                self.assertEqual(research["date_columns"], [{"column": 1, "data_row": 3}])
+                self.assertEqual(research["display_values"][2][0], "feb 2024")
+                self.assertEqual(research["values"][2][0], serial)
+
+    def test_research_calendars_are_detected_from_block_headers_not_numeric_metrics(self):
+        path = self.external / "52_CARB_Marca 5w1h.xlsx"
+        workbook = Workbook()
+        sheet = workbook.active
+        sheet.title = "5_Marca_2"
+        sheet.append(["Measures = Weighted VOL1_P"])
+        sheet.append(["Compras", "Ventas_1", "Moderno", None, None, None, "Ventas_1", "Moderno"])
+        sheet.append(["Jan-24  ", 45323, 10, None, None, None, datetime(2024, 1, 1), 45323])
+        sheet.append([datetime(2024, 2, 1), 45352, 20, None, None, None, "feb 24", 45352])
+        sheet["G3"].number_format = "mmm-yy"
+        workbook.save(path)
+        workbook.close()
+        before = path.read_bytes()
+        shown = self.studio.workbook(f"external/{path.name}", kind="research", row=3, column=2)
+        self.assertEqual(shown["date_columns"], [{"column": 1, "data_row": 3}, {"column": 7, "data_row": 3}])
+        self.assertEqual(shown["display_values"][0][5], "ene 2024")
+        self.assertEqual(shown["display_values"][1][5], "feb 2024")
+        self.assertEqual(shown["values"][0][0], 45323)
+        self.assertEqual(shown["display_types"][0][0], "number")
+        self.assertEqual(shown["values"][0][5], "2024-01-01")
+        self.assertEqual(shown["display_types"][0][6], "number")
+        self.assertEqual(path.read_bytes(), before)
+
+    def test_confidence_calendar_skips_brand_header_and_non_calendar_segments(self):
+        path = self.external / "52_CARB_Marca.xlsx"
+        workbook = Workbook()
+        confidence = workbook.active
+        confidence.title = "8_Categoria"
+        confidence.append(["table", "Weighted PENET"])
+        confidence.append(["Marca", 10])
+        confidence.append(["Jan-24  ", 45323])
+        confidence.append([datetime(2024, 2, 1), 45352])
+        confidence.append(["=A4", 45380])
+        confidence.append(["Otra marca"])
+        confidence.append(["mar 24", 10, 100])
+        confidence.append(["abr 24"])  # Calendar stays readable before observations are filled.
+        for name in ["2_Marca_K", "7_Categoria_Canal", "README"]:
+            sheet = workbook.create_sheet(name)
+            sheet.append(["Jan-24", "MAT Sep-24", 45323])
+        workbook.save(path)
+        workbook.close()
+        shown = self.studio.workbook(f"external/{path.name}", kind="research")
+        self.assertEqual(shown["date_columns"], [{"column": 1, "data_row": 3}])
+        self.assertEqual(shown["display_values"][1][0], "Marca")
+        self.assertEqual(shown["display_types"][1][0], "text")
+        self.assertEqual(shown["display_values"][2][0], "ene 2024")
+        self.assertEqual(shown["display_types"][4][0], "formula")
+        self.assertEqual(shown["display_values"][5][0], "Otra marca")
+        self.assertEqual(shown["display_types"][5][0], "text")
+        self.assertEqual(shown["display_values"][6][0], "mar 2024")
+        self.assertEqual(shown["display_values"][7][0], "abr 2024")
+        self.assertEqual(shown["display_types"][7][0], "date")
+        for name in ["2_Marca_K", "7_Categoria_Canal", "README"]:
+            with self.subTest(sheet=name):
+                shown = self.studio.workbook(f"external/{path.name}", kind="research", sheet=name)
+                self.assertEqual(shown["date_columns"], [])
+                self.assertEqual(shown["display_values"][0], ["Jan-24", "MAT Sep-24", "45323"])
+
+    def test_context_metadata_is_shared_by_file_list_and_workbook_without_invented_labels(self):
+        book = self.create(manufacturer="Fabricante_con_guion")
+        metadata = book["metadata"]
+        self.assertTrue(metadata["recognized"])
+        self.assertEqual(metadata["country"], "Mexico")
+        self.assertEqual(metadata["country_code"], "52")
+        self.assertEqual(metadata["category"], "Bebidas Gaseosas")
+        self.assertEqual(metadata["category_code"], "CARB")
+        self.assertEqual(metadata["basket"], "Bebidas")
+        self.assertEqual(metadata["manufacturer"], "Fabricante_con_guion")
+        listed = next(entry for entry in self.studio.files()["coverage"] if entry["file"] == book["file"])
+        self.assertEqual(listed["metadata"], metadata)
+        self.assertEqual(self.studio._metadata("52_CARB_Marca_5w1h.xlsx", "research")["manufacturer"], "Marca")
+        self.assertEqual(self.studio._metadata("52_CARB_Marca 5w1h.xlsx", "research")["manufacturer"], "Marca")
+        for name in ["Datos.xlsx", "98_NOPE_Desconocido.xlsx"]:
+            with self.subTest(name=name):
+                unknown = self.studio._metadata(name, "coverage")
+                self.assertFalse(unknown["recognized"])
+                self.assertIsNone(unknown["country"])
+                self.assertIsNone(unknown["category"])
 
 
 if __name__ == "__main__":

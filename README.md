@@ -142,11 +142,28 @@ Usa las tres opciones de la barra superior sin salir de `http://127.0.0.1:8765/`
 
 ### 1. Entradas
 
+Los selectores visibles de **País → Categoría → Fabricante** filtran los archivos.
+**Ver todos** limpia el filtro. La ficha identifica el libro abierto y su nombre
+real; **Nueva entrada** parte del contexto de ese libro o de los filtros elegidos.
+
 **Nueva entrada** usa los países, categorías y nombres de `archivos_studio.py`.
 Indica fabricante y marcas; cobertura crea una hoja `P0_<marca>` por marca,
 con el orden de ocho columnas original. La unidad queda en el encabezado y se
 conserva al añadir hojas. **Importar Excel** permite cargar un `.xlsx` de hasta
 10 MiB sin sobrescribir archivos existentes.
+
+En Windows con Excel instalado, **Abrir en Excel** utiliza la interfaz real de
+Excel de escritorio. Pega y guarda en Excel; después pulsa **Actualizar desde
+Excel** para leer esa versión, validar los períodos e invalidar los análisis
+anteriores. Los libros externos de 5W1H se copian íntegramente a `inputs/5w1h/`
+antes de abrirse, conservando el original. Guarda o descarta los borradores del
+editor web antes de abrir o actualizar. La aplicación conserva también la
+captura web para quien prefiera trabajar dentro de la página.
+
+Las fechas de las columnas de calendario se muestran uniformemente como
+`ene 2024`, incluso cuando el origen mezcla `Jan-24`, fechas Excel y seriales.
+El valor original permanece en la barra de la celda y al editar/copiar; la
+presentación no escribe en el libro ni modifica cálculos o fechas guardadas.
 
 Selecciona una celda y pega el rango de Excel, o usa **Pegar bloque**. El editor
 admite bloques de varias filas/columnas, celdas vacías, doble clic/F2, Enter/Tab,
@@ -216,6 +233,8 @@ crear nuevas entradas ni generar informes. No se instalaron dependencias web nue
 
 ```powershell
 python -X utf8 -m unittest discover -s tests -p test_studio_inputs.py -v
+python -X utf8 -m unittest discover -s tests -p test_studio_desktop.py -v
+python -X utf8 -m unittest discover -s tests -p test_studio_entry_ui.py -v
 python -X utf8 -m unittest discover -s tests -p test_studio_5w1h.py -v
 python -X utf8 -m unittest discover -s tests -p test_integrated_studio.py -v
 python -X utf8 -m unittest discover -s tests -p test_pipeline_explorer.py -v

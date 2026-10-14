@@ -750,6 +750,7 @@ def make_handler(state):
                         "/api/studio/catalog": lambda: state.workflow.inputs.catalog(),
                         "/api/studio/files": lambda: state.workflow.inputs.files(),
                         "/api/studio/workbook": lambda: state.workflow.workbook(params),
+                        "/api/studio/desktop": lambda: state.workflow.desktop.availability(),
                         "/api/research/catalog": lambda: state.workflow.research.catalog(),
                         "/api/research/inspect": lambda: state.workflow.research.inspect(params.get("file")),
                         "/api/research/job": lambda: state.workflow.research_job(params.get("id"), params.get("file")),
@@ -803,6 +804,7 @@ def make_handler(state):
                           "/api/open-results": state.open_results, "/api/open-output": state.open_output,
                           "/api/studio/create": state.workflow.create_input, "/api/studio/save": state.workflow.save_input,
                           "/api/studio/add-sheet": state.workflow.add_sheet, "/api/studio/import": state.workflow.import_input,
+                          "/api/studio/open-excel": state.workflow.open_excel, "/api/studio/reload-excel": state.workflow.reload_excel,
                           "/api/research/analyze": state.workflow.research_analyze, "/api/research/export": state.workflow.export_research,
                           "/api/research/open-output": state.workflow.open_research_output}
                 operation = routes.get(urlsplit(self.path).path)
