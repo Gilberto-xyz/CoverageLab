@@ -1,7 +1,8 @@
 'use strict';
 const $ = id => document.getElementById(id);
 const token = document.querySelector('meta[name="explorer-token"]').content;
-const state = {analysis: null, active: null, selections: {}, included: {}, busy: false, dirty: false, job: null, files: [], openingResults:false};
+const state = {analysis: null, active: null, selections: {}, included: {}, busy: false, dirty: false, job: null, files: [], openingResults:false, openingOutput:null, resultRequest:0};
+const outputNames = {template:'Abrir Excel', presentation:'Abrir PPT', bank:'Banco', pipeline_report:'Pipelines', selection:'Selección', log:'Registro'};
 const fmt = (value, digits = 1, suffix = '') => value == null ? '—' : new Intl.NumberFormat('es-MX', {minimumFractionDigits: digits, maximumFractionDigits: digits}).format(value) + suffix;
 const month = date => new Intl.DateTimeFormat('es-MX', {month: 'short', year: '2-digit'}).format(new Date(date + 'T12:00:00'));
 const item = (tag, text, className) => { const element = document.createElement(tag); if (text != null) element.textContent = text; if (className) element.className = className; return element; };
@@ -52,13 +53,19 @@ function controls() {
   $('save').disabled = !ready;
   const refreshNeeded=!state.analysis || state.dirty;
   $('generate-files').disabled = working || !$('file').value || (!refreshNeeded && !Object.keys(selectedSheets()).length);
-  $('generate-files').textContent=state.job?.status==='running' ? 'Generando…' : state.busy ? 'Procesando…' : 'Generar archivos →';
+  $('generate-files').textContent=state.job?.status==='running' ? 'Generando…' : state.busy ? 'Procesando…' : 'Generar archivos';
   $('generate-files').title = refreshNeeded ? 'Cargar los datos y revisar antes de crear una nueva entrega' : !Object.keys(selectedSheets()).length ? 'Incluye al menos una hoja para generar' : `Generar una nueva entrega con ${$('template').selectedOptions[0].textContent} y los pipelines elegidos`;
-  $('open-folder').disabled = !!state.openingResults || state.job?.status==='running';
-  $('open-folder').textContent=state.openingResults ? 'Abriendo…' : 'Abrir carpeta ↗';
-  $('open-folder').title = state.job?.directory ? `Abrir la carpeta de esta entrega: ${state.job.directory}` : 'Abrir Output con todas las entregas';
-  $('downloads').hidden = !state.job;
-  $('job-log-details').hidden = !state.job;
+  const outputsReady=state.job?.file===$('file').value && state.job?.status==='complete';
+  $('open-folder').disabled = !outputsReady || working || !!state.openingResults || !!state.openingOutput;
+  $('open-folder').textContent=state.openingResults ? 'Abriendo…' : 'Abrir carpeta';
+  $('open-folder').title = outputsReady ? `Abrir esta entrega: ${state.job.directory}` : 'Genera una entrega para habilitar sus resultados';
+  document.querySelectorAll('[data-output]').forEach(button=>{
+    const label=button.dataset.output, available=outputsReady && state.job.available_outputs.includes(label);
+    button.disabled=!available || working || !!state.openingResults || !!state.openingOutput;
+    button.textContent=state.openingOutput===label ? 'Abriendo…' : outputNames[label];
+    button.title=available ? `Abrir ${state.job.outputs.find(out=>out.label===label)?.name || (label==='selection' ? 'selection.json' : 'generation.log')}` : 'Se habilita cuando exista este archivo en una entrega completada';
+  });
+  $('job-log-details').hidden = !state.job || state.job.file!==$('file').value;
   $('select-all').disabled = working;
   $('select-none').disabled = working;
   document.querySelectorAll('.sheet-row input, .pipeline-button').forEach(control => { control.disabled = working || control.dataset.unavailable === 'true'; });
@@ -66,7 +73,8 @@ function controls() {
   $('use-recommended').disabled = working || !active?.pipelines?.[active.recommended]?.available;
 }
 async function refreshFiles() {
-  const previous = $('file').value;
+  let previous = $('file').value;
+  if(!previous)try{previous=localStorage.getItem('coveragelab-source-file') || '';}catch(_){/* Sigue disponible sin almacenamiento local. */}
   const result = await api('/api/files');
   if (!Array.isArray(result.details)) throw new Error('El servidor local usa una versión anterior. Cierra su terminal y vuelve a abrir Abrir_Explorador.cmd para actualizar los datos.');
   state.files = result.details;
@@ -83,6 +91,7 @@ async function refreshFiles() {
     if ([...$(id).options].some(option => option.value === current)) $(id).value = current;
   });
   renderFileDetail(); renderFileCards(); controls();
+  await refreshJobForFile();
 }
 function fact(label, value) { const div = item('div', null, 'fact'); div.append(item('small', label), item('strong', value || '—')); return div; }
 function paintExcelCell(cell, kind, value, sheet, monthIndex = null) {
@@ -116,6 +125,7 @@ function renderFileDetail() {
   const file = state.files.find(entry => entry.name === $('file').value);
   const panel = $('file-detail'); panel.replaceChildren(); panel.hidden = !file;
   if (!file) return;
+  try{localStorage.setItem('coveragelab-source-file',file.name);}catch(_){/* La selección funciona durante esta sesión. */}
   const identity = item('div', null, 'file-identity');
   identity.append(item('strong', file.manufacturer || 'Nombre por revisar', 'file-manufacturer'), item('div', file.name, 'file-original-name'));
   panel.append(identity);
@@ -126,7 +136,9 @@ function renderFileDetail() {
     panel.append(facts);
     if (file.descriptor) panel.append(item('p', file.descriptor, 'source-note'));
     if (file.per_sheet) panel.append(item('p', 'Categorías por hoja: el detalle se resuelve al cargar.', 'file-warning'));
-    identity.append(item('p', `${fmt(file.size / 1024, 0)} KB · Modificado ${new Intl.DateTimeFormat('es-MX', {dateStyle:'medium'}).format(new Date(file.modified))}`, 'file-size'));
+    const extra=item('details',null,'file-extra');
+    extra.append(item('summary','Detalles del archivo'),item('p',`${fmt(file.size / 1024, 0)} KB · Modificado ${new Intl.DateTimeFormat('es-MX', {dateStyle:'medium'}).format(new Date(file.modified))}`,'file-size'));
+    panel.append(extra);
   }
   if (state.analysis && state.analysis.file !== file.name) panel.append(item('p', 'Archivo seleccionado. Pulsa Cargar y explorar para cambiar los datos visibles.', 'file-warning'));
 }
@@ -140,7 +152,7 @@ function renderFileCards() {
     card.setAttribute('aria-pressed', String(file.name === $('file').value));
     card.append(item('span', file.error ? 'Requiere corrección' : `${file.country} · ${file.country_code}`, 'file-country-tag'), item('strong', file.manufacturer || file.name), item('span', file.error || `${file.category} · ${file.category_code}`, 'file-category-name'), item('small', file.name));
     if (file.per_sheet) card.append(item('span', 'Varias categorías · detalle por hoja', 'table-tag'));
-    card.addEventListener('click', () => { $('file').value = file.name; markDirty(); renderFileDetail(); renderFileCards(); $('file-dialog').close(); });
+    card.addEventListener('click', () => { $('file').value = file.name; markDirty(); renderFileDetail(); renderFileCards(); $('file-dialog').close(); refreshJobForFile().catch(error=>status(error.message,true)); });
     $('file-cards').append(card);
   });
   if (!matches.length) $('file-cards').append(item('p', 'No hay archivos con estos filtros.', 'section-description'));
@@ -175,7 +187,7 @@ async function load() {
     $('empty').hidden = true; $('workspace').hidden = false; $('sheet-panel').hidden = false;
     $('search').value = '';
     const invalid = analysis.sheets.filter(sheet => sheet.error).length;
-    status(invalid ? `${invalid} hoja(s) requieren corrección y quedan excluidas. Las hojas válidas tienen su panel completo disponible.` : 'Panel completo cargado: gráficos y detalle del Excel disponibles sin generar archivos.' + (saved ? ' Selección anterior recuperada.' : ''));
+    status(invalid ? `${invalid} hoja(s) requieren corrección y quedan excluidas.` : 'Panel del Excel listo.' + (saved ? ' Selección recuperada.' : ''));
     $('step-file').classList.remove('active'); $('step-review').classList.add('active'); $('step-export').classList.remove('active');
     render();
   } catch (error) { status(error.message, true); }
@@ -622,47 +634,68 @@ async function exportFiles() {
   try {
     await api('/api/save', payload());
     state.job = await api('/api/export', payload());
+    state.resultRequest++;
     status('Generación iniciada con tu selección. El registro se actualiza aquí.');
-    $('job-panel').hidden = false;
+    renderResults();
     $('step-review').classList.remove('active'); $('step-export').classList.add('active');
     pollJob();
   } catch (error) { status(error.message, true); }
   finally { state.busy = false; controls(); }
 }
-function downloadLink(url, label) {
-  const a = item('a', label); a.href = `${url}${url.includes('?') ? '&' : '?'}token=${encodeURIComponent(token)}`; a.setAttribute('referrerpolicy', 'no-referrer'); return a;
+function renderResults() {
+  const job=state.job?.file===$('file').value ? state.job : null;
+  const coverage=job?.options?.coverage_type;
+  $('job-title').textContent=!job ? 'Aún no hay una entrega para este archivo' : job.status==='complete' ? (coverage ? `Cobertura ${coverage.toLocaleLowerCase()}` : 'Entrega lista') : job.status==='failed' ? 'La generación requiere revisión' : 'Generando entregables…';
+  $('job-badge').hidden=!job;
+  $('job-badge').textContent=job?.status==='complete' ? 'Completado' : job?.status==='failed' ? 'Error' : 'En curso';
+  $('job-date').textContent=job?.started_at ? new Intl.DateTimeFormat('es-MX',{dateStyle:'medium',timeStyle:'short'}).format(new Date(job.started_at)) : '';
+  $('result-hint').textContent=job?.status==='complete' ? 'Archivos de la última entrega de este Excel.' : 'Se habilitan al finalizar la generación.';
+  $('job-delivery-title').textContent=job?.title || '';
+  $('job-message').textContent=job ? `Ruta: ${job.directory}${job.error ? `\n${job.error}` : ''}` : '';
+  $('job-log').textContent=(job?.log || '').replace(/\x1b\[[0-9;]*[a-zA-Z]/g,'');
+  controls();syncChromeGeometry();
+}
+async function refreshJobForFile() {
+  const request=++state.resultRequest, file=$('file').value;
+  state.job=null;$('job-log-details').open=false;renderResults();
+  if(!file)return;
+  status('');
+  let result;
+  try{result=await api(`/api/jobs?file=${encodeURIComponent(file)}`);}
+  catch(error){if(request===state.resultRequest && file===$('file').value)status(error.message,true);return;}
+  if(request!==state.resultRequest || file!==$('file').value)return;
+  state.job=result.latest;renderResults();
+  if(state.job?.status==='running')pollJob();
+}
+async function openOutput(label) {
+  const job=state.job;
+  if(!job || job.file!==$('file').value || job.status!=='complete' || !job.available_outputs.includes(label) || state.openingOutput || state.openingResults)return;
+  state.openingOutput=label;controls();status(`Abriendo ${outputNames[label].replace('Abrir ','')}…`);
+  try { await api('/api/open-output',{id:job.id,file:job.file,output:label});status(`${outputNames[label].replace('Abrir ','')}: abierto en su aplicación.`); }
+  catch(error){status(error.message,true);}
+  finally{state.openingOutput=null;controls();}
 }
 async function openResults() {
-  if(state.openingResults || state.job?.status==='running')return;
-  const scope=state.job ? 'job' : 'all';
-  state.openingResults=scope;controls();
+  if(state.openingResults || state.openingOutput || state.job?.status!=='complete' || state.job.file!==$('file').value)return;
+  state.openingResults=true;controls();
   status('Abriendo la carpeta de resultados…');
-  try { const result=await api('/api/open-results',{scope,...(scope==='job' ? {id:state.job.id} : {})});status(scope==='job' ? `${result.message} Ruta disponible debajo del título.` : `${result.message} ${result.directory}`); }
+  try { const result=await api('/api/open-results',{scope:'job',id:state.job.id});status(result.message); }
   catch(error) { status(error.message,true); }
   finally { state.openingResults=false;controls(); }
 }
 async function pollJob() {
+  const id=state.job?.id;if(!id)return;
   try {
-    state.job = await api(`/api/job?id=${encodeURIComponent(state.job.id)}`);
-    const job = state.job;
-    const generatedAt=job.started_at ? new Intl.DateTimeFormat('es-MX',{dateStyle:'medium',timeStyle:'medium'}).format(new Date(job.started_at)) : '';
-    $('job-title').textContent = job.status === 'complete' ? `${job.title || 'Entregables generados'}${generatedAt ? ` · ${generatedAt}` : ''}` : job.status === 'failed' ? 'La generación requiere revisión' : 'Generando entregables…';
-    $('job-badge').textContent = job.status === 'complete' ? 'Completado' : job.status === 'failed' ? 'Error' : 'En curso';
-    $('job-message').textContent = job.error || (job.status === 'complete' ? `Archivos guardados en ${job.directory}` : 'Puedes consultar el avance en el registro. Esta generación usa la selección que acabas de confirmar.');
-    $('job-title').title=$('job-title').textContent;$('job-message').title=$('job-message').textContent;
-    $('job-log').textContent = (job.log || '').replace(/\x1b\[[0-9;]*[a-zA-Z]/g, '');
-    $('downloads').replaceChildren();
-    const names = {template: '↓ Template Excel', presentation: '↓ Presentación PPT', bank: '↓ Banco de coberturas', pipeline_report: '↓ Reporte de pipelines'};
-    job.outputs.forEach(output => $('downloads').append(downloadLink(output.url, names[output.label] || output.name)));
-    $('downloads').append(downloadLink(`/api/download?job=${encodeURIComponent(job.id)}&output=selection`, '↓ Selección utilizada'));
+    const job = await api(`/api/job?id=${encodeURIComponent(id)}`);
+    if(state.job?.id!==id || job.file!==$('file').value)return;
+    state.job=job;renderResults();
     if (job.status !== 'running') {
-      $('downloads').append(downloadLink(`/api/download?job=${encodeURIComponent(job.id)}&output=log`, '↓ Registro'));
-      status(job.error || 'Generación completa. Los entregables y la configuración están disponibles para descargar.', !!job.error);
+      status(job.error || 'Entrega lista para abrir.', !!job.error);
     }
     controls();
     syncChromeGeometry();
     if (job.status === 'running') setTimeout(pollJob, 2000);
-  } catch (error) { status(`No se pudo consultar el avance: ${error.message}. La generación puede seguir en su carpeta local.`, true); setTimeout(pollJob, 5000); }
+  } catch (error) { if(state.job?.id!==id)return;status(`No se pudo consultar el avance: ${error.message}`, true); setTimeout(pollJob, 5000); }
 }
 
 $('load').addEventListener('click', load);
@@ -684,7 +717,7 @@ $('dashboard-window').addEventListener('change',()=>{$('window').value=$('dashbo
 ['kpi-change-threshold','kpi-range-threshold'].forEach(id=>$(id).addEventListener('input',renderDiagnostics));
 $('file-search').addEventListener('input', renderFileCards);
 ['file-country', 'file-category'].forEach(id => $(id).addEventListener('change', renderFileCards));
-$('file').addEventListener('change', renderFileDetail);
+$('file').addEventListener('change',()=>{renderFileDetail();refreshJobForFile().catch(error=>status(error.message,true));});
 ['template-view', 'table-columns', 'inspect-month'].forEach(id => $(id).addEventListener('change', renderTemplate));
 let chartResizeFrame;
 window.addEventListener('resize', () => { cancelAnimationFrame(chartResizeFrame); chartResizeFrame = requestAnimationFrame(drawChart); });
@@ -711,6 +744,7 @@ try {
 $('save').addEventListener('click', saveSelection);
 $('generate-files').addEventListener('click', prepareExport);
 $('open-folder').addEventListener('click',openResults);
+document.querySelectorAll('[data-output]').forEach(button=>button.addEventListener('click',()=>openOutput(button.dataset.output)));
 $('cancel-export').addEventListener('click', () => $('export-dialog').close());
 $('confirm-export').addEventListener('click', exportFiles);
 const chromeObserver=new ResizeObserver(syncChromeGeometry);
@@ -718,11 +752,3 @@ chromeObserver.observe($('app-top'));
 window.addEventListener('resize',syncChromeGeometry);
 syncChromeGeometry();controls();
 refreshFiles().catch(error => status(error.message, true));
-api('/api/jobs').then(result => {
-  if (result.latest) {
-    state.job = result.latest;
-    $('job-panel').hidden = false;
-    controls();
-    pollJob();
-  }
-}).catch(error => status(error.message, true));

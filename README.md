@@ -156,16 +156,14 @@ cambio y amplitud relativa, con límites iniciales de 25% y 75% ajustables en la
 completa con coberturas P0–P6 y calendario, variaciones, correlaciones, promedios y
 tabla de cortes anuales. Los enlaces del panel llevan directamente a cada gráfico o
 tabla. **Generar archivos** abre la revisión para producir los entregables finales.
-El encabezado permanece fijo en todos los tamaños de pantalla. **Generar archivos**,
-las descargas verdes y **Abrir carpeta** comparten una sola barra junto al título de
-la entrega. Se eliminan los controles separados de la esquina superior derecha.
-El título, las descargas y el registro
-de la última entrega están integrados en el mismo encabezado y siguen
-accesibles mientras se recorren los gráficos y tablas, incluso al cargar otro archivo.
-El contenido reserva el espacio de estas barras para evitar que cubran datos; el
-registro largo tiene desplazamiento propio. Debajo de los pasos centrales aparecen
-fabricante, país, categoría y cesta del archivo seleccionado, junto con su nombre y
-fecha de modificación. La barra lateral reserva más altura para las hojas.
+El encabezado permanece fijo en todos los tamaños de pantalla. Un único panel
+compacto reúne el **archivo actual** a la izquierda y sus **resultados** a la derecha,
+con **Generar archivos** en el extremo derecho. País, categoría, fabricante y cesta
+están visibles; tamaño y fecha se despliegan en **Detalles del archivo**. La ruta
+completa, el nombre de la entrega y su registro se despliegan en **Ruta y registro**.
+El contenido reserva el espacio de este panel para evitar que cubra datos; el
+registro largo tiene desplazamiento propio. La barra lateral reserva más altura
+para las hojas, y los márgenes del panel de gráficos son más compactos.
 En escritorio la barra lateral permanece
 visible y las hojas tienen desplazamiento propio; en ventanas bajas la configuración
 también se desplaza internamente. En móvil el origen conserva el flujo vertical.
@@ -185,12 +183,19 @@ automáticas como referencia. Las hojas excluidas no aparecen en los entregables
 La metadata por hoja se conserva incluso al excluir una hoja total de la que
 otras hojas heredaron su categoría.
 
-La barra fija incluye **Generar archivos**. Si aún no se han cargado los datos o
+El panel fijo incluye **Generar archivos**. Si aún no se han cargado los datos o
 cambió la configuración, los actualiza
 y abre la revisión final; todavía requiere **Generar entregables** para exportar.
 Si no hay hojas incluidas o hay una generación en curso, indica el motivo y se bloquea.
-Las descargas corresponden a la última entrega mostrada y no generan archivos.
-**Abrir carpeta** abre esa entrega; si todavía no hay ninguna, abre `Output`.
+**Abrir Excel**, **Abrir PPT**, **Banco**, **Pipelines**, **Selección** y **Registro**
+abren los archivos existentes con sus aplicaciones locales; no descargan copias.
+En Windows se usa la asociación de archivos y, si JSON o LOG no tienen una,
+se abren con Bloc de notas. **Abrir carpeta** abre la entrega mostrada.
+Todos estos controles empiezan deshabilitados y solo se habilitan cuando el archivo
+seleccionado tiene una entrega completada y el resultado existe. El historial se
+resuelve por archivo de origen, incluso para las entregas anteriores recuperadas
+desde `selection.json`; elegir otra marca no habilita los archivos de la anterior.
+El archivo seleccionado se recuerda al recargar el navegador.
 Los botones muestran el avance de apertura y generación en esa misma zona.
 Cada generación crea `Output/<nombre de entrega del script>__AAAAMMDD_HHMMSS/`:
 el nombre conserva país, categoría, fabricante, periodo y tipo de cobertura; la fecha

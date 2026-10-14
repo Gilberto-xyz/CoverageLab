@@ -373,7 +373,80 @@ class ExplorerState:
             except (OSError, ValueError, KeyError, TypeError):
                 continue
         for job in sorted(jobs, key=lambda entry: entry.get("started_at", entry["id"])):
+            # Las entregas anteriores guardaban el origen en selection.json.
+            if not job.get("file"):
+                try:
+                    config_path = (Path(job["directory"]) / "selection.json").resolve()
+                    if not config_path.is_relative_to(Path(job["directory"]).resolve()):
+                        raise ValueError("Configuración fuera de la entrega.")
+                    config = json.loads(config_path.read_text(encoding="utf-8"))
+                    if not isinstance(config, dict):
+                        raise ValueError("Configuración de entrega inválida.")
+                    job["file"] = config.get("file")
+                    job["fingerprint"] = config.get("fingerprint")
+                    job.setdefault("options", config.get("options", {}))
+                except (OSError, ValueError, TypeError):
+                    pass
             self.jobs[job["id"]] = job
+
+    def latest_job(self, file_name=None):
+        if file_name is not None:
+            file_name = self.source(file_name).name
+        with self.lock:
+            job_id = next((key for key, job in reversed(self.jobs.items())
+                           if file_name is None or job.get("file") == file_name), None)
+        return self.job(job_id) if job_id else None
+
+    def delivery_directory(self, job):
+        directory = Path(job["directory"]).resolve()
+        roots = (self.output_root.resolve(), (self.root / "outputs" / "pipeline_explorer").resolve())
+        if not any(directory.is_relative_to(root) and root.is_relative_to(self.root) for root in roots):
+            raise ValueError("La carpeta no pertenece a una ejecución local.")
+        if not directory.is_dir():
+            raise ValueError("La carpeta de resultados ya no está disponible.")
+        return directory
+
+    def open_output(self, payload):
+        """Abre un entregable registrado con su aplicación local, sin descargarlo."""
+        job = self.job(payload.get("id"))
+        if job.get("status") != "complete":
+            raise ValueError("Los archivos se habilitan cuando termina la generación.")
+        if self.source(payload.get("file")).name != job.get("file"):
+            raise ValueError("La entrega corresponde a otro archivo de origen.")
+        file = self.output_path(job, payload.get("output"))
+        if sys.platform == "win32":
+            try:
+                os.startfile(str(file))
+            except OSError as exc:
+                if getattr(exc, "winerror", None) != 1155 or file.suffix.lower() not in {".json", ".log"}:
+                    raise
+                subprocess.Popen(["notepad.exe", str(file)])
+        else:
+            subprocess.Popen(["open" if sys.platform == "darwin" else "xdg-open", str(file)],
+                             stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        return {"message": "Archivo abierto en su aplicación local.", "name": file.name}
+
+    def output_path(self, job, label):
+        if job.get("status") != "complete":
+            raise ValueError("Los archivos se habilitan cuando termina la generación.")
+        extensions = {"template": ".xlsx", "presentation": ".pptx", "bank": ".xlsx",
+                      "pipeline_report": ".xlsx", "selection": ".json", "log": ".log"}
+        if not isinstance(label, str) or label not in extensions:
+            raise ValueError("Archivo de salida desconocido.")
+        directory = self.delivery_directory(job)
+        if label in {"selection", "log"}:
+            file = directory / ("selection.json" if label == "selection" else "generation.log")
+        else:
+            output = next((out for out in job["outputs"] if out["label"] == label), None)
+            if output is None:
+                raise ValueError("El entregable todavía no está disponible.")
+            file = Path(output["path"])
+        file = file.resolve()
+        if not file.is_relative_to(directory) or file.suffix.lower() != extensions[label]:
+            raise ValueError("El archivo no es un entregable válido de esta ejecución.")
+        if not file.is_file():
+            raise ValueError("El archivo de resultados ya no está disponible.")
+        return file
 
     def open_results(self, payload):
         """Abre únicamente Output o una ejecución registrada, nunca una ruta del cliente."""
@@ -383,10 +456,7 @@ class ExplorerState:
                 raise ValueError("La carpeta Output debe estar dentro del proyecto.")
             directory.mkdir(exist_ok=True)
         elif payload.get("scope") == "job":
-            directory = Path(self.job(payload.get("id"))["directory"]).resolve()
-            roots = (self.output_root.resolve(), (self.root / "outputs" / "pipeline_explorer").resolve())
-            if not any(directory.is_relative_to(root) and root.is_relative_to(self.root) for root in roots):
-                raise ValueError("La carpeta no pertenece a una ejecución local.")
+            directory = self.delivery_directory(self.job(payload.get("id")))
         else:
             raise ValueError("Carpeta de resultados desconocida.")
         if not directory.is_dir():
@@ -503,7 +573,8 @@ class ExplorerState:
             config_path = workdir / "selection.json"
             config_path.write_text(json.dumps(config, ensure_ascii=False, indent=2), encoding="utf-8")
             job = {"id": job_id, "status": "running", "directory": str(workdir), "outputs": [], "error": None,
-                   "title": source.stem, "started_at": started.isoformat(), "options": analysis["options"]}
+                   "title": source.stem, "started_at": started.isoformat(), "options": analysis["options"],
+                   "file": source.name, "fingerprint": analysis["fingerprint"]}
             self.jobs[job_id] = job
             threading.Thread(target=self.run_export, args=(job_id, config_path), daemon=True).start()
             return dict(job)
@@ -557,6 +628,14 @@ class ExplorerState:
                 job["log"] = log.read().decode("utf-8", errors="replace")
         else:
             job["log"] = "Preparando generación…"
+        job["available_outputs"] = []
+        if job.get("status") == "complete":
+            for label in ("template", "presentation", "bank", "pipeline_report", "selection", "log"):
+                try:
+                    self.output_path(job, label)
+                    job["available_outputs"].append(label)
+                except (OSError, ValueError):
+                    pass
         return job
 
 
@@ -663,9 +742,8 @@ def make_handler(state):
                 elif path == "/api/job":
                     self.send_json(state.job(parse_qs(urlsplit(self.path).query).get("id", [""])[0]))
                 elif path == "/api/jobs":
-                    with state.lock:
-                        latest = next(reversed(state.jobs), None)
-                    self.send_json({"latest": state.job(latest) if latest else None})
+                    params = parse_qs(urlsplit(self.path).query)
+                    self.send_json({"latest": state.latest_job(params.get("file", [None])[0])})
                 elif path == "/api/download":
                     params = parse_qs(urlsplit(self.path).query)
                     job = state.job(params.get("job", [""])[0])
@@ -700,7 +778,7 @@ def make_handler(state):
                 if not isinstance(payload, dict):
                     raise ValueError("Solicitud inválida.")
                 routes = {"/api/analyze": state.analyze, "/api/save": state.save_selection, "/api/export": state.export,
-                          "/api/open-results": state.open_results}
+                          "/api/open-results": state.open_results, "/api/open-output": state.open_output}
                 operation = routes.get(urlsplit(self.path).path)
                 if operation is None:
                     self.send_json({"error": "Ruta desconocida."}, 404)

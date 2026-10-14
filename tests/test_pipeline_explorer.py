@@ -346,11 +346,12 @@ assert.equal(api.correlationStyle(null,[0,.5,1],palette),null);
             request = urllib.request.Request(base + "/api/files", headers={"X-Explorer-Token": self.state.token})
             with urllib.request.urlopen(request) as response:
                 self.assertEqual(json.load(response)["files"], [self.source.name])
-            for headers in ({}, {"X-Explorer-Token": self.state.token, "Origin": "https://example.com"}):
-                request = urllib.request.Request(base + "/api/open-results", data=b'{"scope":"all"}', headers=headers)
-                with self.assertRaises(urllib.error.HTTPError) as error:
-                    urllib.request.urlopen(request)
-                self.assertEqual(error.exception.code, 403)
+            for endpoint in ("/api/open-results", "/api/open-output"):
+                for headers in ({}, {"X-Explorer-Token": self.state.token, "Origin": "https://example.com"}):
+                    request = urllib.request.Request(base + endpoint, data=b'{"scope":"all"}', headers=headers)
+                    with self.assertRaises(urllib.error.HTTPError) as error:
+                        urllib.request.urlopen(request)
+                    self.assertEqual(error.exception.code, 403)
             self.assertFalse((self.root / "Output").exists())
             with mock.patch.object(explorer.os, "startfile", create=True) as opener, mock.patch.object(explorer.sys, "platform", "win32"):
                 request = urllib.request.Request(base + "/api/open-results", data=b'{"scope":"all"}', headers={"X-Explorer-Token": self.state.token})
@@ -384,6 +385,83 @@ assert.equal(api.correlationStyle(null,[0,.5,1],palette),null);
                "outputs": [{"path": str(self.source), "label": "template"}]}
         (directory / "job.json").write_text(json.dumps(job), encoding="utf-8")
         self.assertEqual(explorer.ExplorerState(self.root).jobs, {})
+
+    def test_restored_deliveries_follow_the_selected_source_not_global_latest(self):
+        other = self.root / "51_BLEA_OtraMarca.xlsx"
+        shutil.copy2(self.source, other)
+        for source, job_id, hour in ((self.source, "first", 12), (other, "other", 13)):
+            directory = self.root / "Output" / job_id
+            directory.mkdir(parents=True)
+            output = directory / "template.xlsx"
+            output.write_bytes(b"test")
+            (directory / "selection.json").write_text(json.dumps({"file": source.name, "options": {"coverage_type": "Absoluta"}}), encoding="utf-8")
+            job = {"id": job_id, "directory": str(directory), "status": "complete",
+                   "started_at": f"2026-10-13T{hour}:00:00-06:00", "outputs": [{"path": str(output), "label": "template", "name": output.name}]}
+            (directory / "job.json").write_text(json.dumps(job), encoding="utf-8")
+        restored = explorer.ExplorerState(self.root)
+        self.assertEqual(restored.latest_job()["id"], "other")
+        self.assertEqual(restored.latest_job(self.source.name)["id"], "first")
+        self.assertEqual(restored.latest_job(other.name)["file"], other.name)
+        self.assertEqual(restored.latest_job(self.source.name)["options"]["coverage_type"], "Absoluta")
+        first_run = self.root / "52_CARB_SinEntrega.xlsx"
+        shutil.copy2(self.source, first_run)
+        self.assertIsNone(restored.latest_job(first_run.name))
+
+    def test_open_outputs_only_opens_completed_matching_registered_files(self):
+        directory = self.root / "Output" / "Entrega"
+        directory.mkdir(parents=True)
+        paths = {"template": directory / "template.xlsx", "presentation": directory / "slides.pptx",
+                 "bank": directory / "bank.xlsx", "pipeline_report": directory / "pipelines.xlsx",
+                 "selection": directory / "selection.json", "log": directory / "generation.log"}
+        for file in paths.values():
+            file.write_text("test", encoding="utf-8")
+        self.state.jobs["local"] = {"id": "local", "status": "complete", "file": self.source.name,
+                                    "directory": str(directory), "outputs": [{"label": label, "path": str(file)} for label, file in paths.items() if label not in {"selection", "log"}]}
+        payload = {"id": "local", "file": self.source.name, "output": "template"}
+        with mock.patch.object(explorer.os, "startfile", create=True) as opener, mock.patch.object(explorer.sys, "platform", "win32"):
+            self.assertEqual(set(self.state.job("local")["available_outputs"]), set(paths))
+            for label, file in paths.items():
+                self.state.open_output(dict(payload, output=label))
+                self.assertEqual(opener.call_args, mock.call(str(file)))
+            opener.reset_mock()
+            other = self.root / "51_BLEA_OtraMarca.xlsx"
+            shutil.copy2(self.source, other)
+            for invalid in (dict(payload, output="../file"), dict(payload, output=[]), dict(payload, file=other.name)):
+                with self.assertRaises(ValueError):
+                    self.state.open_output(invalid)
+            self.state.jobs["local"]["status"] = "running"
+            with self.assertRaises(ValueError):
+                self.state.open_output(payload)
+            self.assertEqual(self.state.job("local")["available_outputs"], [])
+            self.state.jobs["local"]["status"] = "complete"
+            output = self.state.jobs["local"]["outputs"][0]
+            output["path"] = str(self.source)
+            with self.assertRaises(ValueError):
+                self.state.open_output(payload)
+            executable = directory / "unsafe.exe"
+            executable.write_bytes(b"test")
+            output["path"] = str(executable)
+            with self.assertRaises(ValueError):
+                self.state.open_output(payload)
+            output["path"] = str(paths["template"])
+            paths["template"].unlink()
+            self.assertNotIn("template", self.state.job("local")["available_outputs"])
+            with self.assertRaises(ValueError):
+                self.state.open_output(payload)
+            opener.assert_not_called()
+
+    def test_text_outputs_fall_back_to_notepad_only_without_a_file_association(self):
+        directory = self.root / "Output" / "Entrega"
+        directory.mkdir(parents=True)
+        file = directory / "generation.log"
+        file.write_text("Registro", encoding="utf-8")
+        self.state.jobs["local"] = {"id": "local", "status": "complete", "file": self.source.name,
+                                    "directory": str(directory), "outputs": []}
+        missing_association = OSError("Sin aplicación asociada")
+        missing_association.winerror = 1155
+        with mock.patch.object(explorer.os, "startfile", create=True, side_effect=missing_association), mock.patch.object(explorer.sys, "platform", "win32"), mock.patch.object(explorer.subprocess, "Popen") as opener:
+            self.state.open_output({"id": "local", "file": self.source.name, "output": "log"})
+            opener.assert_called_once_with(["notepad.exe", str(file)])
 
     def test_real_export_respects_override_and_excludes_other_sheets(self):
         from openpyxl import load_workbook
