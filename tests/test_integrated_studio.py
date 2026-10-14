@@ -365,6 +365,31 @@ class IntegratedStudioTests(unittest.TestCase):
         self.assertEqual(self.state.workflow.research_jobs, {})
         self.assertFalse((self.root / "Output").exists())
 
+    def test_research_folder_uses_shared_foreground_helper_after_delivery_validation(self):
+        path = self.make_research()
+        source_id = "local/" + path.name
+        directory = self.root / "Output" / "Investigación"
+        directory.mkdir(parents=True)
+        job = {"id": "folder-proof", "file": source_id, "status": "complete",
+               "directory": str(directory), "outputs": [], "fingerprint": explorer.fingerprint(path)}
+        self.state.workflow.research_jobs[job["id"]] = job
+        with mock.patch("studio_workflow.open_folder", return_value={"foreground": True,
+                "directory": str(directory), "message": "Carpeta en primer plano."}) as opener:
+            result = self.state.workflow.open_research_output({"id": job["id"], "file": source_id, "output": "folder"})
+            self.assertTrue(result["foreground"])
+            opener.assert_called_once_with(directory.resolve())
+            opener.reset_mock()
+            for updates in ({"file": "external/other.xlsx"}, {"id": "not-registered"}):
+                with self.subTest(updates=updates), self.assertRaises(ValueError):
+                    self.state.workflow.open_research_output({"id": job["id"], "file": source_id,
+                        "output": "folder"} | updates)
+            for updates in ({"status": "running"}, {"directory": str(self.root.parent)},
+                            {"directory": str(directory / "missing")}):
+                self.state.workflow.research_jobs[job["id"]] = job | updates
+                with self.subTest(job=updates), self.assertRaises(ValueError):
+                    self.state.workflow.open_research_output({"id": job["id"], "file": source_id, "output": "folder"})
+            opener.assert_not_called()
+
     def test_research_export_generates_real_excel_ppt_provenance_and_restorable_job(self):
         path = self.make_research()
         source_id = "local/" + path.name

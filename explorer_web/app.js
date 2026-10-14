@@ -6,6 +6,23 @@ const outputNames = {template:'Abrir Excel', presentation:'Abrir PPT', bank:'Ban
 const fmt = (value, digits = 1, suffix = '') => value == null ? '—' : new Intl.NumberFormat('es-MX', {minimumFractionDigits: digits, maximumFractionDigits: digits}).format(value) + suffix;
 const month = date => new Intl.DateTimeFormat('es-MX', {month: 'short', year: '2-digit'}).format(new Date(date + 'T12:00:00'));
 const item = (tag, text, className) => { const element = document.createElement(tag); if (text != null) element.textContent = text; if (className) element.className = className; return element; };
+const resultIconPaths = {
+  template:['M5 3h10l4 4v14H5z','M15 3v5h4','M8 11h8v7H8z','M8 14h8','M11 11v7'],
+  presentation:['M3 4h18v13H3z','M12 17v4','M8 21h8','M7 9h4v4H7z','M14 9h3','M14 12h3'],
+  bank:['M4 6c0-2 16-2 16 0s-16 2-16 0','M4 6v12c0 2 16 2 16 0V6','M4 12c0 2 16 2 16 0'],
+  pipeline_report:['M4 3h5v5H4z','M15 16h5v5h-5z','M4 16h5v5H4z','M6.5 8v8','M6.5 11h11v5'],
+  selection:['M9 4H5v17h14V4h-4','M9 2h6v4H9z','m8 13 2 2 5-5'],
+  log:['M5 3h10l4 4v14H5z','M15 3v5h4','M8 12h8','M8 16h8'],
+  folder:['M3 7V4h6l2 3h10v13H3z','M3 10h18'],
+};
+function resultButton(button, label, kind) {
+  const svg=document.createElementNS('http://www.w3.org/2000/svg','svg');
+  Object.entries({viewBox:'0 0 24 24','aria-hidden':'true',focusable:'false',class:`output-icon output-icon-${kind}`}).forEach(([key,value])=>svg.setAttribute(key,value));
+  (resultIconPaths[kind] || resultIconPaths.log).forEach(d=>{
+    const path=document.createElementNS('http://www.w3.org/2000/svg','path');path.setAttribute('d',d);svg.append(path);
+  });
+  button.replaceChildren(svg,item('span',label));
+}
 const fold = value => String(value || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLocaleLowerCase();
 const driverMetrics = {
   penetration: {title: 'Penetración mensual', unit: '%', digits: 1},
@@ -74,12 +91,12 @@ function controls() {
   $('generate-files').title = pendingInput ? 'Guarda los cambios del editor de entradas antes de generar' : refreshNeeded ? 'Cargar los datos y revisar antes de crear una nueva entrega' : !Object.keys(selectedSheets()).length ? 'Incluye al menos una hoja para generar' : `Generar una nueva entrega con ${$('template').selectedOptions[0].textContent} y los pipelines elegidos`;
   const outputsReady=state.job?.file===$('file').value && state.job?.status==='complete';
   $('open-folder').disabled = !outputsReady || working || !!state.openingResults || !!state.openingOutput;
-  $('open-folder').textContent=state.openingResults ? 'Abriendo…' : 'Abrir carpeta';
+  resultButton($('open-folder'),state.openingResults ? 'Abriendo…' : 'Abrir carpeta','folder');
   $('open-folder').title = outputsReady ? `Abrir esta entrega: ${state.job.directory}` : 'Genera una entrega para habilitar sus resultados';
   document.querySelectorAll('[data-output]').forEach(button=>{
     const label=button.dataset.output, available=outputsReady && state.job.available_outputs.includes(label);
     button.disabled=!available || working || !!state.openingResults || !!state.openingOutput;
-    button.textContent=state.openingOutput===label ? 'Abriendo…' : outputNames[label];
+    resultButton(button,state.openingOutput===label ? 'Abriendo…' : outputNames[label],label);
     button.title=available ? `Abrir ${state.job.outputs.find(out=>out.label===label)?.name || (label==='selection' ? 'selection.json' : 'generation.log')}` : 'Se habilita cuando exista este archivo en una entrega completada';
   });
   $('job-log-details').hidden = !state.job || state.job.file!==$('file').value;
@@ -773,6 +790,7 @@ syncChromeGeometry();controls();
 refreshFiles().catch(error => status(error.message, true));
 
 window.CoverageApp = {
+  resultButton,
   inputPending(name, pending) {state.pendingInput=pending ? name : null;controls();},
   context() {
     const file = state.files.find(entry => entry.name === $('file').value);

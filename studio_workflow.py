@@ -10,6 +10,8 @@ import subprocess
 import sys
 import threading
 
+from studio_desktop import open_folder
+
 
 class StudioWorkflow:
     def __init__(self, explorer, research_root=None):
@@ -237,7 +239,7 @@ class StudioWorkflow:
             raise ValueError("La carpeta no pertenece a una entrega 5W1H local.")
         label = payload.get("output")
         if label == "folder":
-            target = directory
+            return open_folder(directory)
         else:
             output = next((out for out in job["outputs"] if out["label"] == label), None)
             if output is None:

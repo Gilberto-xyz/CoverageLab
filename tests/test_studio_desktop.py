@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import contextlib
+from collections import Counter
 import json
 from pathlib import Path
 import sys
@@ -18,6 +19,166 @@ from openpyxl import Workbook, load_workbook
 import pipeline_explorer as explorer
 import studio_desktop as desktop
 from studio_inputs import InputConflictError, file_fingerprint
+
+
+class FolderWindowTests(unittest.TestCase):
+    """Explorer se simula por completo: ninguna prueba abre carpetas reales."""
+
+    def setUp(self):
+        (explorer.ROOT / "outputs").mkdir(exist_ok=True)
+        self.temporary = tempfile.TemporaryDirectory(prefix="folder_test_", dir=explorer.ROOT / "outputs")
+        self.root = Path(self.temporary.name)
+        self.directory = self.root / "primera" / "Entrega"
+        self.directory.mkdir(parents=True)
+        self.pythoncom = types.ModuleType("pythoncom")
+        self.pythoncom.CoInitialize = mock.Mock()
+        self.pythoncom.CoUninitialize = mock.Mock()
+        self.gui = types.ModuleType("win32gui")
+        self.gui.IsWindow = mock.Mock(return_value=True)
+        self.gui.IsIconic = mock.Mock(return_value=False)
+        self.gui.ShowWindow = mock.Mock()
+        self.gui.GetForegroundWindow = mock.Mock(return_value=42)
+        self.gui.SetForegroundWindow = mock.Mock()
+        self.gui.BringWindowToTop = mock.Mock()
+        self.gui.PeekMessage = mock.Mock()
+        self.process = types.ModuleType("win32process")
+        self.process.GetWindowThreadProcessId = mock.Mock(side_effect=lambda handle: (handle + 10, 99))
+        self.process.AttachThreadInput = mock.Mock()
+        self.api = types.ModuleType("win32api")
+        self.api.GetCurrentThreadId = mock.Mock(return_value=1)
+        self.constants = types.ModuleType("win32con")
+        self.constants.SW_RESTORE = 9
+        self.constants.PM_NOREMOVE = 0
+        self.shell = mock.Mock()
+        self.shell.Windows.return_value = [self.window(self.directory, 42)]
+        self.client = types.ModuleType("win32com.client")
+        self.client.Dispatch = mock.Mock(return_value=self.shell)
+        self.win32com = types.ModuleType("win32com")
+        self.win32com.__path__ = []
+        self.win32com.client = self.client
+        self.modules = {"pythoncom": self.pythoncom, "win32api": self.api,
+            "win32con": self.constants, "win32gui": self.gui, "win32process": self.process,
+            "win32com": self.win32com, "win32com.client": self.client}
+
+    def tearDown(self):
+        self.temporary.cleanup()
+
+    @staticmethod
+    def window(directory, handle, executable="explorer.exe"):
+        return types.SimpleNamespace(FullName=str(directory.parent / executable), HWND=handle,
+            Document=types.SimpleNamespace(Folder=types.SimpleNamespace(Self=types.SimpleNamespace(Path=str(directory)))))
+
+    @contextlib.contextmanager
+    def native(self):
+        with mock.patch.dict(sys.modules, self.modules), mock.patch.object(desktop.sys, "platform", "win32"), \
+                mock.patch.object(desktop.os, "startfile", create=True) as launch:
+            yield launch
+
+    def test_complete_path_disambiguates_equal_folder_names_and_ignores_other_apps(self):
+        other = self.root / "segunda" / "Entrega"
+        other.mkdir(parents=True)
+        self.shell.Windows.return_value = [self.window(other, 12), self.window(self.directory, 13, "chrome.exe"),
+            object(), self.window(self.directory, 14), self.window(self.directory, 42)]
+        self.gui.IsWindow.side_effect = lambda handle: handle != 14
+        self.assertEqual(desktop._folder_window(self.shell, self.directory.resolve(), self.gui), 42)
+
+    def test_existing_window_is_reused_without_launching_duplicate(self):
+        with self.native() as launch:
+            result = desktop.open_folder(self.directory)
+        self.assertTrue(result["foreground"])
+        self.assertEqual(Path(result["directory"]), self.directory.resolve())
+        launch.assert_not_called()
+        self.pythoncom.CoInitialize.assert_called_once_with()
+        self.pythoncom.CoUninitialize.assert_called_once_with()
+
+    def test_minimized_window_is_restored_before_activation(self):
+        self.gui.IsIconic.return_value = True
+        with self.native() as launch:
+            self.assertTrue(desktop.open_folder(self.directory)["foreground"])
+        self.gui.ShowWindow.assert_called_once_with(42, self.constants.SW_RESTORE)
+        launch.assert_not_called()
+
+    def test_new_window_is_waited_for_then_focused(self):
+        self.shell.Windows.side_effect = [[], [], [self.window(self.directory, 42)]]
+        with self.native() as launch, mock.patch.object(desktop.time, "sleep") as sleep, \
+                mock.patch.object(desktop.time, "monotonic", side_effect=[0, 0.1, 0.2]):
+            result = desktop.open_folder(self.directory)
+        launch.assert_called_once_with(str(self.directory.resolve()))
+        self.assertEqual(sleep.call_count, 2)
+        self.assertTrue(result["foreground"])
+
+    def test_input_queues_are_detached_even_when_focus_api_fails(self):
+        self.gui.GetForegroundWindow.return_value = 7
+        self.gui.SetForegroundWindow.side_effect = RuntimeError("Windows denied focus")
+        self.gui.BringWindowToTop.side_effect = RuntimeError("Native call failed")
+        focused = desktop._foreground_folder(42, self.gui, self.process, self.api, self.constants)
+        self.assertFalse(focused)
+        calls = [call.args for call in self.process.AttachThreadInput.call_args_list]
+        attached = Counter(args[:2] for args in calls if args[2])
+        detached = Counter(args[:2] for args in calls if not args[2])
+        self.assertEqual(attached, Counter({(1, 52): 1, (1, 17): 1}))
+        self.assertEqual(detached, attached)
+
+    def test_successful_native_focus_is_reported_after_initial_denial(self):
+        foreground = [7]
+        self.gui.GetForegroundWindow.side_effect = lambda: foreground[0]
+
+        def activate(handle):
+            if self.gui.SetForegroundWindow.call_count == 1:
+                raise RuntimeError("First call denied")
+            foreground[0] = handle
+
+        self.gui.SetForegroundWindow.side_effect = activate
+        with self.native() as launch:
+            result = desktop.open_folder(self.directory)
+        self.assertTrue(result["foreground"])
+        launch.assert_not_called()
+        attached = [call.args[:2] for call in self.process.AttachThreadInput.call_args_list if call.args[2]]
+        detached = [call.args[:2] for call in self.process.AttachThreadInput.call_args_list if not call.args[2]]
+        self.assertEqual(detached, list(reversed(attached)))
+
+    def test_focus_denied_returns_honest_fallback_without_duplicate_launch(self):
+        self.gui.GetForegroundWindow.return_value = 7
+        self.gui.SetForegroundWindow.side_effect = RuntimeError("Windows denied focus")
+        with self.native() as launch:
+            result = desktop.open_folder(self.directory)
+        self.assertFalse(result["foreground"])
+        self.assertIn("barra de tareas", result["message"])
+        launch.assert_not_called()
+        self.pythoncom.CoUninitialize.assert_called_once_with()
+
+    def test_missing_dependencies_still_open_folder_and_report_fallback(self):
+        with self.native() as launch, mock.patch.dict(sys.modules, {"pythoncom": None}):
+            result = desktop.open_folder(self.directory)
+        launch.assert_called_once_with(str(self.directory.resolve()))
+        self.assertFalse(result["foreground"])
+        self.pythoncom.CoInitialize.assert_not_called()
+
+    def test_com_failure_still_opens_folder_and_releases_initialized_apartment(self):
+        self.client.Dispatch.side_effect = RuntimeError("Explorer automation unavailable")
+        with self.native() as launch:
+            result = desktop.open_folder(self.directory)
+        launch.assert_called_once_with(str(self.directory.resolve()))
+        self.assertFalse(result["foreground"])
+        self.pythoncom.CoUninitialize.assert_called_once_with()
+
+    def test_late_native_focus_failure_keeps_existing_folder_without_relaunch(self):
+        self.gui.IsIconic.side_effect = RuntimeError("Window closed")
+        with self.native() as launch:
+            result = desktop.open_folder(self.directory)
+        self.assertFalse(result["foreground"])
+        launch.assert_not_called()
+        self.pythoncom.CoUninitialize.assert_called_once_with()
+
+    def test_missing_or_file_path_is_rejected_before_any_native_action(self):
+        text = self.root / "archivo.txt"
+        text.write_text("fixture", encoding="utf-8")
+        with self.native() as launch:
+            for path in (self.root / "no existe", text):
+                with self.subTest(path=path), self.assertRaises(ValueError):
+                    desktop.open_folder(path)
+        launch.assert_not_called()
+        self.pythoncom.CoInitialize.assert_not_called()
 
 
 class DesktopStudioTests(unittest.TestCase):

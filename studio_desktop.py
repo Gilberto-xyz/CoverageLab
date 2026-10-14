@@ -1,4 +1,4 @@
-"""Excel de escritorio como editor opcional de las entradas registradas.
+"""Apertura de carpetas y Excel de escritorio para los archivos registrados.
 
 No automatiza ni cierra sesiones de Excel. El usuario abre un libro, lo guarda
 en Excel y vuelve a leerlo en la web; los motores conservan el mismo contrato.
@@ -11,8 +11,121 @@ from pathlib import Path
 import re
 import subprocess
 import sys
+import threading
+import time
 
 from studio_inputs import InputConflictError, MAX_FILE_BYTES, _lock, file_fingerprint
+
+
+_folder_lock = threading.Lock()
+
+
+def _folder_window(shell, directory, gui):
+    """Identifica Explorer por su ruta completa, no por el título de la ventana."""
+    try:
+        windows = list(shell.Windows())
+    except Exception:
+        return None
+    for window in windows:
+        try:
+            if Path(window.FullName).name.casefold() != "explorer.exe":
+                continue
+            if Path(window.Document.Folder.Self.Path).resolve() != directory:
+                continue
+            handle = int(window.HWND)
+            if gui.IsWindow(handle):
+                return handle
+        except Exception:
+            # Una pestaña puede cerrarse mientras Windows enumera las ventanas.
+            continue
+    return None
+
+
+def _foreground_folder(handle, gui, process, api, constants):
+    """Activa solo la ventana solicitada y libera siempre las colas de entrada."""
+    attached = []
+    try:
+        if gui.IsIconic(handle):
+            gui.ShowWindow(handle, constants.SW_RESTORE)
+        if gui.GetForegroundWindow() == handle:
+            return True
+        try:
+            gui.SetForegroundWindow(handle)
+        except Exception:
+            pass
+        if gui.GetForegroundWindow() == handle:
+            return True
+        current = api.GetCurrentThreadId()
+        foreground = gui.GetForegroundWindow()
+        threads = {process.GetWindowThreadProcessId(handle)[0]}
+        if foreground:
+            threads.add(process.GetWindowThreadProcessId(foreground)[0])
+        # Crea la cola del hilo HTTP antes de enlazarla durante esta acción.
+        gui.PeekMessage(None, 0, 0, constants.PM_NOREMOVE)
+        for thread in threads - {current}:
+            try:
+                process.AttachThreadInput(current, thread, True)
+                attached.append(thread)
+            except Exception:
+                pass
+        gui.BringWindowToTop(handle)
+        gui.SetForegroundWindow(handle)
+        return gui.GetForegroundWindow() == handle
+    except Exception:
+        return False
+    finally:
+        for thread in reversed(attached):
+            try:
+                process.AttachThreadInput(current, thread, False)
+            except Exception:
+                pass
+
+
+def open_folder(directory: Path) -> dict:
+    """Abre una carpeta validada por el llamador y activa su ventana en Windows."""
+    directory = Path(directory).resolve()
+    if not directory.is_dir():
+        raise ValueError("La carpeta de resultados ya no está disponible.")
+    if sys.platform != "win32":
+        subprocess.Popen(["open" if sys.platform == "darwin" else "xdg-open", str(directory)],
+                         stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        return {"message": "Carpeta de resultados abierta.", "directory": str(directory)}
+    try:
+        import pythoncom
+        import win32api
+        import win32con
+        import win32gui
+        import win32process
+        import win32com.client
+    except ImportError:
+        os.startfile(str(directory))
+        return {"message": "Carpeta abierta. Selecciona el icono del Explorador en la barra de tareas.",
+                "directory": str(directory), "foreground": False}
+    with _folder_lock:
+        initialized = False
+        shell = None
+        try:
+            try:
+                pythoncom.CoInitialize()
+                initialized = True
+                shell = win32com.client.Dispatch("Shell.Application")
+            except Exception:
+                shell = None
+            handle = _folder_window(shell, directory, win32gui) if shell else None
+            if not handle:
+                os.startfile(str(directory))
+                deadline = time.monotonic() + 3
+                while shell and not handle and time.monotonic() < deadline:
+                    time.sleep(0.1)
+                    handle = _folder_window(shell, directory, win32gui)
+            focused = bool(handle and _foreground_folder(handle, win32gui, win32process, win32api, win32con))
+        finally:
+            shell = None
+            if initialized:
+                pythoncom.CoUninitialize()
+    return {"message": ("Carpeta de resultados abierta en primer plano." if focused else
+                        "Carpeta abierta. Selecciona el icono del Explorador en la barra de tareas."),
+            "directory": str(directory), "foreground": focused}
 
 
 def _excel_path(value) -> Path | None:

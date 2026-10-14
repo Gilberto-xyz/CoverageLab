@@ -353,18 +353,21 @@ assert.equal(api.correlationStyle(null,[0,.5,1],palette),null);
                         urllib.request.urlopen(request)
                     self.assertEqual(error.exception.code, 403)
             self.assertFalse((self.root / "Output").exists())
-            with mock.patch.object(explorer.os, "startfile", create=True) as opener, mock.patch.object(explorer.sys, "platform", "win32"):
+            with mock.patch.object(explorer, "open_folder", side_effect=lambda path: {
+                    "directory": str(path), "foreground": True}) as opener:
                 request = urllib.request.Request(base + "/api/open-results", data=b'{"scope":"all"}', headers={"X-Explorer-Token": self.state.token})
                 with urllib.request.urlopen(request) as response:
-                    self.assertEqual(Path(json.load(response)["directory"]), self.root / "Output")
-                opener.assert_called_once_with(str(self.root / "Output"))
+                    opened = json.load(response)
+                    self.assertEqual(Path(opened["directory"]), self.root / "Output")
+                    self.assertTrue(opened["foreground"])
+                opener.assert_called_once_with(self.root / "Output")
         finally:
             server.shutdown()
             server.server_close()
             thread.join()
 
     def test_open_results_only_opens_known_local_folders(self):
-        with mock.patch.object(explorer.os, "startfile", create=True) as opener, mock.patch.object(explorer.sys, "platform", "win32"):
+        with mock.patch.object(explorer, "open_folder", return_value={"foreground": True}) as opener:
             for payload in ({"scope": "other", "path": str(self.root.parent)}, {"scope": "job", "id": "../outside"}):
                 with self.assertRaises(ValueError):
                     self.state.open_results(payload)
@@ -375,8 +378,8 @@ assert.equal(api.correlationStyle(null,[0,.5,1],palette),null);
             directory = self.root / "Output" / "Entrega"
             directory.mkdir(parents=True)
             self.state.jobs["local"] = {"directory": str(directory)}
-            self.state.open_results({"scope": "job", "id": "local"})
-            opener.assert_called_once_with(str(directory))
+            self.assertTrue(self.state.open_results({"scope": "job", "id": "local"})["foreground"])
+            opener.assert_called_once_with(directory.resolve())
 
     def test_restore_jobs_rejects_output_paths_outside_the_delivery(self):
         directory = self.root / "Output" / "Entrega"

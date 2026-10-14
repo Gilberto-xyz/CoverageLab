@@ -329,8 +329,12 @@
     const actions = $('div', {class: 'studio-actions'});
     [['Excel', 'Abrir Excel'], ['PPT', 'Abrir PPT'], ['Provenance', 'Selección y origen'], ['Registro', 'Registro'], ['folder', 'Abrir carpeta']].forEach(([output, label]) => {
       const button = $('button', {class: 'button result-file', type: 'button', disabled: !job || job.file !== state.file || job.status !== 'complete' || output !== 'folder' && !job.available_outputs?.includes(output)}, label);
+      const iconKind={Excel:'template',PPT:'presentation',Provenance:'selection',Registro:'log',folder:'folder'}[output];
+      window.CoverageApp?.resultButton?.(button,label,iconKind);
       button.addEventListener('click', async () => {
         button.disabled = true;
+        if(window.CoverageApp?.resultButton)window.CoverageApp.resultButton(button,'Abriendo…',iconKind);
+        else button.textContent='Abriendo…';
         try {const result = await state.bridge.api('/api/research/open-output', {id: job.id, file: state.file, output}); message(result.message);}
         catch (error) {message(error.message, true);}
         finally {renderJob();}

@@ -9,3 +9,4 @@ dataframe_image
 scipy
 python-pptx
 pillow
+pywin32; sys_platform == "win32"

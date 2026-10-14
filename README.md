@@ -328,7 +328,12 @@ Si no hay hojas incluidas o hay una generación en curso, indica el motivo y se 
 **Abrir Excel**, **Abrir PPT**, **Banco**, **Pipelines**, **Selección** y **Registro**
 abren los archivos existentes con sus aplicaciones locales; no descargan copias.
 En Windows se usa la asociación de archivos y, si JSON o LOG no tienen una,
-se abren con Bloc de notas. **Abrir carpeta** abre la entrega mostrada.
+se abren con Bloc de notas. **Abrir carpeta** abre la entrega mostrada y, en
+Windows, reutiliza su ventana y la restaura en primer plano si estaba minimizada.
+La activación usa `pywin32` (incluido en las dependencias de Windows). Si Windows
+no permite activar la ventana, la pantalla indica cómo encontrarla en la barra
+de tareas. Los botones de resultados incluyen iconos por tipo de archivo tanto
+en Coberturas como en 5W1H.
 Todos estos controles empiezan deshabilitados y solo se habilitan cuando el archivo
 seleccionado tiene una entrega completada y el resultado existe. El historial se
 resuelve por archivo de origen, incluso para las entregas anteriores recuperadas

@@ -64,6 +64,13 @@ body{padding-top:var(--header-height)}
 .result-file{color:var(--teal);background:#f3faf7;border:1px solid #c8ded5;font-weight:400}
 .result-file:hover:enabled{background:#e9f6f1}
 .result-file:disabled{background:#f3f5f7;border-color:#d9e1e6;color:#6e808c;opacity:.7}
+.result-file{display:inline-flex;align-items:center;justify-content:center;gap:5px}
+.output-icon{width:15px;height:15px;flex-shrink:0;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round;pointer-events:none}
+.result-file:enabled .output-icon-template{color:#24834e}
+.result-file:enabled .output-icon-presentation{color:#b75826}
+.result-file:enabled .output-icon-bank{color:#7361c5}
+.result-file:enabled .output-icon-pipeline_report{color:#2f75b5}
+.result-file:enabled .output-icon-folder{color:#a77813}
 .job-log-details{font-size:10px;margin-top:5px}
 .job-log-details summary{padding:3px 0;cursor:pointer;color:var(--muted)}
 .job-log-details p{font-size:10px;line-height:1.5;overflow-wrap:anywhere;white-space:pre-wrap;margin:5px 0}

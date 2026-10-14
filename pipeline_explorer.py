@@ -21,6 +21,8 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, quote, urlsplit
 import webbrowser
 
+from studio_desktop import open_folder
+
 ROOT = Path(__file__).resolve().parent
 ASSETS = ROOT / "explorer_web"
 TEMPLATES = {"Absoluta", "relativa", "3", "4", "5", "6", "7", "8"}
@@ -466,12 +468,7 @@ class ExplorerState:
             raise ValueError("Carpeta de resultados desconocida.")
         if not directory.is_dir():
             raise ValueError("La carpeta de resultados ya no está disponible.")
-        if sys.platform == "win32":
-            os.startfile(str(directory))
-        else:
-            subprocess.Popen(["open" if sys.platform == "darwin" else "xdg-open", str(directory)],
-                             stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        return {"message": "Carpeta de resultados abierta.", "directory": str(directory)}
+        return open_folder(directory)
 
     def files(self):
         return sorted(path.name for path in self.root.glob("*.xlsx")
