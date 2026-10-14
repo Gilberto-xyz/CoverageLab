@@ -465,7 +465,8 @@ assert.deepEqual(plain(context.parseTSV('2024-01-01\t1.234,5\t20%\n2024-02-01\t\
   [['2024-01-01','1.234,5','20%'],['2024-02-01','','0.054']]);
 assert.throws(()=>context.parseTSV('"valor sin cerrar\t123'),/comillas/);
 '''
-        process = subprocess.run([node, "-e", script], cwd=explorer.ROOT, capture_output=True, text=True)
+        process = subprocess.run([node, "-e", script], cwd=explorer.ROOT, capture_output=True,
+                                 text=True, encoding="utf-8")
         self.assertEqual(process.returncode, 0, process.stdout + process.stderr)
 
     def test_research_edit_transition_keeps_explicit_file_and_sheet_during_async_load(self):
@@ -482,6 +483,7 @@ function extract(startMarker,endMarker) {
   return source.slice(start,end);
 }
 let functions=extract('  async function refreshFiles()', '  function compactEdits()')+
+                extract('  async function checkpointDraft()', '  async function saved(')+
                 extract('  async function activateInputs()', "  document.querySelectorAll('.module-nav [data-module]').forEach(button=>button.addEventListener");
 if(process.argv.includes('--previous-activation'))functions=functions.replace('!editor.book && !editor.file','!editor.book');
 const registration=researchSource.match(/nodes\.edit\.addEventListener\('click',\s*\(\)\s*=>\s*bridge\.openEditor[^;]+;/);
@@ -503,6 +505,7 @@ const context={editor,byId,URLSearchParams,Option:class{constructor(text,value){
   message(text,error){if(text)messages.push({text,error});},
   api(path){
     if(path==='/api/studio/files')return Promise.resolve({coverage:[],research:[]});
+    if(path.startsWith('/api/studio/draft?'))return Promise.resolve({draft:null,source_changed:false});
     assert(path.startsWith('/api/studio/workbook?'));
     const params=Object.fromEntries(new URL('http://localhost'+path).searchParams);
     return new Promise(resolve=>requests.push({params,resolve}));
@@ -540,10 +543,11 @@ async function run() {
 }
 run().catch(error=>{console.error(error);process.exitCode=1;});
 '''
-        process = subprocess.run([node, "-e", script], cwd=explorer.ROOT, capture_output=True, text=True)
+        process = subprocess.run([node, "-e", script], cwd=explorer.ROOT, capture_output=True,
+                                 text=True, encoding="utf-8")
         self.assertEqual(process.returncode, 0, process.stdout + process.stderr)
         previous = subprocess.run([node, "-e", script, "--", "--previous-activation"],
-                                  cwd=explorer.ROOT, capture_output=True, text=True)
+                                  cwd=explorer.ROOT, capture_output=True, text=True, encoding="utf-8")
         self.assertNotEqual(previous.returncode, 0, "La prueba debe detectar la carrera del encabezado anterior.")
         self.assertIn("Activar entradas lanzó una carga de cobertura", previous.stderr)
 

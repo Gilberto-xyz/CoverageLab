@@ -750,6 +750,7 @@ def make_handler(state):
                         "/api/studio/catalog": lambda: state.workflow.inputs.catalog(),
                         "/api/studio/files": lambda: state.workflow.inputs.files(),
                         "/api/studio/workbook": lambda: state.workflow.workbook(params),
+                        "/api/studio/draft": lambda: state.workflow.input_draft(params),
                         "/api/studio/desktop": lambda: state.workflow.desktop.availability(),
                         "/api/research/catalog": lambda: state.workflow.research.catalog(),
                         "/api/research/inspect": lambda: state.workflow.research.inspect(params.get("file")),
@@ -794,7 +795,7 @@ def make_handler(state):
             try:
                 length = int(self.headers.get("Content-Length", "0"))
                 request_path = urlsplit(self.path).path
-                limit = 20 * 1024 * 1024 if request_path == "/api/studio/import" else 4 * 1024 * 1024 if request_path == "/api/studio/save" else 1024 * 1024
+                limit = 20 * 1024 * 1024 if request_path == "/api/studio/import" else 4 * 1024 * 1024 if request_path in {"/api/studio/save", "/api/studio/draft"} else 1024 * 1024
                 if not 0 < length <= limit:
                     raise ValueError("Solicitud inválida o demasiado grande.")
                 payload = json.loads(self.rfile.read(length))
@@ -803,6 +804,7 @@ def make_handler(state):
                 routes = {"/api/analyze": state.analyze, "/api/save": state.save_selection, "/api/export": state.export,
                           "/api/open-results": state.open_results, "/api/open-output": state.open_output,
                           "/api/studio/create": state.workflow.create_input, "/api/studio/save": state.workflow.save_input,
+                          "/api/studio/draft": state.workflow.save_draft, "/api/studio/discard-draft": state.workflow.discard_draft,
                           "/api/studio/add-sheet": state.workflow.add_sheet, "/api/studio/import": state.workflow.import_input,
                           "/api/studio/open-excel": state.workflow.open_excel, "/api/studio/reload-excel": state.workflow.reload_excel,
                           "/api/research/analyze": state.workflow.research_analyze, "/api/research/export": state.workflow.export_research,

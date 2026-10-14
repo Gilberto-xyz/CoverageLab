@@ -21,14 +21,18 @@
 body{padding-top:var(--header-height)}
 .app-top{position:fixed;inset:0 0 auto;z-index:30;pointer-events:none}
 .app-top .app-header{position:static;display:block;height:auto;min-height:0;padding:0;background:transparent;border:0}
-.header-main{display:grid;grid-template-columns:calc(var(--sidebar-width) - 40px) minmax(0,1fr);align-items:center;gap:20px;padding:8px 20px;background:#fff;border-bottom:1px solid var(--line);pointer-events:auto}
+.header-main{display:grid;grid-template-columns:minmax(0,1fr) auto minmax(0,1fr);grid-template-rows:38px;align-items:center;gap:20px;padding:8px 20px;background:#fff;border-bottom:1px solid var(--line);pointer-events:auto}
 .header-main .brand{font-size:19px;gap:8px}
 .header-main .brand-icon{font-size:14px;padding:10px 8px;border-radius:9px}
 .header-main .brand small{font-size:8px;letter-spacing:1.2px}
-.header-progress{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:12px;min-width:0}
-.header-progress .steps{display:flex;justify-content:center;flex-wrap:wrap;gap:6px 18px;font-size:11px;margin:0}
+.header-progress{display:contents}
+.header-progress .steps{display:flex;justify-content:center;flex-wrap:nowrap;gap:6px 18px;font-size:11px;margin:0}
 .header-progress .step{white-space:nowrap}
 .header-actions{display:flex;align-items:center;gap:12px}
+/* Columnas laterales iguales: las acciones y el módulo activo no desplazan la navegación. */
+#header-main .brand{grid-column:1;grid-row:1;justify-self:start}
+#header-main .module-nav{grid-column:2;grid-row:1;justify-self:center;min-width:0}
+#header-main .header-actions{grid-column:3;grid-row:1;justify-self:end}
 .header-actions>#generate-files{font-size:11px;padding:6px 10px;min-height:33px;white-space:nowrap;flex-shrink:0}
 .header-progress .local-status{position:static;font-size:10px}
 .header-toggle{display:inline-flex;align-items:center;gap:6px;min-height:33px;padding:6px 10px;font-size:11px;white-space:nowrap}
@@ -92,15 +96,13 @@ body{padding-top:var(--header-height)}
 @media(max-width:800px){
   :root{--sidebar-width:0px}
   body{padding-top:var(--top-height)}
-  .header-main{grid-template-columns:minmax(0,1fr) auto;padding:8px 12px;gap:8px}
+  .header-main{padding:6px 12px}
   .header-main .brand{font-size:17px}
   .header-main .brand small{font-size:7px}
-  .header-progress{display:contents}
-  .header-actions{grid-column:2;grid-row:1}
-  .header-collapsed .header-actions{grid-column:1/-1;grid-row:2;justify-content:flex-end;gap:8px}
-  .header-collapsed .header-progress .steps{grid-row:3}
   .header-toggle{font-size:10px;padding:5px 8px}
-  .header-progress .steps{grid-column:1/-1;grid-row:2;font-size:9px;gap:10px}
+  .header-toggle #header-toggle-label{display:none}
+  .header-actions{gap:6px}
+  .header-progress .steps{font-size:10px;gap:10px}
   .header-progress .step b{font-size:8px;padding:3px;margin-right:3px}
   .result-dock{margin-left:0;max-height:max(170px,min(380px,calc(72dvh - var(--header-height))))}
   .context-panel{grid-template-columns:1fr;gap:9px;padding:9px 12px}
@@ -113,4 +115,19 @@ body{padding-top:var(--header-height)}
   .app-layout{grid-template-columns:1fr}
   .app-layout>main{padding:16px 12px 26px}
   .source-panel{gap:8px 12px}
+}
+/* En ventanas estrechas se reserva siempre la misma segunda fila, incluso al contraer. */
+@media(max-width:1250px){
+  .header-main{grid-template-columns:minmax(0,1fr) auto;grid-template-rows:36px 32px;gap:4px 12px;padding-top:6px;padding-bottom:6px}
+  #header-main .module-nav{grid-column:1/-1;grid-row:2}
+  #header-main .header-actions{grid-column:2;grid-row:1}
+  .header-progress .local-status{display:none}
+}
+@media(max-width:450px){
+  .header-main{grid-template-rows:36px 34px;column-gap:8px}
+  .header-main .brand{font-size:15px}
+  .header-main .brand small{font-size:6px}
+  #header-main .module-nav{width:100%;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:4px;align-items:stretch}
+  #header-main .module-nav .step{display:flex;align-items:center;justify-content:center;gap:4px;white-space:normal;padding:4px 2px;font-size:9px;line-height:1.25}
+  #header-main .module-nav .step b{flex-shrink:0;margin-right:0}
 }

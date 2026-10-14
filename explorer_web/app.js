@@ -40,6 +40,7 @@ function setHeaderCollapsed(collapsed, persist = true) {
   $('app-top').classList.toggle('header-collapsed', collapsed);
   $('result-dock').hidden = collapsed;
   $('toggle-header').setAttribute('aria-expanded', String(!collapsed));
+  $('toggle-header').setAttribute('aria-label', collapsed ? 'Mostrar encabezado' : 'Contraer encabezado');
   $('header-toggle-label').textContent = collapsed ? 'Mostrar encabezado' : 'Contraer encabezado';
   $('toggle-header').title = collapsed ? 'Mostrar archivo actual y resultados' : 'Ocultar archivo actual y resultados para dar más espacio a los gráficos';
   if (persist) {

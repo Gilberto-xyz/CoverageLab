@@ -19,6 +19,7 @@ class StudioWorkflow:
         self._inputs = None
         self._research = None
         self._desktop = None
+        self._drafts = None
         self.lock = threading.RLock()
         self.research_jobs = {}
         self.research_analyses = {}
@@ -48,6 +49,26 @@ class StudioWorkflow:
     def workbook(self, payload):
         return self.inputs.workbook(payload.get("file"), kind=payload.get("kind", "coverage"),
                                     sheet=payload.get("sheet") or None, **self.coordinates(payload))
+
+    @property
+    def drafts(self):
+        with self.lock:
+            if self._drafts is None:
+                from studio_drafts import StudioDrafts
+                self._drafts = StudioDrafts(self.inputs)
+            return self._drafts
+
+    def input_draft(self, payload):
+        with self.explorer.analysis_lock:
+            return self.drafts.get(payload.get("file"), payload.get("kind", "coverage"))
+
+    def save_draft(self, payload):
+        with self.explorer.analysis_lock:
+            return self.drafts.save(payload)
+
+    def discard_draft(self, payload):
+        with self.explorer.analysis_lock:
+            return self.drafts.discard(payload.get("file"), payload.get("kind", "coverage"))
 
     @property
     def desktop(self):

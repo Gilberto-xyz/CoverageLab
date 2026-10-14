@@ -17,16 +17,19 @@
     return result;
   }
   const editor = {kind:'coverage', file:null, book:null, catalog:null, files:null, researchCatalog:null, desktop:null,
-    pending:new Map(), originals:new Map(), undo:[], selected:null, anchor:null, busy:false, request:0};
+    pending:new Map(), originals:new Map(), undo:[], selected:null, anchor:null, busy:false, request:0,draftChecked:null,savedDraft:null};
   let module = 'pipelines';
   let valueTarget=null,committingValue=false;
-  const inputFilters={country:'',category:'',manufacturer:''};
+  let entryMode='web',modeChosen=false;
+  try{const preference=localStorage.getItem('coverage-entry-mode');if(['excel','web'].includes(preference)){entryMode=preference;modeChosen=true;}}catch{}
   let pipelineHash = location.hash.startsWith('#excel-') ? location.hash : '#pipelines';
 
   byId('input-module').innerHTML = `
-    <div class="studio-heading"><div><h1>Preparar entradas</h1><p>Elige país, categoría y fabricante. Crea una entrada o abre un archivo existente.</p></div><div class="studio-actions"><button id="input-create" class="button secondary">Nueva entrada</button><label class="button secondary" for="input-upload">Importar Excel</label><input id="input-upload" type="file" accept=".xlsx" hidden><button id="input-open-excel" class="button secondary" disabled>Abrir en Excel</button><button id="input-reload-excel" class="button secondary" disabled>Actualizar desde Excel</button><button id="input-next" class="button primary" disabled>Explorar pipelines →</button></div></div>
+    <div class="studio-heading"><div><h1>Archivos de entrada</h1><p>Crea o elige el archivo y selecciona dónde prefieres llenarlo.</p></div><div class="studio-actions"><button id="input-create" class="button secondary">Nueva entrada</button><label class="button secondary" for="input-upload">Importar Excel</label><input id="input-upload" type="file" accept=".xlsx" hidden><button id="input-open-excel" class="button secondary" disabled>Abrir en Excel</button><button id="input-reload-excel" class="button secondary" disabled>Actualizar desde Excel</button><button id="input-next" class="button primary" disabled>Explorar coberturas →</button></div></div>
     <div id="input-status" class="studio-message" role="status" aria-live="polite" hidden></div>
-    <section class="input-context studio-panel" aria-label="País, categoría y fabricante"><div class="input-context-selectors"><div><label for="input-country">País</label><select id="input-country"><option value="">Todos los países</option></select></div><div><label for="input-category">Categoría</label><select id="input-category"><option value="">Todas las categorías</option></select></div><div><label for="input-manufacturer">Fabricante</label><select id="input-manufacturer"><option value="">Todos los fabricantes</option></select></div><button id="input-clear-filters" class="text-button">Ver todos</button></div><div id="input-file-summary" class="input-file-summary" aria-live="polite">Selecciona un archivo o crea una entrada con Nueva entrada.</div></section>
+    <section class="input-context studio-panel" aria-label="Datos del archivo seleccionado"><div id="input-file-summary" class="input-file-summary" aria-live="polite">Selecciona un archivo o crea una entrada con Nueva entrada.</div></section>
+    <div class="input-capture-method"><div class="input-mode-buttons" role="group" aria-label="Método de captura"><button id="input-mode-excel" class="button secondary" aria-pressed="false">Excel de escritorio</button><button id="input-mode-web" class="button secondary" aria-pressed="true">Editar en la web</button></div><p id="input-mode-hint" class="studio-note"></p></div>
+    <details id="input-draft-details" class="studio-panel padded" hidden><summary>Borrador anterior conservado</summary><p class="studio-note">El archivo cambió desde ese borrador. Puedes recuperar sus valores sin sobrescribir la versión actual.</p><pre id="input-draft-content"></pre></details>
     <div class="studio-layout"><aside class="studio-sidebar" aria-label="Archivo de entrada"><section class="studio-panel padded"><h2>Archivo y hojas</h2><label for="input-kind">Etapa de los datos</label><select id="input-kind"><option value="coverage">Cobertura · series mensuales</option><option value="research">5W1H · segmentos</option></select><label for="input-file">Archivo</label><select id="input-file"><option value="">Selecciona un archivo…</option></select><button id="input-refresh" class="text-button">Actualizar archivos</button><label for="input-sheet">Hoja</label><select id="input-sheet" disabled></select><p id="input-origin" class="studio-note"></p><button id="input-add-sheet" class="button secondary" disabled>Añadir o duplicar hoja</button></section><section class="studio-panel padded"><h2>Edición</h2><p class="studio-note">Selecciona una celda y pega un rango de Excel. Doble clic o F2 edita; Enter y Tab recorren la tabla. Mayús + clic selecciona un rango.</p><div class="studio-actions"><button id="input-paste" class="button secondary" disabled>Pegar bloque</button><button id="input-undo" class="button secondary" disabled>Deshacer</button><button id="input-discard" class="button secondary" disabled>Descartar cambios</button><button id="input-save" class="button primary" disabled>Guardar datos</button></div><p id="input-dirty" class="studio-note">Sin cambios pendientes.</p></section></aside>
     <div class="studio-panel"><div class="studio-toolbar"><label for="input-address" class="sr-only">Celda seleccionada</label><input id="input-address" class="cell-address" value="A1" aria-label="Celda seleccionada"><label for="input-cell-value" class="sr-only">Valor de la celda</label><input id="input-cell-value" class="cell-value" aria-label="Valor de la celda" placeholder="Selecciona una celda para editar su valor" disabled></div><div class="studio-toolbar"><label for="input-row">Desde fila</label><input id="input-row" type="number" min="1" max="20000" value="1"><button id="input-prev-row" class="button secondary">← Filas</button><button id="input-next-row" class="button secondary">Filas →</button><label for="input-column">Desde columna</label><input id="input-column" type="number" min="1" max="256" value="1"><button id="input-prev-column" class="button secondary">← Columnas</button><button id="input-next-column" class="button secondary">Columnas →</button><button id="input-go" class="button secondary">Ver rango</button><span id="input-range" class="studio-note"></span></div><div class="studio-toolbar"><label for="input-number-locale">Formato numérico de la fuente</label><select id="input-number-locale"><option value="auto">Autodetectar seguro</option><option value="decimal-dot">Punto decimal · 1,234.56</option><option value="decimal-comma">Coma decimal · 1.234,56</option></select><span class="studio-note">Si 1,234 o 1.234 son ambiguos, selecciona el separador decimal de la fuente antes de guardar.</span></div><div class="studio-grid-scroll"><table id="input-grid" class="studio-grid" aria-label="Celdas editables del Excel"><thead></thead><tbody></tbody></table><div id="input-empty" class="research-empty">Selecciona o crea un archivo para comenzar.</div></div><div id="input-validation" class="studio-validation"></div></div></div>`;
 
@@ -42,6 +45,23 @@
   sheetDialog.id='input-sheet-dialog';
   sheetDialog.innerHTML=`<h2>Añadir una hoja</h2><div class="studio-form"><div class="full-field"><label for="new-sheet-name">Nombre</label><input id="new-sheet-name" maxlength="31" placeholder="Marca o nombre del segmento"></div><div class="full-field"><label for="new-sheet-source">Estructura de origen</label><select id="new-sheet-source"><option value="">Nueva hoja de cobertura vacía</option></select></div></div><div id="new-sheet-error" class="studio-message error" role="alert" hidden></div><div class="dialog-actions"><button id="new-sheet-cancel" class="button secondary">Cancelar</button><button id="new-sheet-confirm" class="button primary">Añadir hoja</button></div>`;
   document.body.append(sheetDialog);
+  byId('input-grid').closest('.studio-panel').id='input-web-editor';
+  byId('input-save').closest('section').id='input-web-actions';
+  const nativePanel=node('section',null,'studio-panel padded input-native-panel');nativePanel.id='input-native-panel';
+  nativePanel.append(node('h2','Captura en Excel'),node('p','1. Abre el archivo en Excel.\n2. Pega la información y guarda en Excel.\n3. Vuelve aquí y actualiza los datos para continuar.','studio-note'));
+  const nativeActions=node('div',null,'studio-actions');nativeActions.append(byId('input-open-excel'),byId('input-reload-excel'));nativePanel.append(nativeActions);
+  byId('input-web-editor').parentElement.append(nativePanel);
+  function setEntryMode(mode,persist=false){
+    entryMode=mode==='excel' ? 'excel' : 'web';byId('input-module').dataset.editorMode=entryMode;
+    byId('input-web-editor').hidden=byId('input-web-actions').hidden=entryMode!=='web';nativePanel.hidden=entryMode!=='excel';
+    for(const [id,value] of [['input-mode-excel','excel'],['input-mode-web','web']])byId(id).setAttribute('aria-pressed',String(entryMode===value));
+    byId('input-mode-hint').textContent=entryMode==='excel' ? editor.pending.size ? 'Hay un borrador pendiente. Retómalo en Editar en la web o crea otra entrada; primero guarda o descarta para abrir este archivo en Excel.' : 'Usa la interfaz de Excel para pegar y guardar; vuelve a esta página para analizar.' : 'Pega y edita valores aquí. Puedes crear otra entrada conservando este borrador.';
+    if(persist){modeChosen=true;try{localStorage.setItem('coverage-entry-mode',entryMode);}catch{}}
+  }
+  byId('input-mode-excel').addEventListener('click',()=>setEntryMode('excel',true));
+  byId('input-mode-web').addEventListener('click',()=>setEntryMode('web',true));
+  byId('input-draft-details').addEventListener('toggle',()=>{if(byId('input-draft-details').open)byId('input-draft-content').textContent=JSON.stringify(editor.savedDraft,null,2);});
+  setEntryMode(entryMode);
 
   function message(text, error=false, id='input-status') {
     const element=byId(id);element.textContent=text || '';element.hidden=!text;element.classList.toggle('error',error);
@@ -50,19 +70,20 @@
   function controls() {
     const loaded=!!editor.book, dirty=editor.pending.size>0;
     window.CoverageApp.inputPending(editor.kind==='coverage' ? editor.file : null, dirty && editor.kind==='coverage');
-    ['input-kind','input-file','input-sheet','input-refresh','input-create','input-go','input-prev-row','input-next-row','input-prev-column','input-next-column','input-upload','input-number-locale','input-country','input-category','input-manufacturer','input-clear-filters'].forEach(id=>byId(id).disabled=editor.busy || (id==='input-sheet' && !loaded));
+    ['input-kind','input-file','input-sheet','input-refresh','input-create','input-go','input-prev-row','input-next-row','input-prev-column','input-next-column','input-upload','input-number-locale'].forEach(id=>byId(id).disabled=editor.busy || (id==='input-sheet' && !loaded));
     byId('input-open-excel').disabled=editor.busy || !loaded || dirty || !editor.desktop?.available;
     byId('input-open-excel').title=editor.desktop?.message || 'Comprobando Excel de escritorio…';
     byId('input-reload-excel').disabled=editor.busy || !loaded || dirty;
     byId('input-cell-value').disabled=editor.busy || !loaded || (editor.selected && cell(editor.selected.row,editor.selected.column)?.classList.contains('readonly'));
-    ['input-save','input-discard'].forEach(id=>byId(id).disabled=editor.busy || !dirty);
+    byId('input-save').disabled=editor.busy || !dirty;
+    byId('input-discard').disabled=editor.busy || (!dirty && byId('input-draft-details').hidden);
     byId('input-undo').disabled=editor.busy || !editor.undo.length;
     byId('input-paste').disabled=editor.busy || !loaded;
     byId('input-add-sheet').disabled=editor.busy || !loaded || dirty;
     const coverageReady=editor.book?.validation?.ready || editor.book?.validation?.sheets?.some(sheet=>sheet.ready);
     byId('input-next').disabled=editor.busy || !loaded || dirty || (editor.kind==='coverage' && !coverageReady);
-    byId('input-next').textContent=editor.kind==='research' ? 'Investigar 5W1H →' : 'Explorar pipelines →';
-    byId('input-dirty').textContent=dirty ? `${editor.pending.size.toLocaleString('es-MX')} celda(s) sin guardar. Guarda para continuar con el análisis.` : 'Sin cambios pendientes.';
+    byId('input-next').textContent=editor.kind==='research' ? 'Investigar 5W1H →' : 'Explorar coberturas →';
+    byId('input-dirty').textContent=dirty ? `${editor.pending.size.toLocaleString('es-MX')} celda(s) en borrador. Guarda para analizar o crea otra entrada para retomarlo después.` : 'Sin cambios pendientes.';
     byId('input-save').textContent=editor.busy ? 'Procesando…' : 'Guardar datos';
   }
   function letters(column) {let result='';for(let n=column;n>0;n=Math.floor((n-1)/26))result=String.fromCharCode(65+(n-1)%26)+result;return result;}
@@ -219,8 +240,7 @@
   }
   function fillFiles() {
     const select=byId('input-file');select.replaceChildren(new Option('Selecciona un archivo…',''));
-    renderFilters();
-    const files=(editor.files?.[editor.kind] || []).filter(file=>matchesFilters(file));
+    const files=editor.files?.[editor.kind] || [];
     files.forEach(file=>{
       const match=/^(\d+)_([^_]+)_(.+)\.xlsx$/i.exec(file.name);
       const country=match && editor.catalog?.countries.find(c=>c.code===match[1]);
@@ -232,30 +252,15 @@
     if(editor.file && [...select.options].some(option=>option.value===editor.file))select.value=editor.file;
     summary();
   }
-  function matchesFilters(file, filters=inputFilters) {
-    const meta=file.metadata || {};
-    return (!filters.country || meta.country_code===filters.country) && (!filters.category || meta.category_code===filters.category) && (!filters.manufacturer || meta.manufacturer===filters.manufacturer);
-  }
-  function renderFilters() {
-    const files=editor.files?.[editor.kind] || [];
-    byId('input-country').replaceChildren(new Option('Todos los países',''),...(editor.catalog?.countries || []).map(country=>new Option(`${country.name} · ${country.code}`,country.code)));
-    const byCountry=files.filter(file=>!inputFilters.country || file.metadata?.country_code===inputFilters.country);
-    const categories=new Map(byCountry.filter(file=>file.metadata?.category_code).map(file=>[file.metadata.category_code,file.metadata.category]));
-    byId('input-category').replaceChildren(new Option('Todas las categorías',''),...[...categories].sort((a,b)=>String(a[1]).localeCompare(String(b[1]),'es')).map(([code,name])=>new Option(`${name} · ${code}`,code)));
-    const manufacturers=[...new Set(byCountry.filter(file=>!inputFilters.category || file.metadata?.category_code===inputFilters.category).map(file=>file.metadata?.manufacturer).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'es'));
-    byId('input-manufacturer').replaceChildren(new Option('Todos los fabricantes',''),...manufacturers.map(name=>new Option(name,name)));
-    for(const [id,key] of [['input-country','country'],['input-category','category'],['input-manufacturer','manufacturer']])byId(id).value=inputFilters[key];
-  }
   function summary() {
     const target=byId('input-file-summary');target.replaceChildren();
     const meta=editor.book?.metadata;
     if(editor.book){
       target.append(node('strong',meta?.recognized ? `${meta.country} · ${meta.country_code} / ${meta.category} · ${meta.category_code} / ${meta.manufacturer}` : editor.book.name));
       target.append(node('span',`${editor.kind==='research' ? 'Investigación 5W1H' : 'Cobertura mensual'} · ${editor.book.name}`,'studio-note'));
-      target.append(node('span','Las fechas se muestran como mes y año. Selecciona una celda para ver el valor original.','studio-note'));
     }else{
-      const count=(editor.files?.[editor.kind] || []).filter(file=>matchesFilters(file)).length;
-      target.append(node('span',count ? `${count} archivo(s) disponibles. Elige uno en Archivo o usa Nueva entrada para crear otro.` : 'No hay archivos para esta selección. Usa Nueva entrada para crear uno con este contexto.'));
+      const count=(editor.files?.[editor.kind] || []).length;
+      target.append(node('span',count ? `${count} archivo(s) disponibles. Elige uno en Archivo o usa Nueva entrada para crear otro.` : 'Crea una entrada para comenzar.'));
     }
   }
   function clearBook() {
@@ -263,18 +268,9 @@
     byId('input-grid').tHead.replaceChildren();byId('input-grid').tBodies[0].replaceChildren();byId('input-empty').hidden=false;byId('input-origin').textContent='';
     byId('input-cell-value').value='';byId('input-validation').replaceChildren();controls();summary();
   }
-  for(const [id,key] of [['input-country','country'],['input-category','category'],['input-manufacturer','manufacturer']])byId(id).addEventListener('change',()=>{
-    if(!mayChangeFile()){renderFilters();return;}
-    inputFilters[key]=byId(id).value;
-    if(key==='country')inputFilters.category=inputFilters.manufacturer='';
-    if(key==='category')inputFilters.manufacturer='';
-    if(editor.book && !matchesFilters(editor.book))clearBook();
-    fillFiles();message('');
-  });
-  byId('input-clear-filters').addEventListener('click',()=>{inputFilters.country=inputFilters.category=inputFilters.manufacturer='';fillFiles();});
   async function refreshFiles() {editor.files=await api('/api/studio/files');fillFiles();}
   async function initialize() {
-    if(!editor.catalog){const [catalog,files,desktop]=await Promise.all([api('/api/studio/catalog'),api('/api/studio/files'),api('/api/studio/desktop').catch(()=>({available:false,message:'Excel de escritorio no está disponible.'}))]);editor.catalog=catalog;editor.files=files;editor.desktop=desktop;fillFiles();controls();}
+    if(!editor.catalog){const [catalog,files,desktop]=await Promise.all([api('/api/studio/catalog'),api('/api/studio/files'),api('/api/studio/desktop').catch(()=>({available:false,message:'Excel de escritorio no está disponible.'}))]);editor.catalog=catalog;editor.files=files;editor.desktop=desktop;if(!modeChosen)setEntryMode(desktop.available ? 'excel' : 'web');fillFiles();controls();}
   }
   async function loadBook(file=editor.file,sheet=editor.book?.sheet,row=+byId('input-row').value,column=+byId('input-column').value) {
     if(!file)return;
@@ -289,22 +285,23 @@
       if(request!==editor.request)return;
       if(editor.pending.size && editor.book?.fingerprint!==book.fingerprint)throw new Error('El archivo cambió fuera del editor. Conserva el bloque pendiente, descarta y vuelve a cargar la versión actual.');
       editor.file=book.file;editor.book=book;
-      if(book.metadata?.recognized){inputFilters.country=book.metadata.country_code;inputFilters.category=book.metadata.category_code;inputFilters.manufacturer=book.metadata.manufacturer;fillFiles();}else summary();
+      const draftMessage=await restoreDraft(book,request);if(request!==editor.request)return;
+      summary();
       byId('input-sheet').replaceChildren(...book.sheets.map(sheet=>new Option(`${sheet.name} · ${sheet.rows} filas × ${sheet.columns} columnas`,sheet.name)));
       byId('input-sheet').value=book.sheet;byId('input-file').value=book.file;
       byId('input-origin').textContent=book.copy_on_save || book.origin==='external' ? 'Original de 5W1H. Al guardar se creará una copia editable dentro de CoverageLab.' : `Archivo local · ${book.name}`;
       byId('input-row').value=book.row;byId('input-column').value=book.column;
-      renderGrid();validation();message('');
+      renderGrid();validation();message(draftMessage);
     }catch(error){message(error.message,true);}
     finally{if(request===editor.request)busy(false);}
   }
-  function cleanEditor() {editor.pending.clear();editor.originals.clear();editor.undo=[];editor.selected=null;editor.anchor=null;valueTarget=null;}
-  function mayChangeFile() {commitValue();if(!editor.pending.size)return true;switchModule('inputs');message('Hay cambios pendientes. Guarda o descarta antes de cambiar de archivo.',true);return false;}
+  function cleanEditor() {editor.pending.clear();editor.originals.clear();editor.undo=[];editor.selected=null;editor.anchor=null;valueTarget=null;editor.draftChecked=null;editor.savedDraft=null;byId('input-draft-details').hidden=true;}
   async function openEditor(file,kind='coverage',sheet=null) {
-    if(!mayChangeFile())return false;
-    await initialize();cleanEditor();editor.kind=kind;editor.file=file;editor.book=null;
-    byId('input-kind').value=kind;byId('input-row').value=1;byId('input-column').value=1;
-    await refreshFiles();switchModule('inputs');await loadBook(file,sheet,1,1);return true;
+    commitValue();busy(true);
+    try{await checkpointDraft();await initialize();cleanEditor();editor.kind=kind;editor.file=file;editor.book=null;
+      byId('input-kind').value=kind;byId('input-row').value=1;byId('input-column').value=1;
+      await refreshFiles();switchModule('inputs');await loadBook(file,sheet,1,1);return true;
+    }catch(error){switchModule('inputs');message(error.message,true);return false;}finally{busy(false);}
   }
   function compactEdits() {
     const entries=[...editor.pending.values()].sort((a,b)=>a.sheet.localeCompare(b.sheet)||a.row-b.row||a.column-b.column);
@@ -313,6 +310,28 @@
     const blocks=[],tails=new Map();
     runs.forEach(run=>{const id=JSON.stringify([run.sheet,run.column,run.values[0].length]),last=tails.get(id);if(last && last.row+last.values.length===run.row)last.values.push(run.values[0]);else{blocks.push(run);tails.set(id,run);}});
     return blocks;
+  }
+  async function checkpointDraft(){
+    commitValue();if(!editor.book || !editor.pending.size)return;
+    try{
+      const result=await api('/api/studio/draft',{file:editor.file,kind:editor.kind,fingerprint:editor.book.fingerprint,sheet:editor.book.sheet,row:editor.book.row,column:editor.book.column,number_locale:byId('input-number-locale').value,edits:compactEdits()});
+      editor.savedDraft=result.draft;
+    }catch(error){throw new Error(`No se pudo conservar el borrador. La entrada actual sigue abierta: ${error.message}`);}
+  }
+  async function restoreDraft(book,request=editor.request){
+    const identity=JSON.stringify([book.kind,book.file,book.fingerprint]);
+    if(editor.pending.size || editor.draftChecked===identity)return '';
+    const result=await api(`/api/studio/draft?${new URLSearchParams({file:book.file,kind:book.kind})}`);
+    if(request!==editor.request || editor.book!==book || editor.file!==book.file || editor.kind!==book.kind)return '';
+    editor.draftChecked=identity;editor.savedDraft=result.draft;byId('input-draft-details').hidden=true;
+    if(!result.draft)return '';
+    if(result.source_changed || result.draft.fingerprint!==book.fingerprint){byId('input-draft-details').hidden=false;setEntryMode('web');return 'El archivo cambió desde el borrador anterior. Ese borrador sigue conservado y no se aplicó sobre esta versión.';}
+    for(const block of result.draft.edits)block.values.forEach((line,r)=>line.forEach((value,c)=>editor.pending.set(key(block.sheet,block.row+r,block.column+c),{sheet:block.sheet,row:block.row+r,column:block.column+c,value})));
+    byId('input-number-locale').value=result.draft.number_locale;setEntryMode('web');
+    return `Borrador recuperado: ${editor.pending.size} celda(s) pendientes. Puedes corregirlas, guardarlas o crear otra entrada para retomarlas después.`;
+  }
+  async function discardStoredDraft(file=editor.file,kind=editor.kind){
+    if(file)await api('/api/studio/discard-draft',{file,kind});
   }
   async function saved(result,selectNew=false) {
     const previousSheet=editor.book?.sheet;
@@ -328,7 +347,7 @@
   async function save() {
     if(!editor.book || !editor.pending.size)return;
     busy(true);
-    try{const result=await api('/api/studio/save',{file:editor.file,kind:editor.kind,fingerprint:editor.book.fingerprint,edits:compactEdits(),number_locale:byId('input-number-locale').value});await saved(result);}
+    try{const result=await api('/api/studio/save',{file:editor.file,kind:editor.kind,fingerprint:editor.book.fingerprint,edits:compactEdits(),number_locale:byId('input-number-locale').value});await discardStoredDraft().catch(()=>{});await saved(result);}
     catch(error){message(error.message,true);}finally{busy(false);}
   }
   byId('input-save').addEventListener('click',save);
@@ -351,10 +370,10 @@
       await saved(result);message('Datos guardados en Excel cargados. Revisa los períodos y continúa con el análisis.');
     }catch(error){message(error.message,true);}finally{busy(false);}
   });
-  byId('input-discard').addEventListener('click',async()=>{cleanEditor();await loadBook();message('Cambios pendientes descartados. Se cargó la versión actual del archivo.');});
+  byId('input-discard').addEventListener('click',async()=>{busy(true);try{await discardStoredDraft();cleanEditor();await loadBook();message('Borrador descartado. Se cargó la versión actual del archivo.');}catch(error){message(error.message,true);}finally{busy(false);}});
   byId('input-undo').addEventListener('click',undo);
-  byId('input-file').addEventListener('change',()=>{const file=byId('input-file').value;if(!mayChangeFile()){byId('input-file').value=editor.file || '';return;}cleanEditor();editor.book=null;editor.file=file;byId('input-row').value=1;byId('input-column').value=1;if(file)loadBook(file,null,1,1);else{byId('input-grid').tHead.replaceChildren();byId('input-grid').tBodies[0].replaceChildren();byId('input-empty').hidden=false;controls();}});
-  byId('input-kind').addEventListener('change',()=>{if(!mayChangeFile()){byId('input-kind').value=editor.kind;return;}cleanEditor();editor.kind=byId('input-kind').value;editor.file=null;editor.book=null;fillFiles();byId('input-grid').tHead.replaceChildren();byId('input-grid').tBodies[0].replaceChildren();byId('input-empty').hidden=false;validation();controls();});
+  byId('input-file').addEventListener('change',async()=>{const file=byId('input-file').value;commitValue();busy(true);try{await checkpointDraft();cleanEditor();editor.book=null;editor.file=file;byId('input-row').value=1;byId('input-column').value=1;if(file)await loadBook(file,null,1,1);else clearBook();}catch(error){byId('input-file').value=editor.file || '';message(error.message,true);}finally{busy(false);}});
+  byId('input-kind').addEventListener('change',async()=>{const kind=byId('input-kind').value;commitValue();busy(true);try{await checkpointDraft();cleanEditor();editor.kind=kind;clearBook();fillFiles();validation();}catch(error){byId('input-kind').value=editor.kind;message(error.message,true);}finally{busy(false);}});
   byId('input-sheet').addEventListener('change',()=>{editor.selected=null;byId('input-row').value=1;byId('input-column').value=1;loadBook(editor.file,byId('input-sheet').value,1,1);});
   byId('input-refresh').addEventListener('click',()=>refreshFiles().catch(error=>message(error.message,true)));
   byId('input-go').addEventListener('click',()=>loadBook());
@@ -396,11 +415,11 @@
     if(research){const catalog=await researchCatalog();byId('create-segments').replaceChildren();const defaults=new Set(['1','2','3-1','3-2','4','5-1','5-2','6','7','8']);catalog.segments.forEach(segment=>{const label=node('label'),input=node('input');input.type='checkbox';input.value=segment.id;input.checked=defaults.has(segment.id);label.append(input,node('span',segment.label || segment.name));byId('create-segments').append(label);});}
   }
   async function showCreate(context={},kind=editor.kind) {
-    if(!mayChangeFile())return;
+    commitValue();
     await initialize();byId('create-kind').value=kind;
     byId('create-country').replaceChildren(...editor.catalog.countries.map(country=>new Option(`${country.name} · ${country.code}`,country.code)));
     byId('create-category-search').value='';categoryOptions();
-    const file=context.file || editor.book?.metadata || (inputFilters.country || inputFilters.category || inputFilters.manufacturer ? {country_code:inputFilters.country,category_code:inputFilters.category,manufacturer:inputFilters.manufacturer} : null);
+    const file=context.file || editor.book?.metadata;
     if(file){if(file.country_code)byId('create-country').value=file.country_code;const category=editor.catalog.categories.find(c=>c.id===file.category_id) || editor.catalog.categories.find(c=>c.code===file.category_code);if(category)byId('create-category').value=category.id;}
     byId('create-manufacturer').value=file?.manufacturer || '';
     const coverage=window.CoverageApp.context();
@@ -416,6 +435,7 @@
   byId('input-create-form').addEventListener('submit',async event=>{
     event.preventDefault();if(editor.busy)return;busy(true);byId('create-confirm').disabled=true;
     try{
+      await checkpointDraft();
       const manufacturer=byId('create-manufacturer').value.trim();
       const spec={kind:byId('create-kind').value,country_code:byId('create-country').value,category_id:byId('create-category').value,manufacturer,
         brands:byId('create-brands').value.split(/\r?\n/).map(x=>x.trim()).filter(Boolean),unit:byId('create-unit').value.trim()};
@@ -439,12 +459,12 @@
   byId('input-upload').addEventListener('change',async()=>{
     if(editor.busy)return;
     const upload=byId('input-upload').files[0];if(!upload)return;
-    if(!mayChangeFile()){byId('input-upload').value='';return;}
+    commitValue();
     busy(true);
     try{
       if(upload.size>10*1024*1024)throw new Error('El archivo excede el límite de 10 MiB.');
       const bytes=new Uint8Array(await upload.arrayBuffer());let binary='';for(let i=0;i<bytes.length;i+=32768)binary+=String.fromCharCode(...bytes.subarray(i,i+32768));
-      const result=await api('/api/studio/import',{kind:editor.kind,filename:upload.name,content:btoa(binary)});await saved(result,true);message(`Archivo importado: ${result.name}.`);
+      await checkpointDraft();const result=await api('/api/studio/import',{kind:editor.kind,filename:upload.name,content:btoa(binary)});await saved(result,true);message(`Archivo importado: ${result.name}.`);
     }catch(error){message(error.message,true);}finally{busy(false);byId('input-upload').value='';}
   });
   byId('input-next').addEventListener('click',async()=>{

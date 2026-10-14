@@ -10,7 +10,7 @@ Automatiza el flujo de coberturas desde un archivo Excel de entrada hasta tres e
 
 El proyecto está centrado en `coverage_studio.py`, que procesa metadata del archivo, interpreta hojas por marca o pipeline, genera slides y construye el banco final.
 
-La pantalla local integra ahora **Entradas → Pipelines → Investigación 5W1H**.
+La pantalla local integra ahora **Archivos de entrada → Coberturas → Investigación 5W1H**.
 Puedes crear y llenar los libros, explorar resultados y generar informes desde
 la misma página. Los scripts de consola siguen disponibles.
 
@@ -140,11 +140,17 @@ python pipeline_explorer.py --port 8766
 Abre `Abrir_Explorador.cmd` o ejecuta `python pipeline_explorer.py --no-browser`.
 Usa las tres opciones de la barra superior sin salir de `http://127.0.0.1:8765/`.
 
-### 1. Entradas
+### 1. Archivos de entrada
 
-Los selectores visibles de **País → Categoría → Fabricante** filtran los archivos.
-**Ver todos** limpia el filtro. La ficha identifica el libro abierto y su nombre
-real; **Nueva entrada** parte del contexto de ese libro o de los filtros elegidos.
+La ficha muestra **país, categoría y fabricante** del archivo seleccionado como
+datos informativos. Estos campos se eligen al crear una entrada; no cambian la
+identidad de un libro existente. El selector **Archivo** abre los libros disponibles.
+**Nueva entrada** parte del contexto del libro actual.
+
+Elige un método de captura: **Excel de escritorio** muestra la guía y sus botones;
+**Editar en la web** muestra la tabla y las acciones de edición. Solo se presenta
+el método elegido. En Windows con Excel disponible se propone el modo de escritorio;
+al recuperar un borrador se abre la edición web para poder corregirlo.
 
 **Nueva entrada** usa los países, categorías y nombres de `archivos_studio.py`.
 Indica fabricante y marcas; cobertura crea una hoja `P0_<marca>` por marca,
@@ -169,6 +175,12 @@ Selecciona una celda y pega el rango de Excel, o usa **Pegar bloque**. El editor
 admite bloques de varias filas/columnas, celdas vacías, doble clic/F2, Enter/Tab,
 flechas, selección con Mayús, copia de rangos y deshacer. Puedes cambiar de hoja
 conservando el borrador y guardar los cambios de todas las hojas juntos.
+**Nueva entrada**, importar y abrir otro archivo conservan primero el borrador en
+`inputs/drafts/`, aunque contenga fechas o números inválidos. Al volver al archivo,
+se recuperan las celdas de todas sus hojas. Este borrador no modifica el Excel ni
+se utiliza como datos del análisis. Si cambió el archivo original, se conserva el
+borrador anterior para consulta y no se aplica automáticamente. Un guardado válido
+retira el borrador; **Descartar cambios** lo elimina explícitamente.
 Las ventanas muestran 60 filas y hasta 32 columnas; usa las coordenadas y los
 controles de rango para consultar toda la hoja. Los límites son 20 000 filas,
 256 columnas, 100 hojas y 50 000 celdas por operación de guardado.
@@ -191,9 +203,9 @@ fórmulas existentes como celdas protegidas y permite pegar valores calculados.
 No ejecuta fórmulas arbitrarias ni reemplaza el motor de cálculo de Excel; las
 extensiones avanzadas de terceros no tienen garantía de preservación al editar.
 
-### 2. Pipelines
+### 2. Coberturas
 
-**Explorar pipelines** abre el archivo guardado y conserva las funciones de
+**Explorar coberturas** abre el archivo guardado y conserva las funciones de
 cobertura ya disponibles: diez gráficos, KPI, tablas, comparación P0–P6 y selección
 por hoja. **Generar archivos** muestra la revisión final y genera los entregables.
 Los cambios pendientes en entradas deben guardarse o descartarse antes de generar.
@@ -234,6 +246,7 @@ crear nuevas entradas ni generar informes. No se instalaron dependencias web nue
 ```powershell
 python -X utf8 -m unittest discover -s tests -p test_studio_inputs.py -v
 python -X utf8 -m unittest discover -s tests -p test_studio_desktop.py -v
+python -X utf8 -m unittest discover -s tests -p test_studio_drafts.py -v
 python -X utf8 -m unittest discover -s tests -p test_studio_entry_ui.py -v
 python -X utf8 -m unittest discover -s tests -p test_studio_5w1h.py -v
 python -X utf8 -m unittest discover -s tests -p test_integrated_studio.py -v

@@ -3,7 +3,6 @@
 .module-nav .step:hover{background:#f0f6f7}
 .module-nav .step.active{color:var(--teal);background:#eaf6f2}
 body:not([data-module="pipelines"]) #result-dock,body:not([data-module="pipelines"]) #toggle-header,body:not([data-module="pipelines"]) #generate-files{display:none!important}
-body:not([data-module="pipelines"]) .header-actions{grid-column:auto;grid-row:auto}
 .studio-module{padding:20px 24px 36px;max-width:1800px;margin:auto;min-height:calc(100dvh - var(--header-height))}
 .studio-heading{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:16px}
 .studio-heading h1{margin:0;font-size:25px}
@@ -11,16 +10,19 @@ body:not([data-module="pipelines"]) .header-actions{grid-column:auto;grid-row:au
 .studio-actions{display:flex;flex-wrap:wrap;align-items:center;gap:8px}
 .studio-actions .button{font-size:11px;padding:8px 12px;min-height:33px}
 .input-context{padding:12px 14px;margin-bottom:14px}
-.input-context-selectors{display:grid;grid-template-columns:minmax(130px,.65fr) minmax(180px,1fr) minmax(150px,1fr) auto;align-items:end;gap:12px}
-.input-context-selectors label{display:block;font-size:11px;color:var(--muted);margin-bottom:5px}
-.input-context-selectors select{width:100%;min-height:34px;font-size:12px}
-.input-context-selectors .text-button{min-height:34px;white-space:nowrap}
 .input-file-summary{display:flex;align-items:center;gap:8px 16px;flex-wrap:wrap;margin-top:9px;font-size:11px;line-height:1.5}
 .input-file-summary .studio-note{margin:0}
+.input-context .input-file-summary{margin-top:0}
+.input-capture-method{display:flex;align-items:center;gap:10px 18px;flex-wrap:wrap;margin:0 0 14px}
+.input-mode-buttons{display:flex;gap:5px}
+.input-mode-buttons .button{padding:8px 12px;font-size:11px}
+.input-mode-buttons .button[aria-pressed=true]{background:var(--ink);border-color:var(--ink);color:#fff}
+.input-capture-method .studio-note{margin:0;flex:1;min-width:180px}
+.input-native-panel h2{margin-bottom:12px}
+.input-native-panel .studio-note{font-size:12px;line-height:2;white-space:pre-line;margin:0 0 20px}
+#input-draft-details{margin-bottom:14px}
 .studio-grid td.date-cell{color:#245a77;font-variant-numeric:tabular-nums}
 .studio-grid td.invalid-date{color:#8c522d;box-shadow:inset 0 -2px #e2b182}
-@media(max-width:800px){.input-context-selectors{grid-template-columns:repeat(2,minmax(0,1fr))}.input-context-selectors>div:nth-child(3){grid-column:1/-1}.input-context-selectors .text-button{justify-self:start}}
-@media(max-width:450px){.input-context-selectors{grid-template-columns:1fr}.input-context-selectors>div:nth-child(3){grid-column:auto}}
 .studio-layout{display:grid;grid-template-columns:255px minmax(0,1fr);gap:16px;align-items:start}
 .studio-panel{background:white;border:1px solid var(--line);border-radius:9px;min-width:0}
 .studio-panel.padded{padding:16px}
@@ -89,4 +91,4 @@ body:not([data-module="pipelines"]) .header-actions{grid-column:auto;grid-row:au
 .research-results h3{font-size:13px;margin:0 0 6px}
 .research-empty{padding:28px 18px;color:var(--muted);font-size:13px;line-height:1.6;text-align:center}
 @media(max-width:1000px){.studio-layout{grid-template-columns:220px minmax(0,1fr)}.research-controls{grid-template-columns:repeat(2,minmax(0,1fr))}.research-charts{grid-template-columns:1fr}.studio-module{padding:16px}}
-@media(max-width:800px){.studio-layout{grid-template-columns:1fr}.studio-sidebar{grid-template-columns:repeat(2,minmax(0,1fr))}.studio-sidebar .studio-panel{grid-column:1/-1}.studio-heading{align-items:flex-start;flex-direction:column}.studio-grid-scroll{max-height:550px}.studio-module{padding:14px 12px}.studio-form{grid-template-columns:1fr}.studio-form .full-field{grid-column:auto}body:not([data-module="pipelines"]) .header-actions{grid-column:2;grid-row:1}body:not([data-module="pipelines"]) .header-progress .steps{grid-row:2}}
+@media(max-width:800px){.studio-layout{grid-template-columns:1fr}.studio-sidebar{grid-template-columns:repeat(2,minmax(0,1fr))}.studio-sidebar .studio-panel{grid-column:1/-1}.studio-heading{align-items:flex-start;flex-direction:column}.studio-grid-scroll{max-height:550px}.studio-module{padding:14px 12px}.studio-form{grid-template-columns:1fr}.studio-form .full-field{grid-column:auto}}
