@@ -366,6 +366,10 @@ Los gráficos básicos de cobertura permanecen siempre; sin marcar extras, el PP
 mantiene su contenido habitual. Cada KPI elegido añade una diapositiva con gráfico
 editable de su serie mensual completa, último dato y promedios de 12 meses y total,
 usando los colores del Excel. La revisión final enumera los extras de cada hoja.
+También puede marcarse **Volumen MAT, YoY y cobertura por año**: añade un gráfico
+combinado editable, con barras de Sell-in y Worldpanel, etiquetas de variación anual
+y cobertura en el eje derecho. Usa el pipeline elegido, el mismo mes de corte y
+el tipo de cobertura actual, igual que la vista web.
 
 Las hojas con meses duplicados, desordenados o faltantes requieren corrección
 antes de generar. Un pipeline sin los meses suficientes para cobertura MAT

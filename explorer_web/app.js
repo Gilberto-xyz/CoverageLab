@@ -31,6 +31,8 @@ const driverMetrics = {
   purchase_occasion: {title: 'Compra por ocasión', unit: 'por ocasión', digits: 2},
   frequency: {title: 'Frecuencia de compra', unit: 'ocasiones por comprador', digits: 2},
 };
+const pptExtraTitles = {...Object.fromEntries(Object.entries(driverMetrics).map(([key,metric])=>[key,metric.title])),
+  annual_mat:'Volumen MAT, YoY y cobertura por año'};
 
 async function api(path, body) {
   const response = await fetch(path, {method: body ? 'POST' : 'GET', headers: {'X-Explorer-Token': token, ...(body ? {'Content-Type': 'application/json'} : {})}, ...(body ? {body: JSON.stringify(body)} : {})});
@@ -218,7 +220,7 @@ async function load() {
       state.selections[sheet.name] = Number.isInteger(previous) && sheet.pipelines[previous]?.available ? previous : sheet.default_pipeline;
       state.included[sheet.name] = saved ? !!saved.included?.[sheet.name] : true;
       const extras=saved?.ppt_extras?.[sheet.name];
-      state.pptExtras[sheet.name] = Array.isArray(extras) ? [...new Set(extras.filter(key=>Object.hasOwn(driverMetrics,key)))] : [];
+      state.pptExtras[sheet.name] = Array.isArray(extras) ? [...new Set(extras.filter(key=>Object.hasOwn(pptExtraTitles,key)))] : [];
     });
     state.active = analysis.sheets.find(sheet => !sheet.error)?.name || analysis.sheets[0]?.name;
     $('empty').hidden = true; $('workspace').hidden = false; $('sheet-panel').hidden = false;
@@ -480,7 +482,7 @@ function renderDashboard() {
     const extras=new Set(state.pptExtras[sheet.name] || []);if(checked)extras.add(key);else extras.delete(key);
     state.pptExtras[sheet.name]=[...extras];saveDraft();
   }});
-  $('dashboard-reference').textContent=`${count} gráficos visibles · ${sheet.brand} · P${selected} · Corte ${month(sheet.dates.at(-1))}. Los gráficos básicos se mantienen en el PPT. Marca «Incluir en PPT» en los KPI extra de esta hoja.`;
+  $('dashboard-reference').textContent=`${count} gráficos visibles · ${sheet.brand} · P${selected} · Corte ${month(sheet.dates.at(-1))}. Los gráficos básicos se mantienen en el PPT. Marca «Incluir en PPT» en los gráficos extra de esta hoja.`;
   [['Diagnóstico KPI','excel-diagnostics'],['Datos mensuales y P0–P6','template-table'],['Variaciones','excel-table-variations'],['Correlaciones','excel-table-correlations'],['Promedios MAT','excel-table-averages'],['Detalle anual MAT','excel-table-annual-mat']].forEach(([title,id])=>{
     const link=item('a',title);link.href=`#${id}`;link.className='dashboard-detail-link';
     link.addEventListener('click',()=>{if($('template-view').value!=='all'){$('template-view').value='all';renderTemplate();}});$('dashboard-nav').append(link);
@@ -660,7 +662,7 @@ function reviewExport() {
   $('dialog-file').textContent = `${state.analysis.file} · ${$('template').selectedOptions[0].textContent}`;
   $('dialog-selection').replaceChildren();
   Object.entries(selectedSheets()).forEach(([name, pipeline]) => { const row = item('div', null, 'dialog-row');
-    const extras=(state.pptExtras[name] || []).map(key=>driverMetrics[key].title);
+    const extras=(state.pptExtras[name] || []).map(key=>pptExtraTitles[key]);
     row.append(item('span',name+(extras.length ? ` · Extra: ${extras.join(', ')}` : ' · Solo gráficos básicos')), item('strong', `P${pipeline}`)); $('dialog-selection').append(row); });
   $('export-dialog').showModal();
 }

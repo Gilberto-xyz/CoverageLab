@@ -172,25 +172,11 @@ def dashboard_details(df, core, pipelines):
                      "end": df[core.COL_DATA].iloc[-1].isoformat(),
                      "minimum": finite(recent.min()), "maximum": finite(recent.max()),
                      "review": average is None or average == 0 or abs(change) > core.EXCEL_DASHBOARD_CHANGE_THRESHOLD or amplitude > core.EXCEL_DASHBOARD_RANGE_THRESHOLD})
-    dates = list(df[core.COL_DATA])
-    cutoff_month = dates[-1].month
-    wp_mat = df[core.COL_SELL_OUT].rolling(12, min_periods=12).sum()
-    rows, previous = [], {}
-    for i, date in enumerate(dates):
-        if date.month != cutoff_month or i < 11:
-            continue
-        wp = finite(wp_mat.iloc[i])
-        values = [pipeline["sell_in_mat"][i] for pipeline in pipelines]
-        prior = previous.get(date.year - 1)
-        def growth(value, old):
-            return finite((value / old - 1) * 100) if value is not None and old else None
-        row = {"date": date.isoformat(), "worldpanel": wp,
-               "worldpanel_yoy": growth(wp, prior["worldpanel"]) if prior else None,
-               "sell_in": values,
-               "sell_in_yoy": [growth(value, prior["sell_in"][p]) if prior else None for p, value in enumerate(values)],
-               "coverage": [pipeline["coverage_series"][i] for pipeline in pipelines]}
-        rows.append(row)
-        previous[date.year] = row
+    annual = [core.annual_mat_rows(df, p, core.pd.Series(pipeline["coverage_series"]))
+              for p, pipeline in enumerate(pipelines)]
+    rows = [{"date": row["date"], "worldpanel": row["worldpanel"], "worldpanel_yoy": row["worldpanel_yoy"],
+             **{key: [periods[i][key] for periods in annual] for key in ("sell_in", "sell_in_yoy", "coverage")}}
+            for i, row in enumerate(annual[0])]
     return {"kpis": kpis, "mat_periods": rows,
             "change_threshold": core.EXCEL_DASHBOARD_CHANGE_THRESHOLD,
             "range_threshold": core.EXCEL_DASHBOARD_RANGE_THRESHOLD}
@@ -547,7 +533,13 @@ class ExplorerState:
         sheets = {sheet["name"]: sheet for sheet in analysis["sheets"]}
         for name, keys in extras.items():
             for key in keys:
-                if not any(value is not None for value in sheets[name][key]):
+                if key == "annual_mat":
+                    p = selections[name]
+                    available = any(all(value is not None for value in (row["worldpanel"], row["sell_in"][p], row["coverage"][p]))
+                                    for row in sheets[name]["dashboard"]["mat_periods"])
+                else:
+                    available = any(value is not None for value in sheets[name][key])
+                if not available:
                     raise ValueError(f"{name}: el KPI {key} no tiene datos para el PPT.")
         return extras
 

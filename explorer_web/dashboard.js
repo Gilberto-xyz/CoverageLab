@@ -173,12 +173,13 @@ window.CoverageDashboard = (() => {
     figures.forEach((model,index)=>{
       const card=node('article',null,'dashboard-chart-card');card.id=`excel-chart-${model.key}`;card.dataset.chart=model.key;
       const heading=node('div',null,'dashboard-chart-heading'), title=node('h3',model.title);
-      if(model.kpi) {
+      if(model.kpi || model.annual) {
+        const available=model.kpi ? model.kpi.total_count>0 : chartData(model).dates.length>0;
         const label=node('label',null,'ppt-chart-choice'), input=node('input');
-        input.type='checkbox';input.className='ppt-extra-input';input.checked=!!ppt.selected?.includes(model.key);input.disabled=!!ppt.disabled || !model.kpi.total_count;
-        if(!model.kpi.total_count){input.dataset.unavailable='true';label.title='Este KPI no tiene datos para el PPT';}
+        input.type='checkbox';input.className='ppt-extra-input';input.checked=!!ppt.selected?.includes(model.key);input.disabled=!!ppt.disabled || !available;
+        if(!available){input.dataset.unavailable='true';label.title='Este gráfico no tiene datos para el PPT';}
         input.setAttribute('aria-label',`Incluir ${model.title} en PPT`);
-        if(model.kpi.total_count)label.title='Añadir la serie mensual completa de este KPI a la presentación de esta hoja';
+        if(available)label.title=model.annual ? 'Añadir la comparación anual con el pipeline elegido a la presentación de esta hoja' : 'Añadir la serie mensual completa de este KPI a la presentación de esta hoja';
         label.append(input,node('span','Incluir en PPT'));
         label.addEventListener('click',event=>event.stopPropagation());
         input.addEventListener('change',()=>ppt.change?.(model.key,input.checked));

@@ -1524,6 +1524,11 @@ PPT_EXTRA_KPIS = {
     "penetration": (COL_PENET, ("Penetración", "Penetração", "Penetration")),
     "buyers_series": (COL_BUYERS, ("Compradores", "Compradores", "Buyers")),
 }
+PPT_EXTRA_CHARTS = {key: titles for key, (_, titles) in PPT_EXTRA_KPIS.items()}
+PPT_EXTRA_CHARTS["annual_mat"] = (
+    "Volumen MAT, YoY y cobertura por año", "Volume MAT, YoY e cobertura por ano",
+    "MAT volume, YoY and coverage by year",
+)
 
 
 def validate_ppt_extra_charts(value, sheets):
@@ -1531,15 +1536,168 @@ def validate_ppt_extra_charts(value, sheets):
         raise ValueError("Los gráficos extra deben corresponder a las hojas incluidas.")
     result = {}
     for name, keys in value.items():
-        if not isinstance(keys, list) or len(keys) > len(PPT_EXTRA_KPIS):
+        if not isinstance(keys, list) or len(keys) > len(PPT_EXTRA_CHARTS):
             raise ValueError("Selección de gráficos extra inválida.")
-        if any(not isinstance(key, str) or key not in PPT_EXTRA_KPIS for key in keys) or len(set(keys)) != len(keys):
+        if any(not isinstance(key, str) or key not in PPT_EXTRA_CHARTS for key in keys) or len(set(keys)) != len(keys):
             raise ValueError("Gráfico extra desconocido o duplicado.")
         result[name] = list(keys)
     return result
 
 
-def add_extra_kpi_slides(builder, frame, keys, brand, unit):
+def annual_mat_rows(frame, pipeline, coverage_series):
+    """Mismo corte anual, desplazamiento y cobertura para la web y el PPT."""
+    def number(value):
+        return float(value) if pd.notna(value) and math.isfinite(float(value)) else None
+
+    def growth(current, previous):
+        return number((current / previous - 1) * 100) if current is not None and previous else None
+
+    wp = frame[COL_SELL_OUT].rolling(12, min_periods=12).sum()
+    si = frame[COL_SELL_IN].shift(pipeline).rolling(12, min_periods=12).sum()
+    dates = pd.to_datetime(frame[COL_DATA])
+    rows, previous = [], {}
+    for i, date in enumerate(dates):
+        if i < 11 or date.month != dates.iloc[-1].month:
+            continue
+        prior = previous.get(date.year - 1, {})
+        row = {"date": date.date().isoformat(), "worldpanel": number(wp.iloc[i]),
+               "sell_in": number(si.iloc[i]), "coverage": number(coverage_series.iloc[i])}
+        row["worldpanel_yoy"] = growth(row["worldpanel"], prior.get("worldpanel"))
+        row["sell_in_yoy"] = growth(row["sell_in"], prior.get("sell_in"))
+        rows.append(row)
+        previous[date.year] = row
+    return rows
+
+
+def add_annual_mat_slide(builder, frame, brand, unit, pipeline, coverage_series):
+    """Gráfico combinado editable: dos volúmenes, YoY y cobertura en eje derecho."""
+    from copy import deepcopy
+    from pptx.chart.data import CategoryChartData
+    from pptx.dml.color import RGBColor
+    from pptx.enum.chart import XL_CHART_TYPE, XL_DATA_LABEL_POSITION, XL_LEGEND_POSITION
+    from pptx.oxml.xmlchemy import OxmlElement
+
+    rows = annual_mat_rows(frame, pipeline, coverage_series)
+    complete = [i for i, row in enumerate(rows) if all(row[k] is not None for k in ("worldpanel", "sell_in", "coverage"))]
+    if not complete:
+        return 0
+    rows = rows[complete[0]:complete[-1]+1]
+    rows = [row if all(row[k] is not None for k in ("worldpanel", "sell_in", "coverage")) else
+            {key: value if key == "date" else None for key, value in row.items()} for row in rows]
+    language = 1 if builder.lang_index == 1 else 2 if builder.lang_index == 3 else 0
+    coverage_label = ("Cobertura", "Cobertura", "Coverage")[language]
+    names = (f"Sell-in P{pipeline}", "Worldpanel", f"{coverage_label} P{pipeline}")
+    slide = builder.ppt.slides.add_slide(builder.ppt.slide_layouts[PPT_LAYOUT_INDEX])
+    slide.name = f"KPI:annual_mat | {brand}"
+    width, height = builder.ppt.slide_width, builder.ppt.slide_height
+    title = ensure_title_frame(slide, width=width - Inches(1))
+    title.text = f"{brand} | {PPT_EXTRA_CHARTS['annual_mat'][language]}"
+    for paragraph in title.paragraphs:
+        paragraph.font.name, paragraph.font.size, paragraph.font.bold = "Arial", Pt(20), True
+    data = CategoryChartData()
+    data.categories = ["MAT " + pd.Timestamp(row["date"]).strftime("%m/%Y") for row in rows]
+    for key, name in zip(("sell_in", "worldpanel", "coverage"), names):
+        data.add_series(name, [row[key] for row in rows])
+    chart = slide.shapes.add_chart(XL_CHART_TYPE.COLUMN_CLUSTERED,
+        int(width*.07), int(height*.21), int(width*.86), int(height*.54), data).chart
+    chart.has_title, chart.has_legend = False, True
+    chart.legend.position = XL_LEGEND_POSITION.BOTTOM
+    chart.legend.include_in_layout = False
+    chart.legend.font.size = Pt(11)
+    chart.category_axis.tick_labels.font.size = Pt(11)
+    chart.value_axis.tick_labels.font.size = Pt(11)
+    chart.value_axis.minimum_scale = 0
+    chart.value_axis.maximum_scale = max(row[key] or 0 for row in rows for key in ("sell_in", "worldpanel"))*1.35 or 1
+    chart.value_axis.tick_labels.number_format = '#,##0'
+    chart.value_axis.tick_labels.number_format_is_linked = False
+    for index, color in enumerate((COLOR_SELLIN_TREND_LINE, COLOR_SELLOUT_TREND_LINE, "#008C95")):
+        series = chart.series[index]
+        series.format.fill.solid()
+        series.format.fill.fore_color.rgb = RGBColor.from_string(color.lstrip("#"))
+        series.format.line.color.rgb = RGBColor.from_string(color.lstrip("#"))
+        if index < 2:
+            for i, row in enumerate(rows):
+                value = row[("sell_in", "worldpanel")[index]]
+                if value is None:
+                    continue
+                label = series.points[i].data_label
+                label.position = XL_DATA_LABEL_POSITION.OUTSIDE_END
+                label.text_frame.text = f"{value:,.0f}"
+                label._get_or_add_dLbl().xpath('c:showVal')[0].set('val', '0')
+                for paragraph in label.text_frame.paragraphs:
+                    paragraph.font.name, paragraph.font.size = "Arial", Pt(11)
+                    paragraph.font.color.rgb = RGBColor.from_string(color.lstrip("#"))
+
+    # La tercera serie conserva su columna en el Excel incrustado y usa otro eje.
+    plot_area = chart._chartSpace.chart.plotArea
+    bar = plot_area.find('{http://schemas.openxmlformats.org/drawingml/2006/chart}barChart')
+    line = OxmlElement('c:lineChart')
+    grouping = OxmlElement('c:grouping'); grouping.set('val', 'standard'); line.append(grouping)
+    series = bar.ser_lst[-1]
+    bar.remove(series)
+    for child in list(series):
+        if child.tag.rsplit('}', 1)[-1] in {'invertIfNegative', 'shape', 'pictureOptions'}:
+            series.remove(child)
+    marker = OxmlElement('c:marker')
+    symbol = OxmlElement('c:symbol'); symbol.set('val', 'circle'); marker.append(symbol)
+    series.insert(list(series).index(series.find('{http://schemas.openxmlformats.org/drawingml/2006/chart}cat')), marker)
+    line.append(series)
+    labels = OxmlElement('c:dLbls')
+    fmt = OxmlElement('c:numFmt'); fmt.set('formatCode', '0.0"%"'); fmt.set('sourceLinked', '0'); labels.append(fmt)
+    position = OxmlElement('c:dLblPos'); position.set('val', 'b'); labels.append(position)
+    show = OxmlElement('c:showVal'); show.set('val', '1'); labels.append(show)
+    line.append(labels)
+    old_ids = [axis.get('val') for axis in bar.findall('{http://schemas.openxmlformats.org/drawingml/2006/chart}axId')]
+    ids = dict(zip(old_ids, (100, 200)))
+    for axis in plot_area.xpath('.//c:axId | .//c:crossAx'):
+        axis.set('val', str(ids[axis.get('val')]))
+    cat_id, val_id = 100, 200
+    secondary_id = max(cat_id, val_id) + 1
+    for value in (cat_id, secondary_id):
+        axis = OxmlElement('c:axId'); axis.set('val', str(value)); line.append(axis)
+    plot_area.insert(list(plot_area).index(bar)+1, line)
+    secondary = deepcopy(plot_area.find('{http://schemas.openxmlformats.org/drawingml/2006/chart}valAx'))
+    for tag, value in (('axId', secondary_id), ('axPos', 'r'), ('crossAx', cat_id), ('crosses', 'max')):
+        secondary.find('{http://schemas.openxmlformats.org/drawingml/2006/chart}'+tag).set('val', str(value))
+    secondary.xpath('c:scaling/c:max')[0].set('val', str(max(row['coverage'] or 0 for row in rows)*1.5 or 1))
+    secondary.xpath('c:numFmt')[0].set('formatCode', '0"%"')
+    secondary.xpath('c:numFmt')[0].set('sourceLinked', '0')
+    secondary.xpath('c:tickLblPos')[0].set('val', 'high')
+    grid = secondary.find('{http://schemas.openxmlformats.org/drawingml/2006/chart}majorGridlines')
+    if grid is not None:
+        secondary.remove(grid)
+    plot_area.append(secondary)
+    coverage_line = chart.plots[1].series[0]
+    coverage_line.format.line.width = Pt(2)
+    coverage_line.marker.size = 5
+    coverage_line.marker.format.fill.solid()
+    coverage_line.marker.format.fill.fore_color.rgb = RGBColor.from_string('008C95')
+    coverage_line.marker.format.line.color.rgb = RGBColor.from_string('008C95')
+    # Los YoY permanecen editables y legibles aun en visores que omiten etiquetas personalizadas.
+    table = slide.shapes.add_table(3, len(rows)+1, int(width*.07), int(height*.76), int(width*.86), int(height*.13)).table
+    for r, values in enumerate((
+            ["YoY", *[pd.Timestamp(row['date']).strftime('%m/%Y') for row in rows]],
+            [names[0], *[f"{row['sell_in_yoy']:+.1f}%" if row['sell_in_yoy'] is not None else '—' for row in rows]],
+            [names[1], *[f"{row['worldpanel_yoy']:+.1f}%" if row['worldpanel_yoy'] is not None else '—' for row in rows]])):
+        for c, value in enumerate(values):
+            cell = table.cell(r,c)
+            cell.text = value
+            cell.margin_top = cell.margin_bottom = 0
+            cell.fill.solid()
+            cell.fill.fore_color.rgb = RGBColor.from_string('F2F6F8' if r == 0 else 'FFFFFF')
+            for paragraph in cell.text_frame.paragraphs:
+                paragraph.font.name, paragraph.font.size, paragraph.font.bold = 'Arial', Pt(11), r == 0 or c == 0
+                paragraph.font.color.rgb = RGBColor.from_string('172C3C' if r == 0 or c == 0 or value == '—' else
+                    EXCEL_VARIATION_POSITIVE_FONT if not value.startswith('-') else EXCEL_VARIATION_NEGATIVE_FONT)
+    footer = slide.shapes.add_textbox(int(width*.07), int(height*.90), int(width*.86), int(height*.05)).text_frame
+    footer.text = (("Mismo mes de corte en cada año", "Mesmo mês de corte em cada ano", "Same cutoff month in each year")[language]
+                   + f" · P{pipeline} · {unit}")
+    for paragraph in footer.paragraphs:
+        paragraph.font.name, paragraph.font.size = "Arial", Pt(12)
+    return 1
+
+
+def add_extra_kpi_slides(builder, frame, keys, brand, unit, pipeline=0, coverage_series=None):
     """Añade únicamente los KPI solicitados, con datos y gráficos editables."""
     from pptx.chart.data import CategoryChartData
     from pptx.enum.chart import XL_CHART_TYPE
@@ -1548,6 +1706,11 @@ def add_extra_kpi_slides(builder, frame, keys, brand, unit):
     count = 0
     language = 1 if builder.lang_index == 1 else 2 if builder.lang_index == 3 else 0
     for key in keys:
+        if key == "annual_mat":
+            if coverage_series is None:
+                raise ValueError("La comparación anual requiere la cobertura del pipeline seleccionado.")
+            count += add_annual_mat_slide(builder, frame, brand, unit, pipeline, coverage_series)
+            continue
         column, titles = PPT_EXTRA_KPIS[key]
         values = pd.to_numeric(frame[column], errors="coerce").replace([float("inf"), -float("inf")], float("nan"))
         valid = values.notna()
@@ -3081,7 +3244,7 @@ def _round_half_up_series(series):
     Devuelve float con .0 para mantener NaN compatibles.
     """
     # Requiere numpy/pandas cargados; se usa después de esperar la carga pesada
-    arr = series.to_numpy(dtype=float)
+    arr = series.to_numpy(dtype=float, copy=True)
     # Usar isfinite para evitar afectar NaN/inf
     mask = np.isfinite(arr)
     arr[mask] = np.floor(arr[mask] + 0.5)
@@ -12729,7 +12892,8 @@ def generate_presentation_and_bank(
                 )
                 if pipeline == pipelines_to_run[-1]:
                     extras_created = add_extra_kpi_slides(builder, df_marca_ppt,
-                        ppt_extra_charts.get(marca_sheet_name, []), section_title, measure_unit)
+                        ppt_extra_charts.get(marca_sheet_name, []), section_title, measure_unit,
+                        pipeline=pipeline, coverage_series=coverage_series)
                     slides_created += extras_created
                     if extras_created:
                         progress.update(task_id, advance=extras_created)

@@ -479,7 +479,7 @@ assert.equal(api.correlationStyle(null,[0,.5,1],palette),null);
         selected = analysis["sheets"][1]
         self.assertEqual(selected["metadata"]["categoria_codigo"], "BISC")
         job = self.state.export({"analysis_id": analysis["id"], "selections": {"P4_MarcaDemo": 3},
-                                 "ppt_extras": {"P4_MarcaDemo": ["frequency", "purchase_average"]}})
+                                 "ppt_extras": {"P4_MarcaDemo": ["frequency", "purchase_average", "annual_mat"]}})
         deadline = time.monotonic() + 90
         while self.state.job(job["id"])["status"] == "running" and time.monotonic() < deadline:
             time.sleep(.1)
@@ -497,7 +497,13 @@ assert.equal(api.correlationStyle(null,[0,.5,1],palette),null);
             self.assertTrue((directory / "_sistema" / name).is_file())
             self.assertFalse((directory / name).exists())
         config = json.loads((directory / "_sistema" / "selection.json").read_text(encoding="utf-8"))
-        self.assertEqual(config["ppt_extras"], {"P4_MarcaDemo": ["frequency", "purchase_average"]})
+        self.assertEqual(config["ppt_extras"], {"P4_MarcaDemo": ["frequency", "purchase_average", "annual_mat"]})
+        ppt = self.core.Presentation(outputs["presentation"])
+        annual_slide = next(slide for slide in ppt.slides if slide.name.startswith("KPI:annual_mat"))
+        chart = next(shape.chart for shape in annual_slide.shapes if shape.has_chart)
+        annual = [row for row in selected["dashboard"]["mat_periods"] if row["sell_in"][3] is not None]
+        self.assertEqual(chart.series[0].values, tuple(row["sell_in"][3] for row in annual))
+        self.assertEqual(chart.series[2].values, tuple(row["coverage"][3] for row in annual))
         self.assertEqual(config["options"], analysis["options"])
         self.assertEqual(config["selections"], {"P4_MarcaDemo": 3})
         self.assertEqual(explorer.ExplorerState(self.root).jobs[job["id"]]["status"], "complete")
@@ -522,9 +528,9 @@ assert.equal(api.correlationStyle(null,[0,.5,1],palette),null);
         template.close()
         ppt = self.core.Presentation(outputs["presentation"])
         extra_slides = [slide for slide in ppt.slides if slide.name.startswith("KPI:")]
-        self.assertEqual(len(extra_slides), 2)
+        self.assertEqual(len(extra_slides), 3)
         self.assertTrue(all(any(shape.has_chart for shape in slide.shapes) for slide in extra_slides))
-        self.assertEqual({slide.name.split(' | ')[0] for slide in extra_slides}, {"KPI:frequency", "KPI:purchase_average"})
+        self.assertEqual({slide.name.split(' | ')[0] for slide in extra_slides}, {"KPI:frequency", "KPI:purchase_average", "KPI:annual_mat"})
         texts = " ".join(shape.text for slide in ppt.slides for shape in slide.shapes if shape.has_text_frame)
         self.assertIn("MarcaDemo | P3", texts)
         self.assertNotIn("T.UL Galletas |", texts)
@@ -538,7 +544,7 @@ assert.equal(api.correlationStyle(null,[0,.5,1],palette),null);
     def test_extra_selection_is_saved_and_invalid_extras_never_start_generation(self):
         analysis = self.analyze()
         payload = {"analysis_id": analysis["id"], "selections": {"P1_Cola": 1},
-                   "ppt_extras": {"P1_Cola": ["frequency", "buyers_series"]}}
+                   "ppt_extras": {"P1_Cola": ["frequency", "buyers_series", "annual_mat"]}}
         self.state.save_selection(payload)
         restored = explorer.ExplorerState(self.root).analyze({"file": self.source.name, "animate_trend_pipeline": False})
         self.assertEqual(restored["saved_selection"]["ppt_extras"], payload["ppt_extras"])

@@ -111,6 +111,45 @@ class DeliveryExtrasTests(unittest.TestCase):
             self.assertIn("Promedio total", texts)
             self.assertTrue(all(shape.left >= 0 and shape.top >= 0 and shape.left+shape.width <= ppt.slide_width and shape.top+shape.height <= ppt.slide_height for shape in slide.shapes))
 
+    def test_annual_comparison_preserves_pipeline_yoy_coverage_and_editable_data(self):
+        from io import BytesIO
+        from openpyxl import load_workbook
+        core = self.core
+        frame = core.pd.DataFrame({core.COL_DATA:core.pd.date_range("2023-01-01", periods=36, freq="MS"),
+            core.COL_SELL_OUT:list(range(100,136)), core.COL_SELL_IN:list(range(200,236))})
+        coverage = core.compute_coverage_dataframe(frame, "Peru", "Relativa", True)
+        p = 3
+        selected = coverage[f"P{p}"]
+        rows = core.annual_mat_rows(frame, p, selected)
+        self.assertIsNone(rows[0]["sell_in"])
+        self.assertIsNone(rows[1]["sell_in_yoy"])
+        self.assertEqual(rows[-1]["sell_in"], sum(frame[core.COL_SELL_IN].iloc[-15:-3]))
+        self.assertEqual(rows[-1]["coverage"], selected.iloc[-1])
+        self.assertAlmostEqual(rows[-1]["sell_in_yoy"], (rows[-1]["sell_in"]/rows[-2]["sell_in"]-1)*100)
+        self.assertEqual(core.validate_ppt_extra_charts({"A":["annual_mat"]}, ["A"]), {"A":["annual_mat"]})
+        ppt = core.Presentation(explorer.ROOT / "Modelo_PPT.pptx")
+        builder = types.SimpleNamespace(ppt=ppt, lang_index=2)
+        self.assertEqual(core.add_extra_kpi_slides(builder, frame, ["annual_mat"], "Marca", "kg", p, selected), 1)
+        ppt.save(self.root / "annual.pptx")
+        chart = next(shape.chart for shape in core.Presentation(self.root / "annual.pptx").slides[-1].shapes if shape.has_chart)
+        self.assertEqual(len(chart.plots), 2)
+        self.assertTrue(chart.plots[0]._element.tag.endswith('}barChart'))
+        self.assertTrue(chart.plots[1]._element.tag.endswith('}lineChart'))
+        self.assertEqual(chart.series[0].values, tuple(row["sell_in"] for row in rows[1:]))
+        self.assertEqual(chart.series[1].values, tuple(row["worldpanel"] for row in rows[1:]))
+        self.assertEqual(chart.series[2].values, tuple(row["coverage"] for row in rows[1:]))
+        axes = chart._chartSpace.chart.plotArea.xpath('c:valAx')
+        self.assertEqual(len(axes), 2)
+        self.assertEqual(axes[-1].xpath('c:axPos')[0].get('val'), 'r')
+        self.assertEqual(axes[-1].xpath('c:numFmt')[0].get('formatCode'), '0"%"')
+        table = next(shape.table for shape in core.Presentation(self.root / "annual.pptx").slides[-1].shapes if shape.has_table)
+        self.assertEqual(table.cell(1,2).text, f"{rows[-1]['sell_in_yoy']:+.1f}%")
+        self.assertEqual(table.cell(1,1).text, '—')
+        embedded = load_workbook(BytesIO(chart.part.chart_workbook.xlsx_part.blob), data_only=True)
+        self.assertEqual(embedded.active.cell(3, 4).value, rows[-1]["coverage"])
+        self.assertEqual(core.add_extra_kpi_slides(builder, frame, ["annual_mat"], "Marca", "kg", p,
+            core.pd.Series([float('nan')]*len(frame))), 0)
+
 
 if __name__ == "__main__":
     unittest.main()
