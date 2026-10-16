@@ -23,12 +23,14 @@
     if (!finite(value)) return '—';
     if (unit === 'percent') return `${(value * 100).toLocaleString('es-MX', {maximumFractionDigits: 2})}%`;
     if (unit === '%') return `${value.toLocaleString('es-MX', {maximumFractionDigits: 2})}%`;
+    if (unit === 'pp') return `${value.toLocaleString('es-MX', {maximumFractionDigits: 2})} pp`;
     return value.toLocaleString('es-MX', {maximumFractionDigits: Math.abs(value) < 1 ? 4 : 2});
   };
   const period = value => /^\d{4}-\d{2}$/.test(String(value)) ? new Date(`${value}-01T12:00:00`).toLocaleDateString('es-MX', {month: 'short', year: '2-digit'}) : String(value);
   const state = {container: null, bridge: null, catalog: null, file: null, inspection: null, analysis: null,
     job: null, busy: false, request: 0, poll: null, timer: null, manual: false, labels: true, detail: true,
-    elements: null, contextKey: null};
+    elements: null, contextKey: null, opening: null, resultsCollapsed: false};
+  try {state.resultsCollapsed=localStorage.getItem('coveragelab-research-results-collapsed')==='true';} catch (_) {}
   const nodes = {};
   const pendingInputs = () => Boolean(state.file && state.bridge?.hasPendingInput?.(state.file));
 
@@ -40,8 +42,13 @@
   function updateActions() {
     nodes.analyze.disabled = !state.file || !nodes.sheet.value || state.busy;
     nodes.edit.disabled = !state.file || state.busy;
+    nodes.create.disabled = state.busy;
+    if (nodes.refresh) nodes.refresh.disabled = state.busy;
     nodes.generate.disabled = !state.analysis?.ready || state.analysis?.source_id !== state.file || state.busy || state.job?.status === 'running' || pendingInputs();
     nodes.file.disabled = state.busy;
+    if (nodes.upload) nodes.upload.disabled = state.busy;
+    if (nodes.importFile) nodes.importFile.disabled = state.busy;
+    nodes.dimensions?.querySelectorAll('button').forEach(node => {node.disabled = state.busy;});
     nodes.sheet.disabled = state.busy || !state.inspection?.sheets.length;
     [nodes.mode, nodes.pipeline, nodes.start, nodes.end].forEach(node => {node.disabled = state.busy;});
     nodes.elements.querySelectorAll('input').forEach(node => {node.disabled = state.busy;});
@@ -57,6 +64,7 @@
     if (!file) return;
     const meta = file.metadata || file;
     nodes.details.append($('strong', {}, `${meta.country} · ${meta.category}`), $('p', {class: 'studio-note'}, meta.manufacturer),
+      $('p', {class: 'studio-note research-source-name', title: file.name}, file.name),
       $('p', {class: 'source-note'}, file.read_only ? 'Origen 5W1H. Al guardar cambios se creará una copia local para continuar aquí.' : 'Entrada local. Puedes editarla y analizarla sin abrir Excel.'));
     if (state.inspection?.requires_input) nodes.details.append($('p', {class: 'studio-note'}, 'Entrada vacía · pendiente de llenar.'));
   }
@@ -66,7 +74,7 @@
     nodes.file.replaceChildren($('option', {value: ''}, 'Selecciona un archivo 5W1H'));
     for (const file of response.files) {
       const meta = file.metadata || file;
-      nodes.file.append($('option', {value: file.file || file.id}, `${meta.country} · ${meta.category} · ${meta.manufacturer}${file.read_only ? ' · origen' : ' · local'}`));
+      nodes.file.append($('option', {value: file.file || file.id, title: file.name}, `${meta.country} · ${meta.category} · ${meta.manufacturer} · ${file.name}${file.read_only ? ' · origen' : ' · local'}`));
     }
     const previousMode = nodes.mode.value || '1';
     nodes.mode.replaceChildren(...response.modes.map(m => $('option', {value: m.id}, m.name)));
@@ -102,6 +110,7 @@
     state.elements = null;
     nodes.file.value = fileId;
     nodes.sheet.replaceChildren();
+    renderDimensions();
     nodes.start.value = nodes.end.value = '';
     clearAnalysis();
     renderJob();
@@ -123,6 +132,7 @@
       const pipeline = match && context?.loaded && sameProject(context) ? context.pipeline : null;
       nodes.pipeline.value = Number.isInteger(pipeline) && pipeline >= 0 && pipeline <= 6 ? String(pipeline) : 'default';
       sourceDetails();
+      renderDimensions();
       renderJob();
       message(info.sheets.length ? 'Archivo listo. Explora los datos o ábrelos en el editor.' : 'No se encontraron hojas con el formato 5W1H. Revisa la estructura en el editor.', !info.sheets.length);
       if (job?.status === 'running') pollJob(job.id, fileId);
@@ -132,6 +142,53 @@
       if (request === state.request) {state.busy = false; updateActions();}
     }
     if (request === state.request && nodes.sheet.value) await analyze();
+  }
+  async function importResearch(file) {
+    if (!file || state.busy) return;
+    state.busy = true; updateActions();
+    message('Abriendo el archivo seleccionado…');
+    let imported = null;
+    try {
+      if (!/\.xlsx$/i.test(file.name)) throw new Error('Selecciona un libro Excel .xlsx.');
+      if (file.size > 10 * 1024 * 1024) throw new Error('El archivo excede el límite de 10 MiB.');
+      const bytes = new Uint8Array(await file.arrayBuffer());
+      let binary = '';
+      for (let i = 0; i < bytes.length; i += 32768) binary += String.fromCharCode(...bytes.subarray(i, i + 32768));
+      imported = await state.bridge.api('/api/studio/import', {kind: 'research', filename: file.name, content: btoa(binary), reuse_existing: true});
+      await catalog();
+      state.manual = true;
+    } catch (error) {message(error.message, true);}
+    finally {state.busy = false; nodes.upload.value = ''; updateActions();}
+    if (imported) {
+      await open(imported.file);
+      if (state.file === imported.file && state.inspection) {
+        message(`${imported.reused_existing ? 'Se abrió la entrada local existente' : 'Copia de trabajo guardada en inputs/5w1h'}: ${imported.name}. ${state.inspection.sheets.length} hojas disponibles en «Salidas del archivo».${state.analysis && !state.analysis.ready ? ' Revisa los avisos de la hoja seleccionada.' : ''}`);
+      }
+    }
+  }
+  function renderDimensions() {
+    if (!nodes.dimensions) return;
+    const sheets = state.inspection?.sheets || [];
+    nodes.dimensions.replaceChildren($('h2', {}, 'Salidas del archivo'));
+    nodes.dimensions.hidden = !sheets.length;
+    if (!sheets.length) return;
+    nodes.dimensions.append($('p', {class: 'studio-note'}, `${sheets.length} hojas · elige una dimensión para ver sus gráficos y tablas.`));
+    for (const sheet of sheets) {
+      const button = $('button', {type: 'button', class: 'research-dimension', 'aria-pressed': sheet.name === nodes.sheet.value, disabled: state.busy});
+      button.append($('strong', {}, `${sheet.title} · ${sheet.brand}`), $('span', {}, `${sheet.name} · ${sheet.has_data ? 'Con datos' : 'Pendiente de llenar'}`));
+      button.addEventListener('click', () => {
+        if (state.busy) return;
+        nodes.sheet.value = sheet.name; state.elements = null; renderDimensions(); changed();
+      });
+      nodes.dimensions.append(button);
+    }
+    const missing = state.inspection.unavailable_segments || [];
+    if (missing.length) {
+      const detail = $('details'); detail.append($('summary', {}, `${missing.length} dimensiones sin hoja en este archivo`));
+      detail.append($('p', {class: 'studio-note'}, missing.map(item => item.title).join(' · ')),
+        $('p', {class: 'studio-note'}, 'Para obtener estas salidas, agrega sus hojas y datos desde Archivos de entrada o elige otro libro.'));
+      nodes.dimensions.append(detail);
+    }
   }
   function changed(reanalyze = true) {
     if (state.analysis) {
@@ -271,6 +328,13 @@
     titles.append($('h2', {}, analysis.title), $('p', {}, `${analysis.sheet} · ${analysis.charts.length} gráficos · ${analysis.tables.length} tablas · motor original 5W1H`));
     heading.append(titles);
     nodes.output.append(heading);
+    const navigation = $('nav', {class: 'research-output-nav', 'aria-label': 'Gráficos y tablas de esta hoja'});
+    [...analysis.charts.map(chart => [chart.id, chart.title, 'chart']), ...analysis.tables.map(table => [table.id, table.title, 'table'])].forEach(([id, title, kind]) => {
+      const link = $('a', {href: `#research-${kind}-${id}`, class: 'button secondary'}, title);
+      link.addEventListener('click', event => {event.preventDefault(); document.getElementById(`research-${kind}-${id}`)?.scrollIntoView({block: 'start', behavior: 'smooth'});});
+      navigation.append(link);
+    });
+    nodes.output.append(navigation);
     if (analysis.stats.length) {
       const stats = $('div', {class: 'research-stats'});
       analysis.stats.forEach(stat => {const card = $('article'); card.append($('span', {}, stat.label), $('strong', {}, number(stat.value, stat.unit))); stats.append(card);});
@@ -278,7 +342,7 @@
     }
     const charts = $('div', {class: 'research-charts'});
     analysis.charts.forEach(chart => {
-      const card = $('article', {class: 'research-chart', tabindex: '0', role: 'button', 'aria-label': `Ampliar ${chart.title}`});
+      const card = $('article', {id: `research-chart-${chart.id}`, class: 'research-chart', tabindex: '0', role: 'button', 'aria-label': `Ampliar ${chart.title}`});
       card.append($('h3', {}, chart.title), $('p', {}, 'Haz clic en este cuadro para ampliar. Las líneas discontinuas corresponden a ventas.'), chartContent(chart));
       const expand = () => state.bridge.openChart(chart.title, `${analysis.title} · ${analysis.sheet}`, chartContent(chart, true));
       card.addEventListener('click', expand);
@@ -288,7 +352,7 @@
     nodes.output.append(charts);
     const tables = $('div', {class: 'research-tables'});
     analysis.tables.forEach(model => {
-      const panel = $('section', {class: 'studio-panel'});
+      const panel = $('section', {id: `research-table-${model.id}`, class: 'studio-panel'});
       panel.append($('h3', {}, model.title));
       const scroll = $('div', {class: 'table-scroll', tabindex: '0', 'aria-label': model.title});
       const table = $('table');
@@ -322,28 +386,49 @@
   }
   function renderJob() {
     nodes.results.replaceChildren();
-    const job = state.job;
-    const panel = $('section', {class: 'studio-panel padded research-results'});
-    panel.append($('h3', {}, job?.status === 'complete' ? `${job.source_changed ? 'Entrega anterior · ' : ''}${job.title}` : job?.status === 'running' ? 'Generando informe 5W1H…' : 'Resultados 5W1H'));
-    panel.append($('p', {class: 'studio-note'}, job?.status === 'failed' ? job.error : job?.source_changed ? 'Los datos cambiaron desde esta entrega. Puedes abrirla como referencia o generar un informe actualizado.' : job?.status === 'complete' ? 'Entrega del archivo seleccionado. Abre los resultados directamente en su aplicación.' : 'Disponibles al completar la generación del informe.'));
-    const actions = $('div', {class: 'studio-actions'});
+    const job = state.job?.file===state.file ? state.job : null;
+    const panel = $('section', {class: 'studio-panel research-results', 'aria-label':'Resultados del archivo 5W1H seleccionado'});
+    const heading=$('div',{class:'result-heading'}), identity=$('div');
+    const title=job?.status==='complete' ? `${job.source_changed?'Entrega anterior · ':''}${job.title}` : job?.status==='running' ? 'Generando informe 5W1H…' : job?.status==='failed' ? 'La generación requiere revisión' : 'Aún no hay una entrega para este archivo';
+    identity.append($('div',{class:'eyebrow'},'RESULTADOS 5W1H'),$('h2',{title},title));
+    const headingActions=$('div',{class:'studio-actions'});
+    const toggle=$('button',{class:'button secondary',type:'button','aria-expanded':!state.resultsCollapsed,'aria-controls':'research-results-content'},state.resultsCollapsed?'Mostrar resultados':'Contraer resultados');
+    toggle.addEventListener('click',()=>{
+      state.resultsCollapsed=!state.resultsCollapsed;
+      try {localStorage.setItem('coveragelab-research-results-collapsed',String(state.resultsCollapsed));} catch (_) {}
+      renderJob();
+    });
+    headingActions.append(toggle,nodes.generate);heading.append(identity,headingActions);panel.append(heading);
+    const content=$('div',{id:'research-results-content',hidden:state.resultsCollapsed});
+    const summary=$('div',{class:'result-state'});
+    if(job) {
+      summary.append($('span',{class:'pill'},job.status==='complete'?'Completado':job.status==='running'?'En curso':'Error'));
+      if(job.started_at)summary.append($('span',{},new Date(job.started_at).toLocaleString('es-MX',{dateStyle:'medium',timeStyle:'short'})));
+    }
+    summary.append($('span',{},job?.status==='failed' ? job.error : job?.source_changed ? 'Los datos cambiaron. Puedes abrir la entrega anterior o generar otra.' : job?.status==='complete' ? 'Archivos de la última entrega de este 5W1H.' : 'Los archivos se habilitan al finalizar la generación.'));
+    content.append(summary);
+    const actions = $('div', {class: 'output-buttons',role:'group','aria-label':'Abrir resultados 5W1H en sus aplicaciones'});
     [['Excel', 'Abrir Excel'], ['PPT', 'Abrir PPT'], ['Provenance', 'Selección y origen'], ['Registro', 'Registro'], ['folder', 'Abrir carpeta']].forEach(([output, label]) => {
-      const button = $('button', {class: 'button result-file', type: 'button', disabled: !job || job.file !== state.file || job.status !== 'complete' || output !== 'folder' && !job.available_outputs?.includes(output)}, label);
+      const button = $('button', {class: 'button result-file', type: 'button', disabled: !!state.opening || !job || job.status !== 'complete' || output !== 'folder' && !job.available_outputs?.includes(output)}, label);
       const iconKind={Excel:'template',PPT:'presentation',Provenance:'selection',Registro:'log',folder:'folder'}[output];
       window.CoverageApp?.resultButton?.(button,label,iconKind);
       button.addEventListener('click', async () => {
-        button.disabled = true;
-        if(window.CoverageApp?.resultButton)window.CoverageApp.resultButton(button,'Abriendo…',iconKind);
-        else button.textContent='Abriendo…';
-        try {const result = await state.bridge.api('/api/research/open-output', {id: job.id, file: state.file, output}); message(result.message);}
-        catch (error) {message(error.message, true);}
-        finally {renderJob();}
+        if(state.opening || !job || state.file!==job.file || state.job?.id!==job.id)return;
+        const file=job.file;state.opening=output;renderJob();message(`Abriendo ${label.replace('Abrir ','')}…`);
+        try {const result = await state.bridge.api('/api/research/open-output', {id: job.id, file, output});if(state.file===file && state.job?.id===job.id)message(result.message);}
+        catch (error) {if(state.file===file && state.job?.id===job.id)message(error.message, true);}
+        finally {state.opening=null;renderJob();}
       });
+      if(state.opening===output)window.CoverageApp?.resultButton?.(button,'Abriendo…',iconKind);
       actions.append(button);
     });
-    panel.append(actions);
-    if (job?.directory) panel.append($('p', {class: 'studio-note'}, `Output · ${job.directory}`));
-    if (job?.log) {const log = $('details', {class: 'research-provenance'}); log.append($('summary', {}, 'Detalle de generación'), $('pre', {}, job.log)); panel.append(log);}
+    content.append(actions);
+    if(job?.directory || job?.log) {
+      const details=$('details',{class:'job-log-details'});details.append($('summary',{},'Ruta y registro'));
+      if(job.directory)details.append($('p',{class:'studio-note'},job.directory));
+      if(job.log)details.append($('pre',{},job.log));content.append(details);
+    }
+    panel.append(content);
     nodes.results.append(panel);
     updateActions();
   }
@@ -414,11 +499,15 @@
     const actions = $('div', {class: 'studio-actions'});
     nodes.create = $('button', {class: 'button secondary', type: 'button'}, 'Nueva entrada 5W1H');
     nodes.edit = $('button', {class: 'button secondary', type: 'button', disabled: true}, 'Llenar / editar datos');
+    nodes.importFile = $('button', {class: 'button secondary', type: 'button'}, 'Elegir archivo Excel');
+    nodes.upload = $('input', {type: 'file', accept: '.xlsx', hidden: true, 'aria-label': 'Elegir archivo de investigación desde cualquier carpeta'});
+    nodes.importFile.addEventListener('click', () => nodes.upload.click());
+    nodes.upload.addEventListener('change', () => importResearch(nodes.upload.files[0]));
     nodes.generate = $('button', {class: 'button primary', type: 'button', disabled: true}, 'Generar informe 5W1H');
     nodes.create.addEventListener('click', () => bridge.createResearch(bridge.coverageContext()));
     nodes.edit.addEventListener('click', () => bridge.openEditor(state.file, 'research', nodes.sheet.value));
     nodes.generate.addEventListener('click', reviewExport);
-    actions.append(nodes.create, nodes.edit, nodes.generate); heading.append(headingText, actions);
+    actions.append(nodes.importFile, nodes.upload, nodes.create, nodes.edit); heading.append(headingText, actions);
     nodes.message = $('div', {class: 'studio-message', role: 'status', hidden: true});
     const layout = $('div', {class: 'studio-layout'}), aside = $('aside', {class: 'studio-sidebar'}), source = $('section', {class: 'studio-panel padded'});
     source.append($('h2', {}, 'Fuente 5W1H'), $('label', {for: 'research-file'}, 'Archivo de investigación'));
@@ -427,8 +516,11 @@
     nodes.file.addEventListener('change', () => {state.manual = true; open(nodes.file.value);});
     source.append(nodes.file, nodes.details, $('p', {class: 'studio-note'}, 'La cobertura aporta contexto y pipelines. Las regiones, canales y perfiles requieren sus propias observaciones.'));
     const refresh = $('button', {class: 'button subtle', type: 'button'}, 'Actualizar archivos');
+    nodes.refresh = refresh;
     refresh.addEventListener('click', async () => {try {await catalog(); if (state.file) await open(state.file);} catch (error) {message(error.message, true);}});
-    source.append(refresh); aside.append(source);
+    refresh.addEventListener('click', () => {state.manual = true;});
+    source.append(refresh, $('p', {class: 'studio-note'}, 'Elige un Excel de cualquier carpeta. Se conserva el original y se usa una copia local; si ya existe idéntico, se abre sin duplicarlo.')); aside.append(source);
+    nodes.dimensions = $('section', {class: 'studio-panel padded research-dimensions', hidden: true}); aside.append(nodes.dimensions);
     const main = $('div');
     const controlsPanel = $('section', {class: 'studio-panel padded'}), controls = $('div', {class: 'research-controls'});
     const field = (label, node, wide = false) => {const wrap = $('div', {class: wide ? 'wide-field' : ''}); wrap.append($('label', {for: node.id}, label), node); controls.append(wrap);};
@@ -439,7 +531,7 @@
     field('Pipeline de ventas', nodes.pipeline);
     nodes.start = $('input', {id: 'research-start', type: 'month'}); field('Desde · vista web', nodes.start);
     nodes.end = $('input', {id: 'research-end', type: 'month'}); field('Hasta · corte del comparativo', nodes.end);
-    nodes.sheet.addEventListener('change', () => {state.elements = null; changed();});
+    nodes.sheet.addEventListener('change', () => {state.elements = null; renderDimensions(); changed();});
     [nodes.mode, nodes.pipeline, nodes.start, nodes.end].forEach(node => node.addEventListener('change', () => changed()));
     controlsPanel.append(controls);
     const viewActions = $('div', {class: 'studio-actions'});
@@ -457,9 +549,9 @@
     const elementActions = $('div', {class: 'studio-actions'}), all = $('button', {class: 'button subtle', type: 'button'}, 'Todos'), none = $('button', {class: 'button subtle', type: 'button'}, 'Ninguno');
     all.addEventListener('click', () => {state.elements = null; changed();}); none.addEventListener('click', () => {state.elements = []; changed();});
     elementActions.append(all, none); nodes.elements = $('div', {class: 'research-elements'}); nodes.elementDetail.append(elementActions, nodes.elements); controlsPanel.append(nodes.elementDetail);
-    nodes.results = $('div'); nodes.output = $('div');
-    main.append(controlsPanel, nodes.results, nodes.output); layout.append(aside, main);
-    container.replaceChildren(heading, nodes.message, layout); renderJob(); clearAnalysis();
+    nodes.results = $('div',{class:'research-results-dock'}); nodes.output = $('div');
+    main.append(controlsPanel, nodes.output); layout.append(aside, main);
+    container.replaceChildren(nodes.results,heading,nodes.message,layout); renderJob(); clearAnalysis();
   }
   async function activate(context) {
     try {

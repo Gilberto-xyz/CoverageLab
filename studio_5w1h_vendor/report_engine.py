@@ -3158,6 +3158,39 @@ def _build_month_over_month_annotations(
             )
     return annotations
 
+def _trend_legend_columns(labels, width_inches, font_points, default_columns, figure):
+    """Distribuye leyendas densas según el ancho real del texto, sin quitar series."""
+    if len(labels) <= 12:
+        return max(1, min(len(labels), default_columns))
+    renderer = figure.canvas.get_renderer()
+    font = FontProperties(size=font_points)
+    label_widths = [max(renderer.get_text_width_height_descent(line, font, False)[0]
+                        for line in str(label).split('\n')) for label in labels]
+    point = figure.dpi / 72.0
+    handle_width = (plt.rcParams['legend.handlelength'] + plt.rcParams['legend.handletextpad']) * font_points * point
+    column_gap = plt.rcParams['legend.columnspacing'] * font_points * point
+    border = 2 * plt.rcParams['legend.borderpad'] * font_points * point
+    available = max(1, (width_inches - 0.08) * figure.dpi)
+    for columns in range(min(12, len(labels)), 0, -1):
+        count, extra = divmod(len(labels), columns)
+        offset, widths = 0, []
+        for index in range(columns):
+            length = count + (index < extra)
+            widths.append(max(label_widths[offset:offset + length]) + handle_width)
+            offset += length
+        if sum(widths) + column_gap * (columns - 1) + border <= available:
+            return columns
+    return 1
+
+
+def _trend_legend_height_inches(ax, handles, labels, columns, font_points):
+    if len(labels) <= 12:
+        return font_points * 1.35 / 72.0 * math.ceil(len(labels) / columns)
+    from matplotlib.legend import Legend
+    legend = Legend(ax, handles, labels, ncols=columns, prop={'size': font_points})
+    return legend.get_window_extent(ax.figure.canvas.get_renderer()).height / ax.figure.dpi + 0.02
+
+
 def line_graf(
     df,
     p,
@@ -3663,13 +3696,13 @@ def line_graf(
     if lns:
         # Cálculo de columnas/filas en la leyenda
         max_columns = 3 if detected_multi else 4
-        legend_columns = max(1, min(len(legend_labels), max_columns))
+        legend_columns = _trend_legend_columns(legend_labels, figsize[0] * (chart_right_margin - chart_left_margin), legend_base_size, max_columns, fig)
         legend_rows = max(1, math.ceil(len(legend_labels) / legend_columns))
 
         # Altura de la leyenda en pulgadas -> fracción de la figura
         legend_font_points = legend_base_size
         legend_line_height_points = legend_font_points * 1.35
-        legend_height_inches = (legend_line_height_points / 72.0) * legend_rows
+        legend_height_inches = _trend_legend_height_inches(ax, lns, legend_labels, legend_columns, legend_font_points)
         figure_height_inches = fig.get_size_inches()[1]
         legend_height_fraction = (
             legend_height_inches / figure_height_inches if figure_height_inches else 0.0
@@ -7359,6 +7392,11 @@ def prepare_series_configs(df_list, lang, p_ventas, sheet_name: Optional[str] = 
         configs.append(SeriesConfig(df_local, raw_tipo, display_tipo, pipeline))
     return configs
 
+def origin_display_order(display_tipo) -> int:
+    """Orden visual de paneles: Ventas a la izquierda, Compras a la derecha."""
+    return {'ventas': 0, 'compras': 1}.get(str(display_tipo).strip().lower(), 2)
+
+
 def reorder_series_configs_by_compras(series_configs: list[SeriesConfig]) -> list[SeriesConfig]:
     """Alinea el orden de las series no-Compras usando Compras como referencia semántica."""
     if not series_configs:
@@ -8749,9 +8787,13 @@ def run_report(source_path, output_root, mode="1", selected_sheets=None, size_th
                 else:
                     chart_width = available
                 chart_width = max(chart_width, 1)
+                panel_positions = {item.display_tipo: index for index, item in enumerate(
+                    sorted(series_configs, key=lambda item: origin_display_order(item.display_tipo)))}
+                # Se mantiene el orden de render para conservar la asignación de colores;
+                # únicamente cambia la posición física de cada origen en la diapositiva.
                 for idx, serie in enumerate(series_configs):
                     c_fig+=1
-                    left_position = left_margin + idx * (chart_width + int(gap))
+                    left_position = left_margin + panel_positions[serie.display_tipo] * (chart_width + int(gap))
                     chart_colors = {}
                     chart_title = format_title_with_bold_suffix(titulo, serie.display_tipo)
                     chart_stream = line_graf(
@@ -8788,6 +8830,7 @@ def run_report(source_path, output_root, mode="1", selected_sheets=None, size_th
                         }
                     )
                     pic=slide.shapes.add_picture(chart_stream, left_position, Inches(CHART_TOP_INCH),width=chart_width,height=Cm(10))
+                    pic.name = f"5W1H · tendencia · {serie.display_tipo}"
             elif series_configs:
                 c_fig+=1
                 left_margin = Inches(0.33)
@@ -8832,6 +8875,7 @@ def run_report(source_path, output_root, mode="1", selected_sheets=None, size_th
                 and not entry["apo"].empty
                 and entry["apo"].shape[1] > 1
             ]
+            table_entries.sort(key=lambda item: origin_display_order(item.get('display_tipo')))
             if table_entries:
                 def column_color_for_table(column_name):
                     return lookup_color_for_label(column_name, color_lookup_keys)
@@ -8864,10 +8908,9 @@ def run_report(source_path, output_root, mode="1", selected_sheets=None, size_th
                     half_slide_width = slide_width // 2
                     gap_half = int(gap) // 2
                     paired_shapes = []
-                    for entry in table_entries:
+                    for index, entry in enumerate(sorted(table_entries, key=lambda item: origin_display_order(item.get('display_tipo')))):
                         apo_df = entry["apo"]
-                        display_tipo = str(entry.get("display_tipo", "")).strip().lower()
-                        if display_tipo == 'ventas':
+                        if index == 1:
                             left_position = half_slide_width + gap_half
                             max_width = slide_width - left_position - right_margin
                         else:
@@ -8881,6 +8924,7 @@ def run_report(source_path, output_root, mode="1", selected_sheets=None, size_th
                             table_top,
                             height=target_table_height
                         )
+                        pic.name = f"5W1H · aportes · {entry.get('display_tipo')}"
                         constrain_picture_width(pic, max_width)
                         paired_shapes.append((pic, max_width))
                     if paired_shapes:
@@ -8932,7 +8976,7 @@ def run_report(source_path, output_root, mode="1", selected_sheets=None, size_th
                 )
             render_share_items = []
             if should_collect_share and stacked_share_sources:
-                preferred_order = ['compras', 'ventas']
+                preferred_order = ['ventas', 'compras']
                 ordered_sources = []
                 consumed_indexes = set()
                 for desired in preferred_order:
@@ -9216,6 +9260,7 @@ def run_report(source_path, output_root, mode="1", selected_sheets=None, size_th
                         width=target_width,
                         height=target_height
                     )
+                    chart_shape.name = f"5W1H · participación · {item.get('display_tipo')}"
                     display_tipo_share = _normalize_simple(item.get("display_tipo") or "")
                     if ("venta" in display_tipo_share) or ("venda" in display_tipo_share):
                         border_rgb = hex_to_rgb_color(LINE_COLOR_NUMERATOR) or RGBColor(212, 172, 13)

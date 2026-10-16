@@ -350,7 +350,7 @@ async function run() {
 run().catch(error=>{console.error(error);process.exitCode=1;});
 ''')
 
-    def test_excel_actions_block_drafts_and_reload_invalidates_analysis_after_saved_data(self):
+    def test_excel_reload_blocks_drafts_and_invalidates_analysis_after_saved_data(self):
         self.run_node(r'''
 let dirtyCommitted=0;context.commitValue=()=>dirtyCommitted++;
 context.busy=value=>{editor.busy=value;};context.cleanEditor=()=>{editor.pending.clear();editor.originals.clear();};
@@ -365,9 +365,9 @@ vm.runInContext(extract('  async function saved(', '  async function save()')+
   extract("  byId('input-open-excel').addEventListener", "  byId('input-discard').addEventListener"),context);
 async function run() {
   editor.pending.set('draft',{value:999});
-  await callbacks.get('input-open-excel:click')();await callbacks.get('input-reload-excel:click')();
+  await callbacks.get('input-reload-excel:click')();
   assert.equal(calls.length,0,'Ninguna acción nativa debe reemplazar datos pendientes');
-  assert.equal(dirtyCommitted,2);assert.equal(editor.pending.size,1);
+  assert.equal(dirtyCommitted,1);assert.equal(editor.pending.size,1);
   editor.pending.clear();response={file:editor.file,kind:'coverage',sheet:'P0_Actual',name:editor.file,sheets:[{name:'P0_Actual'}],fingerprint:'excel-version'};
   await callbacks.get('input-reload-excel:click')();
   assert.equal(calls[0].path,'/api/studio/reload-excel');assert.equal(calls[0].payload.file,'52_CARB_Actual.xlsx');
@@ -382,7 +382,34 @@ async function run() {
 run().catch(error=>{console.error(error);process.exitCode=1;});
 ''')
 
-    def test_excel_controls_require_installation_and_saved_entry(self):
+    def test_excel_open_saves_raw_pending_text_then_opens_same_file(self):
+        self.run_node(r'''
+context.commitValue=()=>{};context.busy=value=>editor.busy=value;
+context.cleanEditor=()=>{editor.pending.clear();editor.originals.clear();};
+context.refreshFiles=async()=>{};context.loadBook=async()=>{};
+context.discardStoredDraft=async()=>{};
+context.compactEdits=()=>[{sheet:'5_Softys_2',row:2,column:1,values:[['Total Softys','10,921']]}];
+editor.kind='research';editor.file='local/51_DIAP_Softys_5w1h.xlsx';
+editor.book={file:editor.file,kind:'research',sheet:'5_Softys_2',fingerprint:'before',row:1,column:1};
+editor.pending.set('draft',{value:'Total Softys'});
+const calls=[];
+context.api=async(path,payload)=>{calls.push({path,payload});return {...editor.book,file:editor.file,
+  name:'51_DIAP_Softys_5w1h.xlsx',sheets:[{name:'5_Softys_2'}],fingerprint:'saved'};};
+vm.runInContext(extract('  async function saved(', '  async function save()')+
+  extract("  byId('input-open-excel').addEventListener", "  byId('input-discard').addEventListener"),context);
+async function run(){
+  await callbacks.get('input-open-excel:click')();
+  assert.equal(calls.length,2);
+  assert.equal(calls[0].path,'/api/studio/save');assert.equal(calls[0].payload.preserve_text,true);
+  assert.equal(calls[0].payload.edits[0].values[0][0],'Total Softys');
+  assert.equal(calls[1].path,'/api/studio/open-excel');
+  assert.equal(calls[1].payload.file,calls[0].payload.file);
+  assert.equal(calls[1].payload.fingerprint,'saved');assert.equal(editor.pending.size,0);
+}
+run().catch(error=>{console.error(error);process.exitCode=1;});
+''')
+
+    def test_excel_controls_require_installation_and_loaded_entry(self):
         self.run_node(r'''
 vm.runInContext(extract('  function controls()', '  function letters(column)'),context);
 editor.desktop={available:false,message:'Excel no instalado'};context.controls();
@@ -390,7 +417,7 @@ assert(byId('input-open-excel').disabled);assert.equal(byId('input-open-excel').
 assert(!byId('input-reload-excel').disabled);
 editor.desktop.available=true;context.controls();assert(!byId('input-open-excel').disabled);
 editor.pending.set('draft',{value:123});context.controls();
-assert(byId('input-open-excel').disabled);assert(byId('input-reload-excel').disabled);assert(byId('input-next').disabled);
+assert(!byId('input-open-excel').disabled);assert(byId('input-reload-excel').disabled);assert(byId('input-next').disabled);
 editor.pending.clear();editor.busy=true;context.controls();assert(byId('input-open-excel').disabled);
 editor.busy=false;editor.book=null;context.controls();assert(byId('input-open-excel').disabled);assert(byId('input-reload-excel').disabled);
 ''')

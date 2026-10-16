@@ -57,7 +57,7 @@ class InputConflictError(ValueError):
 
 
 class InputNumberFormatError(ValueError):
-    """Un número pegado necesita un formato explícito, nunca una suposición."""
+    """Los separadores del número no corresponden al formato de la fuente."""
 
 
 def file_fingerprint(path: Path) -> str:
@@ -152,7 +152,36 @@ def _date_value(value, *, epoch=None) -> datetime:
     raise ValueError(f"Fecha inválida: {value}. Usa 2026-01-01, ene 26 o 01/01/2026.")
 
 
-def _number_value(value, *, number_locale: str = "auto") -> int | float:
+def _automatic_number_locale(values, fallback):
+    """Usa separadores inequívocos del bloque antes del formato regional."""
+    evidence = set()
+    for row in values:
+        for raw in row:
+            raw = raw.get('value') if isinstance(raw, dict) else raw
+            if not isinstance(raw, str):
+                continue
+            clean = raw.strip().replace('\u00a0', '').replace(' ', '').rstrip('%')
+            if not re.fullmatch(r'[+-]?[\d.,]+', clean):
+                continue
+            if ',' in clean and '.' in clean:
+                locale = 'decimal-dot' if clean.rfind('.') > clean.rfind(',') else 'decimal-comma'
+                try:
+                    _number_value(raw, number_locale=locale)
+                    evidence.add(locale)
+                except ValueError:
+                    pass
+            else:
+                match = re.fullmatch(r'[+-]?(\d+)([.,])(\d+)', clean)
+                if match and (len(match[3]) != 3 or not match[1].strip('0') or len(match[1]) > 3):
+                    evidence.add('decimal-dot' if match[2] == '.' else 'decimal-comma')
+                elif re.fullmatch(r'[+-]?\d{1,3}(?:,\d{3}){2,}', clean):
+                    evidence.add('decimal-dot')
+                elif re.fullmatch(r'[+-]?\d{1,3}(?:\.\d{3}){2,}', clean):
+                    evidence.add('decimal-comma')
+    return next(iter(evidence)) if len(evidence) == 1 else fallback
+
+
+def _number_value(value, *, number_locale: str = "auto", auto_locale: str | None = None) -> int | float:
     if isinstance(value, bool):
         raise ValueError("Usa un número, no verdadero/falso.")
     if isinstance(value, (int, float)):
@@ -193,6 +222,8 @@ def _number_value(value, *, number_locale: str = "auto") -> int | float:
     else:
         match = re.fullmatch(r"([+-]?\d+)[.,](\d{3})", clean)
         if match and abs(int(match[1])) > 0:
+            if auto_locale in {'decimal-dot', 'decimal-comma'}:
+                return _number_value(value, number_locale=auto_locale)
             raise InputNumberFormatError(
                 f"Número ambiguo: {value}. Selecciona punto o coma decimal antes de guardar.")
         grouping = "," if "," in clean else "."
@@ -548,8 +579,23 @@ class InputStudio:
             _bounds(workbook)
         except Exception as exc:
             raise ValueError(f"No se pudo leer el libro importado: {exc}") from exc
+        reuse = kind == "research" and payload.get("reuse_existing") is True
+        try:
+            if reuse:
+                from studio_5w1h import _sheet_identity
+                if not re.fullmatch(r"\d+_[^_]+_.+\.xlsx", name, re.I):
+                    raise ValueError("Usa el nombre país_categoría_fabricante.xlsx para identificar esta investigación.")
+                if not any(_sheet_identity(sheet) for sheet in workbook.sheetnames):
+                    raise ValueError("El archivo no contiene hojas con la estructura 5W1H. Puedes revisarlo en Archivos de entrada.")
+        finally:
+            workbook.close()
         base = self.root if kind == "coverage" else self.research_local
         with _lock(base):
+            existing = (base / name).resolve()
+            if reuse and existing.parent == base.resolve() and existing.is_file() and existing.read_bytes() == data:
+                result = self.workbook(f"local/{existing.name}", kind=kind)
+                result["reused_existing"] = True
+                return result
             path = self._unique(base, name)
             # Copia los bytes originales para conservar íntegramente gráficos,
             # formatos y cachés de fórmulas en la importación.
@@ -683,7 +729,7 @@ class InputStudio:
                 "errors": all_errors[:100], "warnings": all_warnings[:100],
                 "error_count": len(all_errors), "warning_count": len(all_warnings)}
 
-    def _convert(self, raw, cell, *, numeric: bool, dated: bool, epoch, number_locale: str = "auto"):
+    def _convert(self, raw, cell, *, numeric: bool, dated: bool, epoch, number_locale: str = "auto", auto_locale=None):
         typ = None
         if isinstance(raw, dict):
             if set(raw) - {"type", "value"} or raw.get("type") not in {"text", "number", "date", "blank"}:
@@ -699,7 +745,7 @@ class InputStudio:
         if dated or typ == "date":
             return _date_value(raw, epoch=epoch), "yyyy-mm-dd"
         if numeric or typ == "number":
-            value = _number_value(raw, number_locale=number_locale)
+            value = _number_value(raw, number_locale=number_locale, auto_locale=auto_locale)
             if isinstance(raw, str) and raw.strip().endswith("%"):
                 return value, "0.0%"
             return value, None
@@ -721,7 +767,7 @@ class InputStudio:
         except ValueError:
             pass
         try:
-            value = _number_value(raw, number_locale=number_locale)
+            value = _number_value(raw, number_locale=number_locale, auto_locale=auto_locale)
             if raw.strip().endswith("%"):
                 return value, "0.0%"
             return value, None
@@ -734,11 +780,35 @@ class InputStudio:
                 raise ValueError("Esta celda requiere una fecha válida.")
             return raw, None
 
+    @staticmethod
+    def _copy_value(raw, cell):
+        """Copia el contenido sin exigir el tipo que antes tenía la celda."""
+        if isinstance(raw, dict):
+            if set(raw) - {'type', 'value'} or raw.get('type') not in {'text','number','date','blank'}:
+                raise ValueError('Tipo de celda desconocido.')
+            raw = None if raw.get('type') == 'blank' else raw.get('value')
+        if raw is None or raw == '':
+            return None, None
+        if isinstance(raw, str):
+            if len(raw)>MAX_CELL_TEXT or re.search(r'[\x00-\x08\x0b\x0c\x0e-\x1f]', raw):
+                raise ValueError('El texto excede los límites de una celda de Excel.')
+        elif not isinstance(raw, (bool, int, float, date, datetime)):
+            raise ValueError('Valor de celda inválido.')
+        elif isinstance(raw, (int, float)) and not math.isfinite(raw):
+            raise ValueError('Excel no admite este valor numérico.')
+        clear_date_format = openpyxl.styles.numbers.is_date_format(cell.number_format) and not isinstance(raw, (date,datetime))
+        return raw, 'General' if clear_date_format else None
+
     def save(self, file: str, *, fingerprint: str, edits: list, kind: str = "coverage",
-             number_locale: str = "auto") -> dict:
+             number_locale: str = "auto", number_locale_hint: str = "decimal-dot", preserve_text: bool = False) -> dict:
         path, origin = self._path(file, kind)
+        if not isinstance(preserve_text, bool):
+            raise ValueError('Modo de guardado desconocido.')
+        literal = kind == 'research' or preserve_text
         if not isinstance(number_locale, str) or number_locale not in {"auto", "decimal-comma", "decimal-dot"}:
             raise ValueError("Formato numérico desconocido. Usa automático, punto decimal o coma decimal.")
+        if not isinstance(number_locale_hint, str) or number_locale_hint not in {'decimal-dot', 'decimal-comma'}:
+            raise ValueError("Formato numérico regional desconocido.")
         if not isinstance(fingerprint, str) or not re.fullmatch(r"[a-f0-9]{64}", fingerprint):
             raise ValueError("Falta la versión del archivo. Vuelve a cargarlo antes de guardar.")
         if not isinstance(edits, list) or not edits or len(edits) > 1000:
@@ -770,6 +840,7 @@ class InputStudio:
                 if len(prepared) + len(values) * width > MAX_EDIT_CELLS:
                     raise ValueError(f"Guarda como máximo {MAX_EDIT_CELLS} celdas por operación.")
                 header = _coverage_header(sheet)
+                auto_locale = _automatic_number_locale(values, number_locale_hint) if number_locale == 'auto' and not literal else None
                 for offset_row, line in enumerate(values):
                     for offset_column, raw in enumerate(line):
                         cell = sheet.cell(row + offset_row, column + offset_column)
@@ -783,15 +854,18 @@ class InputStudio:
                         touched.add(identity)
                         is_data = kind == "coverage" and cell.row > header
                         try:
-                            value, number_format = self._convert(raw, cell,
-                                numeric=is_data and 2 <= cell.column <= 8,
-                                dated=is_data and cell.column == 1, epoch=workbook.epoch,
-                                number_locale=number_locale)
+                            if literal:
+                                value, number_format = self._copy_value(raw, cell)
+                            else:
+                                value, number_format = self._convert(raw, cell,
+                                    numeric=is_data and 2 <= cell.column <= 8,
+                                    dated=is_data and cell.column == 1, epoch=workbook.epoch,
+                                    number_locale=number_locale, auto_locale=auto_locale)
                             # La penetración de cobertura y los porcentajes
                             # del motor 5W1H usan puntos porcentuales: 20% es
                             # 20, no 0.20. Un número sin % no se reescala.
                             source_value = raw.get("value") if isinstance(raw, dict) else raw
-                            if (kind == "research" or (is_data and cell.column == 3)) and isinstance(source_value, str) and source_value.strip().endswith("%"):
+                            if not literal and is_data and cell.column == 3 and isinstance(source_value, str) and source_value.strip().endswith("%"):
                                 value *= 100
                                 number_format = '0.0"%"'
                         except ValueError as exc:
@@ -800,6 +874,8 @@ class InputStudio:
             # Valida todo antes de alterar el libro o crear la copia local.
             for cell, value, number_format in prepared:
                 cell.value = value
+                if literal and isinstance(value, str):
+                    cell.data_type = 's'
                 if number_format:
                     cell.number_format = number_format
             target, ref = path, file

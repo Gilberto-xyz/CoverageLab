@@ -106,27 +106,28 @@ class InputStudioTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "fórmula"):
             self.save(book, [["0"]], row=2, column=4)
         self.assertFalse(self.studio.research_local.exists())
-        with self.assertRaisesRegex(ValueError, "fórmulas"):
-            self.save(book, [["=SUM(A1:A2)"]], row=2, column=2)
+        literal = self.save(book, [["=SUM(A1:A2)"]], row=2, column=2)
+        with closing(load_workbook(self.studio.research_local / literal['name'])) as workbook:
+            self.assertEqual(workbook[book['sheet']]['B2'].data_type, 's')
+            self.assertEqual(workbook[book['sheet']]['B2'].value, '=SUM(A1:A2)')
         saved = self.save(book, [["30,5"]], row=2, column=2)
         self.assertTrue(saved["file"].startswith("local/"))
         self.assertEqual(path.read_bytes(), original)
         with closing(load_workbook(self.studio.research_local / saved["name"])) as workbook:
             sheet = workbook[book["sheet"]]
-            self.assertEqual(sheet["B2"].value, 30.5)
+            self.assertEqual(sheet["B2"].value, '30,5')
             self.assertEqual(sheet["B2"].number_format, "0.00")
             self.assertEqual(sheet["B2"].fill.fgColor.rgb, "00EAF5F2")
             self.assertEqual(sheet["D2"].value, "=SUM(B2:C2)")
         self.assertEqual(self.studio.workbook(f"local:{saved['name']}", kind="research")["file"], saved["file"])
 
-    def test_research_percentages_are_points_and_plain_numbers_are_not_rescaled(self):
+    def test_research_percentages_and_numeric_text_are_copied_verbatim(self):
         path = self.external_book()
         book = self.studio.workbook(f"external/{path.name}", kind="research")
         saved = self.save(book, [["20%", "0,20"]], row=2, column=2)
         with closing(load_workbook(self.studio.research_local / saved["name"])) as workbook:
-            self.assertEqual(workbook[book["sheet"]]["B2"].value, 20)
-            self.assertEqual(workbook[book["sheet"]]["B2"].number_format, '0.0"%"')
-            self.assertEqual(workbook[book["sheet"]]["C2"].value, 0.2)
+            self.assertEqual(workbook[book["sheet"]]["B2"].value, '20%')
+            self.assertEqual(workbook[book["sheet"]]["C2"].value, '0,20')
 
     def test_import_is_exact_copy_and_rejects_unsafe_paths_and_invalid_bytes(self):
         original = self.external_book().read_bytes()
@@ -185,26 +186,51 @@ class InputStudioTests(unittest.TestCase):
             thread.join(timeout=20)
         self.assertCountEqual(results, ["saved", "conflict"])
 
-    def test_number_locale_requires_explicit_choice_for_ambiguous_excel_separators(self):
+    def test_number_locale_uses_region_in_auto_and_preserves_manual_override(self):
         for value, locale, expected in (("1,234", "decimal-dot", 1234),
                                          ("1.234", "decimal-comma", 1234),
                                          ("1.234", "decimal-dot", 1.234),
                                          ("1,234", "decimal-comma", 1.234),
                                          ("0.054", "auto", 0.054),
-                                         ("1,234,567", "auto", 1234567)):
+                                         ("1,234,567", "auto", 1234567),
+                                         ("10,921", "auto", 10921),
+                                         ("10.921", "auto", 10.921)):
             with self.subTest(value=value, locale=locale):
                 book = self.create()
                 saved = self.save(book, [[value]], column=2, number_locale=locale)
                 self.assertEqual(saved["values"][2][1], expected)
         book = self.create()
-        before = (self.root / book["file"]).read_bytes()
-        for value in ("1,234", "1.234"):
-            with self.subTest(value=value), self.assertRaisesRegex(ValueError, "ambiguo"):
-                self.save(book, [[value]], column=2)
-        self.assertEqual((self.root / book["file"]).read_bytes(), before)
+        saved = self.save(book, [['1.234']], column=2, number_locale_hint='decimal-comma')
+        self.assertEqual(saved['values'][2][1],1234)
         # True typed numbers never need string-format inference.
-        saved = self.save(book, [[{"type": "number", "value": 1.234}]], column=2)
+        saved = self.save(saved, [[{"type": "number", "value": 1.234}]], column=2, number_locale_hint='decimal-comma')
         self.assertEqual(saved["values"][2][1], 1.234)
+
+    def test_research_babysec_paste_preserves_text_without_touching_original(self):
+        path = self.external_book()
+        with closing(load_workbook(path)) as workbook:
+            workbook.active.title='5_Babysec_2'
+            workbook.active['G2']=10921
+            workbook.active['G2'].number_format='#,##0'
+            workbook.save(path)
+        original = path.read_bytes()
+        book = self.studio.workbook(f'external/{path.name}',kind='research')
+        self.assertEqual(book['values'][1][6],10921)
+        saved = self.save(book,[['10,921']],row=2,column=7)
+        self.assertEqual(saved['values'][1][6],'10,921')
+        self.assertEqual(path.read_bytes(),original)
+        for values in ([['10,921','20,5']], [['10,921','20.5']], [['10.921','1.234,50']]):
+            saved = self.save(saved,values,row=2,column=7)
+            self.assertEqual(saved['values'][1][6:8],values[0])
+
+    def test_research_allows_text_over_existing_date_and_numbers(self):
+        path=self.external_book()
+        book=self.studio.workbook(f'external/{path.name}',kind='research')
+        saved=self.save(book,[['Total Softys','No disponible','  10,921  ']],row=2)
+        self.assertEqual(saved['values'][1][:3],['Total Softys','No disponible','  10,921  '])
+        same=self.save(saved,[['Otra etiqueta']],row=2)
+        self.assertEqual(same['file'],saved['file'])
+        self.assertEqual(len(list(self.studio.research_local.glob('*.xlsx'))),1)
 
     def test_month_display_is_consistent_without_changing_source_values_or_bytes(self):
         book = self.create()

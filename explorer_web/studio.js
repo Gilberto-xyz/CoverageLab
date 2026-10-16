@@ -8,6 +8,7 @@
     return value;
   };
   const token = document.querySelector('meta[name="explorer-token"]').content;
+  const regionalNumberLocale = new Intl.NumberFormat().formatToParts(1.1).find(part=>part.type==='decimal')?.value===',' ? 'decimal-comma' : 'decimal-dot';
   async function api(path, body) {
     const response = await fetch(path, {method:body ? 'POST' : 'GET',
       headers:{'X-Explorer-Token':token, ...(body ? {'Content-Type':'application/json'} : {})},
@@ -31,7 +32,7 @@
     <div class="input-capture-method"><div class="input-mode-buttons" role="group" aria-label="Método de captura"><button id="input-mode-excel" class="button secondary" aria-pressed="false">Excel de escritorio</button><button id="input-mode-web" class="button secondary" aria-pressed="true">Editar en la web</button></div><p id="input-mode-hint" class="studio-note"></p></div>
     <details id="input-draft-details" class="studio-panel padded" hidden><summary>Borrador anterior conservado</summary><p class="studio-note">El archivo cambió desde ese borrador. Puedes recuperar sus valores sin sobrescribir la versión actual.</p><pre id="input-draft-content"></pre></details>
     <div class="studio-layout"><aside class="studio-sidebar" aria-label="Archivo de entrada"><section class="studio-panel padded"><h2>Archivo y hojas</h2><label for="input-kind">Etapa de los datos</label><select id="input-kind"><option value="coverage">Cobertura · series mensuales</option><option value="research">5W1H · segmentos</option></select><label for="input-file">Archivo</label><select id="input-file"><option value="">Selecciona un archivo…</option></select><button id="input-refresh" class="text-button">Actualizar archivos</button><label for="input-sheet">Hoja</label><select id="input-sheet" disabled></select><p id="input-origin" class="studio-note"></p><button id="input-add-sheet" class="button secondary" disabled>Añadir o duplicar hoja</button></section><section class="studio-panel padded"><h2>Edición</h2><p class="studio-note">Selecciona una celda y pega un rango de Excel. Doble clic o F2 edita; Enter y Tab recorren la tabla. Mayús + clic selecciona un rango.</p><div class="studio-actions"><button id="input-paste" class="button secondary" disabled>Pegar bloque</button><button id="input-undo" class="button secondary" disabled>Deshacer</button><button id="input-discard" class="button secondary" disabled>Descartar cambios</button><button id="input-save" class="button primary" disabled>Guardar datos</button></div><p id="input-dirty" class="studio-note">Sin cambios pendientes.</p></section></aside>
-    <div class="studio-panel"><div class="studio-toolbar"><label for="input-address" class="sr-only">Celda seleccionada</label><input id="input-address" class="cell-address" value="A1" aria-label="Celda seleccionada"><label for="input-cell-value" class="sr-only">Valor de la celda</label><input id="input-cell-value" class="cell-value" aria-label="Valor de la celda" placeholder="Selecciona una celda para editar su valor" disabled></div><div class="studio-toolbar"><label for="input-row">Desde fila</label><input id="input-row" type="number" min="1" max="20000" value="1"><button id="input-prev-row" class="button secondary">← Filas</button><button id="input-next-row" class="button secondary">Filas →</button><label for="input-column">Desde columna</label><input id="input-column" type="number" min="1" max="256" value="1"><button id="input-prev-column" class="button secondary">← Columnas</button><button id="input-next-column" class="button secondary">Columnas →</button><button id="input-go" class="button secondary">Ver rango</button><span id="input-range" class="studio-note"></span></div><div class="studio-toolbar"><label for="input-number-locale">Formato numérico de la fuente</label><select id="input-number-locale"><option value="auto">Autodetectar seguro</option><option value="decimal-dot">Punto decimal · 1,234.56</option><option value="decimal-comma">Coma decimal · 1.234,56</option></select><span class="studio-note">Si 1,234 o 1.234 son ambiguos, selecciona el separador decimal de la fuente antes de guardar.</span></div><div class="studio-grid-scroll"><table id="input-grid" class="studio-grid" aria-label="Celdas editables del Excel"><thead></thead><tbody></tbody></table><div id="input-empty" class="research-empty">Selecciona o crea un archivo para comenzar.</div></div><div id="input-validation" class="studio-validation"></div></div></div>`;
+    <div class="studio-panel"><div class="studio-toolbar"><label for="input-address" class="sr-only">Celda seleccionada</label><input id="input-address" class="cell-address" value="A1" aria-label="Celda seleccionada"><label for="input-cell-value" class="sr-only">Valor de la celda</label><input id="input-cell-value" class="cell-value" aria-label="Valor de la celda" placeholder="Selecciona una celda para editar su valor" disabled></div><div class="studio-toolbar"><label for="input-row">Desde fila</label><input id="input-row" type="number" min="1" max="20000" value="1"><button id="input-prev-row" class="button secondary">← Filas</button><button id="input-next-row" class="button secondary">Filas →</button><label for="input-column">Desde columna</label><input id="input-column" type="number" min="1" max="256" value="1"><button id="input-prev-column" class="button secondary">← Columnas</button><button id="input-next-column" class="button secondary">Columnas →</button><button id="input-go" class="button secondary">Ver rango</button><span id="input-range" class="studio-note"></span></div><div class="studio-toolbar"><label for="input-number-locale">Formato numérico de la fuente</label><select id="input-number-locale"><option value="auto">Automático (como Excel)</option><option value="decimal-dot">Punto decimal · 1,234.56</option><option value="decimal-comma">Coma decimal · 1.234,56</option></select><span class="studio-note">Detecta el formato del bloque y usa tu configuración regional. Cambia esta opción solo si la fuente utiliza otro formato.</span></div><div class="studio-grid-scroll"><table id="input-grid" class="studio-grid" aria-label="Celdas editables del Excel"><thead></thead><tbody></tbody></table><div id="input-empty" class="research-empty">Selecciona o crea un archivo para comenzar.</div></div><div id="input-validation" class="studio-validation"></div></div></div>`;
 
   const createDialog = node('dialog');
   createDialog.id='input-create-dialog';
@@ -71,7 +72,8 @@
     const loaded=!!editor.book, dirty=editor.pending.size>0;
     window.CoverageApp.inputPending(editor.kind==='coverage' ? editor.file : null, dirty && editor.kind==='coverage');
     ['input-kind','input-file','input-sheet','input-refresh','input-create','input-go','input-prev-row','input-next-row','input-prev-column','input-next-column','input-upload','input-number-locale'].forEach(id=>byId(id).disabled=editor.busy || (id==='input-sheet' && !loaded));
-    byId('input-open-excel').disabled=editor.busy || !loaded || dirty || !editor.desktop?.available;
+    byId('input-open-excel').disabled=editor.busy || !loaded || !editor.desktop?.available;
+    const numberToolbar=byId('input-number-locale').parentElement;if(numberToolbar)numberToolbar.hidden=editor.kind==='research';
     byId('input-open-excel').title=editor.desktop?.message || 'Comprobando Excel de escritorio…';
     byId('input-reload-excel').disabled=editor.busy || !loaded || dirty;
     byId('input-cell-value').disabled=editor.busy || !loaded || (editor.selected && cell(editor.selected.row,editor.selected.column)?.classList.contains('readonly'));
@@ -333,29 +335,34 @@
   async function discardStoredDraft(file=editor.file,kind=editor.kind){
     if(file)await api('/api/studio/discard-draft',{file,kind});
   }
-  async function saved(result,selectNew=false) {
+  async function saved(result,selectNew=false,refreshAnalysis=true) {
     const previousSheet=editor.book?.sheet;
     cleanEditor();editor.file=result.file;editor.book=result;editor.kind=result.kind;
     byId('input-kind').value=editor.kind;
     await refreshFiles();byId('input-file').value=result.file;
     const selectedSheet=!selectNew && result.sheets.some(entry=>entry.name===previousSheet) ? previousSheet : selectNew && result.kind==='research' && !/^[1-8][-_]/.test(result.sheet) ? result.sheets.find(entry=>/^[1-8][-_]/.test(entry.name))?.name || result.sheet : result.sheet;
     await loadBook(result.file,selectedSheet,selectNew ? 1 : +byId('input-row').value,selectNew ? 1 : +byId('input-column').value);
-    if(editor.kind==='coverage')await window.CoverageApp.sourceChanged(result.file);
-    else await window.StudioResearch?.edited(result.file);
+    if(refreshAnalysis) {
+      if(editor.kind==='coverage')await window.CoverageApp.sourceChanged(result.file);
+      else await window.StudioResearch?.edited(result.file);
+    }
     message(result.copied_from ? `Copia guardada: ${result.name}. El original sigue intacto.` : `${result.saved_cells || 0} celda(s) guardadas. Los análisis se recalculan con esta versión.`);
   }
   async function save() {
     if(!editor.book || !editor.pending.size)return;
     busy(true);
-    try{const result=await api('/api/studio/save',{file:editor.file,kind:editor.kind,fingerprint:editor.book.fingerprint,edits:compactEdits(),number_locale:byId('input-number-locale').value});await discardStoredDraft().catch(()=>{});await saved(result);}
+    try{const result=await api('/api/studio/save',{file:editor.file,kind:editor.kind,fingerprint:editor.book.fingerprint,edits:compactEdits(),number_locale:byId('input-number-locale').value,number_locale_hint:regionalNumberLocale});await discardStoredDraft().catch(()=>{});await saved(result);}
     catch(error){message(error.message,true);}finally{busy(false);}
   }
   byId('input-save').addEventListener('click',save);
   byId('input-open-excel').addEventListener('click',async()=>{
     commitValue();if(!editor.book)return;
-    if(editor.pending.size)return message('Guarda o descarta los cambios del editor web antes de abrir Excel.',true);
     busy(true);message('Abriendo el libro en Excel de escritorio…');
     try{
+      if(editor.pending.size) {
+        const written=await api('/api/studio/save',{file:editor.file,kind:editor.kind,fingerprint:editor.book.fingerprint,edits:compactEdits(),preserve_text:true});
+        await discardStoredDraft().catch(()=>{});await saved(written,false,false);
+      }
       const result=await api('/api/studio/open-excel',{file:editor.file,kind:editor.kind,fingerprint:editor.book.fingerprint,sheet:editor.book.sheet,row:editor.book.row,column:editor.book.column,limit:Math.min(60,20001-editor.book.row),columns:Math.min(32,257-editor.book.column)});
       if(result.copied_from)await saved(result);
       message(`${result.copied_from ? 'Se creó una copia local; el original sigue intacto. ' : ''}Excel está abierto. Pega y guarda allí; después pulsa Actualizar desde Excel para continuar aquí.`);

@@ -2,7 +2,7 @@
   "origin": "5W1H local project",
   "integrated_at": "2026-10-13",
   "report_source_sha256": "830af2ac53205d27bad1419c00c551ffe00699269d0e08232fe54e2267594c02",
-  "adaptation": "Explicit run_report API and isolated worker; original calculation/chart functions retained.",
+  "adaptation": "Explicit run_report API and isolated worker; original calculations retained. Presentation-only adaptations are recorded separately.",
   "original_calculation_ast_sha256": {
     "ppt8_compute_rows": "58b8de540f659efeaa3de7405ce40eebceb5e0735e3188c8a266c08638fdf19a",
     "df_mat": "ecf3703db7e20910b9a8d17f796cf36dc095ac393af7b9eab44cf319f72cdd78",
@@ -12,5 +12,11 @@
     "parse_distribution_sheet": "ebf2b3e01840284eb47ed403f39e3ec70a55b92815a7098326bc4b9384bbc3d2",
     "split_compras_ventas": "6538304a8c3dd3c789647ed0b8d060f9537d2e89ce9e79fb19649f7d138338a3",
     "prepare_price_index_dataframe": "7884edce781b89dc0c42ad5221ad3da1128f925fcf133f680d98781dae9c4dc8"
+  },
+  "presentation_adaptations": {
+    "line_graf": {
+      "ast_sha256": "f36b61df36688b54fc9dfa3f7ba31e3014194df56da8ae783fe701be0d4e991e",
+      "reason": "Leyenda adaptativa: más columnas según el ancho de las etiquetas y altura medida; conserva datos, series y colores."
+    }
   }
 }

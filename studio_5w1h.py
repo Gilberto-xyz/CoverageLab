@@ -22,6 +22,7 @@ import threading
 import uuid
 
 from openpyxl import load_workbook
+from studio_inputs import _automatic_number_locale, _number_value, _date_value
 
 from studio_5w1h_vendor import report_engine as engine
 from studio_5w1h_vendor import template_engine as templates
@@ -122,8 +123,41 @@ def _sheet_identity(name):
 
 
 def _has_numeric_data(ws):
-    return any(isinstance(cell.value, (int, float)) and not isinstance(cell.value, bool)
-               for row in ws.iter_rows(min_row=2) for cell in row)
+    for row in ws.iter_rows(min_row=2):
+        for cell in row:
+            try:
+                _number_value(cell.value, auto_locale='decimal-dot')
+                return True
+            except ValueError:
+                pass
+    return False
+
+
+def _analysis_frame(frame):
+    """Interpreta una copia en memoria al analizar, sin modificar el Excel de entrada."""
+    if isinstance(frame, dict):
+        return {key:_analysis_frame(value) for key,value in frame.items()}
+    locale = _automatic_number_locale(frame.values.tolist(), 'decimal-dot')
+    def value(raw):
+        if not isinstance(raw, str):
+            return raw
+        try:
+            return _date_value(raw)
+        except ValueError:
+            pass
+        try:
+            number = _number_value(raw, auto_locale=locale)
+            return number*100 if raw.strip().endswith('%') else number
+        except ValueError:
+            return raw
+    return frame.apply(lambda column: column.map(value))
+
+
+def _analysis_excel_type(base):
+    class ResearchExcel(base):
+        def parse(self, *args, **kwargs):
+            return _analysis_frame(super().parse(*args, **kwargs))
+    return ResearchExcel
 
 
 def _table(frame, table_id, title):
@@ -138,6 +172,20 @@ def _chart(chart_id, title, dates, series, chart_type="line"):
 
 def _base_label(label):
     return re.sub(r"\.[CV]$", "", str(label), flags=re.I)
+
+
+def _display_origin_pairs(items, field="id", separator="-"):
+    """Empareja cada salida por métrica: Ventas primero y Compras después."""
+    groups = {}
+    for item in items:
+        value = item.get(field, "")
+        base, _, origin = value.rpartition(separator)
+        key = base if origin in {"Ventas", "Compras"} else value
+        groups.setdefault(key, []).append(item)
+    priority = {"monthly": 0, "mat": 1, "share": 2, "variation": 3, "contribution": 4}
+    ordered = sorted(groups, key=lambda key: priority.get(key, 5)) if field == "id" else groups
+    return [item for key in ordered for item in sorted(groups[key],
+        key=lambda entry: engine.origin_display_order(entry.get(field, "").rpartition(separator)[-1]))]
 
 
 def create_research_template(spec: dict, destination: Path) -> Path:
@@ -299,7 +347,9 @@ class ResearchStudio:
                 if identity:
                     sheets.append({**identity, "rows": ws.max_row, "columns": ws.max_column,
                                    "has_data": _has_numeric_data(ws)})
+            present = {s["segment"] for s in sheets}
             return {"file": metadata, "metadata": metadata["metadata"], "sheets": sheets,
+                    "unavailable_segments": [{"id": key, "title": title} for key, title, _ in SEGMENTS if key not in present],
                     "requires_input": not any(s["has_data"] for s in sheets)}
         finally:
             workbook.close()
@@ -331,12 +381,15 @@ class ResearchStudio:
             return result
         with ANALYSIS_LOCK:
             engine.ensure_heavy_modules_loaded()
-            excel = engine.pd.ExcelFile(path)
+            excel = _analysis_excel_type(engine.pd.ExcelFile)(path)
             try:
                 self._analyze(excel, identity, result, str(mode), first, last, elements, pipeline)
             finally:
                 excel.close()
         result["ready"] = bool(result["charts"] or result["tables"])
+        result["charts"] = _display_origin_pairs(result["charts"])
+        result["tables"] = _display_origin_pairs(result["tables"])
+        result["stats"] = _display_origin_pairs(result["stats"], field="label", separator=" · ")
         if elements == []:
             result["charts"] = []
             result["ready"] = False
@@ -498,6 +551,14 @@ class ResearchStudio:
                               for col in shares[0][1] if _base_label(col) in chosen]
                     result["charts"].append(_chart(f"share-{config.display_tipo}", f"Participación MAT · {config.display_tipo}", [period for period, _ in shares], series, "bar"))
                 for row_index, label in ((2, "Variación total MAT"), (3, "Aporte total MAT")):
+                    columns = [col for col in apo.columns[1:] if col != "Total" and _base_label(col) in chosen]
+                    values = [engine._parse_percent_cell(apo.loc[row_index, col]) for col in columns]
+                    result["charts"].append(_chart(
+                        f"{'variation' if row_index == 2 else 'contribution'}-{config.display_tipo}",
+                        f"{'Variación MAT' if row_index == 2 else 'Aporte al crecimiento MAT'} · {config.display_tipo}",
+                        [_base_label(col) for col in columns],
+                        [{"name": "Variación" if row_index == 2 else "Aporte", "values": values,
+                          "unit": "%" if row_index == 2 else "pp", "color": "#078c86"}], "bar"))
                     if "Total" in apo.columns:
                         value = engine._parse_percent_cell(apo.loc[row_index, "Total"])
                         result["stats"].append({"label": label + " · " + config.display_tipo, "value": value / 100 if value is not None else None, "unit": "percent"})
@@ -597,7 +658,7 @@ class ResearchStudio:
         request_path.write_text(json.dumps(request, ensure_ascii=False), encoding="utf-8")
         log_path = auxiliary(destination, "generacion_5w1h.log", write=True)
         with log_path.open("w", encoding="utf-8") as log:
-            process = subprocess.run([sys.executable, "-X", "utf8", str(ENGINE_DIR / "report_engine.py"), str(request_path)],
+            process = subprocess.run([sys.executable, "-X", "utf8", str(Path(__file__).resolve()), str(request_path)],
                                      cwd=destination, stdout=log, stderr=subprocess.STDOUT, timeout=600,
                                      creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
         if process.returncode != 0:
@@ -644,3 +705,12 @@ class ResearchStudio:
         return {"directory": str(destination), "outputs": outputs, "title": returned["title"],
                 "created_at": created.isoformat(), "source": file_id, "fingerprint": fingerprint,
                 "pipelines_applied": applied}
+
+
+if __name__ == '__main__':
+    request = json.loads(Path(sys.argv[1]).read_text(encoding='utf-8'))
+    engine.ensure_heavy_modules_loaded()
+    engine.pd.ExcelFile = _analysis_excel_type(engine.pd.ExcelFile)
+    result = engine.run_report(request['source'], request['destination'], request.get('mode','1'),
+                               request.get('sheets'), request.get('size_threshold'))
+    Path(request['result']).write_text(json.dumps(result, ensure_ascii=False), encoding='utf-8')

@@ -45,6 +45,9 @@
 !tests/test_delivery_extras.py
 !tests/test_studio_entry_ui.py
 !tests/test_studio_5w1h.py
+!tests/test_research_results.py
+!tests/test_research_sources.py
+!tests/test_research_dense_legend.py
 !tests/test_integrated_studio.py
 !tests/test_pipeline_explorer.py
 !requirements.txt

@@ -260,6 +260,20 @@ class DesktopStudioTests(unittest.TestCase):
         self.assertEqual(original.read_bytes(), before)
         self.launcher.assert_not_called()
 
+    def test_incomplete_entry_is_saved_as_text_then_opened_in_same_workbook(self):
+        book=self.create()
+        saved=self.state.workflow.save_input(self.request(book) | {'preserve_text':True,'edits':[
+            {'sheet':book['sheet'],'row':3,'column':1,'values':[['Total Softys','10,921','Pendiente']]}]})
+        path=self.root/saved['file']
+        before=path.read_bytes()
+        opened=self.state.workflow.open_excel(self.request(saved))
+        self.assertEqual(opened['file'],book['file'])
+        self.launcher.assert_called_once_with(self.executable,path)
+        self.assertEqual(path.read_bytes(),before)
+        with contextlib.closing(load_workbook(path)) as workbook:
+            self.assertEqual(workbook[book['sheet']]['A3'].value,'Total Softys')
+            self.assertEqual(workbook[book['sheet']]['B3'].value,'10,921')
+
     def test_stale_or_missing_fingerprint_never_launches(self):
         book = self.create()
         with contextlib.closing(load_workbook(self.root / book["file"])) as workbook:

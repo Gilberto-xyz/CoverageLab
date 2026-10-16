@@ -106,7 +106,9 @@ class StudioWorkflow:
         with self.explorer.analysis_lock:
             result = self.inputs.save(payload.get("file"), kind=payload.get("kind", "coverage"),
                                       fingerprint=payload.get("fingerprint"), edits=payload.get("edits"),
-                                      number_locale=payload.get("number_locale", "auto"))
+                                      number_locale=payload.get("number_locale", "auto"),
+                                      number_locale_hint=payload.get("number_locale_hint", "decimal-dot"),
+                                      preserve_text=payload.get("preserve_text", False))
             return self.invalidate(result)
 
     def add_sheet(self, payload):
@@ -232,7 +234,8 @@ class StudioWorkflow:
     def research_job(self, job_id=None, file_id=None):
         with self.lock:
             if not job_id:
-                job_id = next((key for key, job in reversed(self.research_jobs.items()) if job["file"] == file_id), None)
+                matching = [(key, job) for key, job in self.research_jobs.items() if job["file"] == file_id]
+                job_id = max(matching, key=lambda item: datetime.fromisoformat(item[1].get("started_at", "1970-01-01T00:00:00+00:00")).timestamp())[0] if matching else None
             if job_id not in self.research_jobs:
                 if not job_id:
                     return None

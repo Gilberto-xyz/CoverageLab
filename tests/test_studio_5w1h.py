@@ -49,7 +49,11 @@ class ResearchStudioTests(unittest.TestCase):
 
     def test_original_critical_functions_preserved(self):
         provenance = json.loads((ENGINE_DIR / "provenance.json").read_text(encoding="utf-8"))
-        original = provenance["original_calculation_ast_sha256"]
+        original = dict(provenance["original_calculation_ast_sha256"])
+        # Los cambios visuales explícitos mantienen su huella aparte del motor original.
+        for name, adaptation in provenance.get("presentation_adaptations", {}).items():
+            self.assertEqual(name, "line_graf")
+            original[name] = adaptation["ast_sha256"]
         module = ast.parse((ENGINE_DIR / "report_engine.py").read_text(encoding="utf-8"))
         actual = {n.name: hashlib.sha256(ast.dump(n, include_attributes=False).encode()).hexdigest()
                   for n in module.body if isinstance(n, ast.FunctionDef) and n.name in original}
@@ -219,6 +223,18 @@ class ResearchStudioTests(unittest.TestCase):
 
     def test_real_report_outputs_and_external_source_unchanged(self):
         self.fill_channels()
+        # Pegado literal en la web: el archivo conserva fechas y números como texto.
+        workbook=load_workbook(self.source)
+        for row in workbook['5_Prueba_2'].iter_rows(min_row=2):
+            for cell in row:
+                if isinstance(cell.value,datetime):
+                    cell.value=cell.value.strftime('%Y-%m-%d')
+                elif isinstance(cell.value,(int,float)):
+                    cell.value=f'{cell.value:.1f}'.replace('.',',')
+        workbook.save(self.source);workbook.close()
+        preview=self.studio.analyze(self.file_id,'5_Prueba_2')
+        monthly=next(chart for chart in preview['charts'] if chart['id']=='monthly')
+        self.assertEqual(monthly['series'][0]['values'][0],100)
         external = self.external / self.source.name
         external.write_bytes(self.source.read_bytes())
         initial = external.read_bytes()

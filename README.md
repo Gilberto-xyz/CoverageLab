@@ -162,8 +162,10 @@ En Windows con Excel instalado, **Abrir en Excel** utiliza la interfaz real de
 Excel de escritorio. Pega y guarda en Excel; después pulsa **Actualizar desde
 Excel** para leer esa versión, validar los períodos e invalidar los análisis
 anteriores. Los libros externos de 5W1H se copian íntegramente a `inputs/5w1h/`
-antes de abrirse, conservando el original. Guarda o descarta los borradores del
-editor web antes de abrir o actualizar. La aplicación conserva también la
+antes de abrirse, conservando el original. Si hay cambios pendientes, **Abrir en
+Excel** los guarda como contenido literal y abre ese mismo archivo local; no exige
+fechas o números válidos para continuar allí. Para **Actualizar desde Excel**, guarda
+o descarta primero los cambios web. La aplicación conserva también la
 captura web para quien prefiera trabajar dentro de la página.
 
 Las fechas de las columnas de calendario se muestran uniformemente como
@@ -185,15 +187,23 @@ Las ventanas muestran 60 filas y hasta 32 columnas; usa las coordenadas y los
 controles de rango para consultar toda la hoja. Los límites son 20 000 filas,
 256 columnas, 100 hojas y 50 000 celdas por operación de guardado.
 
-Elige el **formato numérico de la fuente**: autodetección segura, punto decimal
-o coma decimal. Una cifra ambigua como `1,234` no se guarda por adivinación;
-la selección permite distinguir miles de decimales. Las fechas se guardan como
-fechas, los números como números y los vacíos como vacíos. La penetración y las
-entradas 5W1H usan puntos porcentuales: pegar `20%` conserva el valor 20.
+En cobertura, el **formato numérico de la fuente** usa por defecto el modo automático: detecta
+separadores inequívocos del bloque y utiliza la configuración regional del navegador
+para resolver cifras como `10,921`. Con punto decimal, se guarda como `10921`;
+con coma decimal, como `10.921`. Puedes forzar punto o coma si la fuente utiliza
+otro formato. Los clientes sin configuración regional usan punto decimal.
+Los valores ya numéricos de Excel conservan su valor. La penetración de cobertura
+usa puntos porcentuales: pegar `20%` conserva el valor 20.
 
-**Guardar datos** valida el lote completo antes de escribir. Un valor inválido,
-una fórmula protegida o un archivo modificado externamente deja el archivo
-intacto. Las fechas repetidas por mes, desordenadas o con meses faltantes se
+En **5W1H**, guardar copia el texto pegado tal como está, incluso si reemplaza una
+celda que antes contenía una fecha o un número. No convierte fechas, separadores o
+porcentajes al guardar y permite conservar una entrada incompleta. Al analizar o
+generar, el motor interpreta una copia en memoria y conserva intacto el archivo de
+entrada. Los textos que empiezan por `=` se guardan como texto, sin ejecutar fórmulas.
+
+En cobertura, **Guardar datos** valida los tipos antes de escribir. Las fórmulas
+existentes y los archivos modificados externamente conservan sus protecciones.
+Las fechas repetidas por mes, desordenadas o con meses faltantes se
 señalan antes de explorar cobertura. Una entrada guardada invalida las revisiones
 anteriores; los análisis se recalculan y las entregas previas se identifican como
 anteriores a los datos actuales.
@@ -224,11 +234,25 @@ cifras de demostración**. **Llenar / editar datos** lleva al mismo editor. Las 
 locales quedan en `inputs/5w1h/`; los originales de la carpeta hermana `../5W1H/`
 se leen y su primera edición crea una copia local. Nunca se sobrescriben los originales.
 
+**Elegir archivo Excel** abre un libro `.xlsx` desde cualquier carpeta directamente
+en Investigación. Guarda sus bytes originales como copia de trabajo local; si ya
+existe el mismo nombre y contenido, lo abre sin duplicarlo. **Salidas del archivo**
+muestra todas las hojas reconocidas y las dimensiones que faltan en ese libro.
+Cada hoja tiene accesos a sus gráficos y tablas; variación MAT y aporte al crecimiento
+tienen también gráficos propios, con valores tomados de las tablas del motor.
+
 Selecciona hoja, compras/ventas, pipeline y período para explorar tendencias,
 MAT, participaciones, variaciones y aportes. Árbol, distribución e intervalos de
 confianza usan sus reglas originales. Los gráficos se amplían con clic y permiten
 etiquetas y detalle visual; tablas y origen documentan unidades, base y filtros.
 Las participaciones conservan el total de la fuente al ocultar elementos.
+En las comparaciones por origen, **Ventas va a la izquierda y Compras a la derecha**
+en la web y en el PPT: tendencias separadas, tablas de aportes y participaciones.
+El orden visual conserva los cálculos, los pipelines y los colores asignados.
+Las tendencias con muchas series distribuyen la leyenda en más columnas según
+el ancho disponible y la longitud real de las etiquetas. La gráfica recupera
+altura sin eliminar categorías ni reducir la letra; los casos sencillos conservan
+su distribución anterior.
 
 **Generar informe 5W1H** abre una revisión para elegir las hojas con datos y los
 pipelines coincidentes. El Excel/PPT contienen las **hojas completas seleccionadas**;
@@ -236,6 +260,10 @@ los filtros de fecha/elementos son de exploración web, no recortan ese informe.
 Se genera una carpeta nueva dentro de `Output/`, más un registro y JSON de origen,
 opciones y pipelines aplicados. Los botones se habilitan al terminar y abren
 directamente los resultados. El historial se recupera al reiniciar la aplicación.
+El panel **Resultados 5W1H** permanece visible al recorrer los gráficos y permite
+abrir el Excel, el PPT, la carpeta, el origen y el registro de la última entrega
+del archivo seleccionado. Puede contraerse conservando el botón de generación.
+Antes de la primera entrega o durante la generación, las aperturas permanecen deshabilitadas.
 
 El motor y sus modelos necesarios están integrados en `studio_5w1h_vendor/`.
 La carpeta externa 5W1H aporta las entradas existentes, pero no es necesaria para
