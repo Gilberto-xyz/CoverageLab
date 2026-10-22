@@ -317,6 +317,59 @@
     wrap.append(svg, readout, legend);
     return wrap;
   }
+  function confidenceContent(model) {
+    const view = model.confidence_view;
+    const wrap = $('div', {class:'confidence-content'});
+    const scroll = $('div', {class:'table-scroll', tabindex:'0', 'aria-label':model.title});
+    const table = $('table', {class:'confidence-table'});
+    const columns = $('colgroup');
+    [90,150,95,95,310,110,225,125].forEach(width => {const col=$('col');col.style.width=`${width/12}%`;columns.append(col);});
+    table.append(columns);
+    const head=$('thead'), group=$('tr'), labels=$('tr');
+    group.append($('th',{rowspan:2,scope:'col',class:'confidence-buyers-heading'},'Compradores · prom. 12 meses'),$('th',{rowspan:2,scope:'col'},'Marca'),$('th',{colspan:4,scope:'colgroup'},'Comparación MAT (%)'),$('th',{colspan:2,scope:'colgroup'},'Detalle de muestra'));
+    ['Fabricante','Worldpanel','Intervalo WP','Fabricante vs. intervalo','Nivel de penetración','Error muestral'].forEach(label=>labels.append($('th',{scope:'col'},label)));
+    head.append(group,labels);table.append(head);
+    const pct=(value,ratio=false)=>finite(value)?`${(ratio?value*100:value).toFixed(1)}%`:'—';
+    const signed=value=>finite(value)?`${value>0?'+':value<0?'−':''}${Math.abs(value).toFixed(1)}%`:'—';
+    const color=value=>finite(value)&&value<0?'#C0392B':finite(value)&&value>0?'#168345':'#183143';
+    const axis=view.axis, x=value=>28+(value-axis.min)/(axis.max-axis.min)*274;
+    const body=$('tbody');
+    view.rows.forEach(row=>{
+      const line=$('tr');line.append($('td',{class:'confidence-buyers'},finite(row.buyers)?row.buyers.toLocaleString('es-MX',{maximumFractionDigits:0}):'—'),$('th',{scope:'row'},row.brand));
+      [row.manufacturer,row.worldpanel].forEach((value,i)=>{const cell=$('td',{class:i?'confidence-wp':'confidence-manufacturer'},signed(value));cell.style.color=color(value);line.append(cell);});
+      const interval=$('td',{class:'confidence-interval'});
+      const graph=svgNode('svg',{viewBox:'0 0 330 68',role:'img','aria-label':`${row.brand}: intervalo WP ${signed(row.lower)} a ${signed(row.upper)}, fabricante ${signed(row.manufacturer)}, Worldpanel ${signed(row.worldpanel)}`});
+      graph.append(svgNode('line',{x1:28,x2:302,y1:22,y2:22,stroke:'#CBD5DF'}),svgNode('line',{x1:x(0),x2:x(0),y1:5,y2:43,stroke:'#7C8F9B','stroke-dasharray':'3 3'}));
+      if(finite(row.lower)&&finite(row.upper)){
+        graph.append(svgNode('rect',{x:x(row.lower),y:18,width:Math.max(0,x(row.upper)-x(row.lower)),height:8,fill:'#B8D0DF'}));
+        [row.lower,row.upper].forEach(value=>graph.append(svgNode('line',{x1:x(value),x2:x(value),y1:15,y2:29,stroke:'#B8D0DF'})));
+      }
+      if(finite(row.worldpanel))graph.append(svgNode('circle',{cx:x(row.worldpanel),cy:22,r:4,fill:'#293F52'}));
+      if(finite(row.manufacturer))graph.append(svgNode('path',{d:`M${x(row.manufacturer)} 16 l6 6 -6 6 -6 -6 Z`,fill:'#BF9900'}));
+      const bounds=svgNode('text',{x:165,y:58,'text-anchor':'middle','font-size':12});
+      bounds.append(svgNode('tspan',{fill:color(row.lower)},signed(row.lower)),svgNode('tspan',{fill:'#526878'},' a '),svgNode('tspan',{fill:color(row.upper)},signed(row.upper)));
+      graph.append(bounds);interval.append(graph);line.append(interval);
+      const position=$('td',{class:'confidence-position'},row.position);position.style.color=row.position==='Dentro'?'#236B58':'#79571C';line.append(position);
+      const level=$('td',{class:'confidence-level'});level.append($('span',{},row.penetration[0]));if(row.penetration[1])level.append($('strong',{},row.penetration[1]));line.append(level);
+      const style=row.error_style, error=$('td',{class:'confidence-error'}), signal=$('div',{class:`confidence-signal${style.extreme?' extreme':''}`});
+      signal.style.setProperty('--error-ink',`#${style.ink}`);signal.style.setProperty('--error-accent',`#${style.accent}`);signal.style.setProperty('--error-background',`#${style.background}`);
+      if(style.extreme){
+        const warning=svgNode('svg',{viewBox:'0 0 16 16','aria-hidden':'true',class:'confidence-warning'});
+        warning.append(svgNode('path',{d:'M8 1.5 L15 14 H1 Z',fill:'none',stroke:'currentColor','stroke-width':1.3}),svgNode('text',{x:8,y:11,'text-anchor':'middle','font-size':10,fill:'currentColor'},'!'));signal.append(warning);
+      }
+      signal.append($('strong',{},pct(row.error,true)));error.append(signal);line.append(error);body.append(line);
+    });
+    table.append(body);
+    const foot=$('tfoot'), axisRow=$('tr');
+    axisRow.append($('td',{colspan:4}));
+    const axisCell=$('td'), graph=svgNode('svg',{viewBox:'0 0 330 24',class:'confidence-axis','aria-label':'Escala de variación porcentual'});
+    axis.ticks.forEach(tick=>graph.append(svgNode('text',{x:x(tick),y:15,'text-anchor':'middle','font-size':10,fill:'#526878'},`${Number(tick.toPrecision(8))}%`)));
+    axisCell.append(graph);axisRow.append(axisCell,$('td',{colspan:3}));foot.append(axisRow);table.append(foot);
+    scroll.append(table);wrap.append(scroll);
+    const legend=$('div',{class:'confidence-legend'});
+    [['interval','Intervalo WP'],['wp','Worldpanel'],['manufacturer','Fabricante']].forEach(([kind,label])=>{const item=$('span');item.append($('i',{class:`confidence-key ${kind}`,'aria-hidden':'true'}),document.createTextNode(label));legend.append(item);});
+    wrap.append(legend);return wrap;
+  }
   function renderAnalysis() {
     const analysis = state.analysis;
     nodes.output.replaceChildren();
@@ -354,6 +407,12 @@
     analysis.tables.forEach(model => {
       const panel = $('section', {id: `research-table-${model.id}`, class: 'studio-panel'});
       panel.append($('h3', {}, model.title));
+      if(model.id==='confidence'&&model.confidence_view){
+        panel.classList.add('confidence-panel');
+        const expand=$('button',{type:'button',class:'button secondary confidence-expand'},'Ampliar ↗');
+        expand.addEventListener('click',()=>state.bridge.openChart(model.title,analysis.title,confidenceContent(model)));
+        panel.append(expand,confidenceContent(model));tables.append(panel);return;
+      }
       const scroll = $('div', {class: 'table-scroll', tabindex: '0', 'aria-label': model.title});
       const table = $('table');
       const head = $('thead'), tr = $('tr');

@@ -32,6 +32,11 @@ from dataclasses import dataclass
 from decimal import Decimal, ROUND_CEILING, ROUND_DOWN, ROUND_FLOOR, ROUND_HALF_DOWN, ROUND_HALF_EVEN, ROUND_HALF_UP, ROUND_UP, ROUND_05UP
 from typing import Dict, Iterable, List, NamedTuple, Optional, Tuple
 from pathlib import Path
+
+try:
+    from . import confidence_design
+except ImportError:
+    import confidence_design
 from collections import OrderedDict
 from openpyxl import load_workbook
 from openpyxl.chart import LineChart, Reference
@@ -2690,260 +2695,13 @@ def render_ppt8_table(
     )
 
 def add_ppt8_table_to_slide(
-    slide,
-    rows: List[Ppt8Row],
-    brand_color_lookup: Dict[str, str],
-    manufacturer_name: str,
-    left,
-    top,
-    width_emu,
-    max_height_in: Optional[float] = None,
+    slide, rows: List[Ppt8Row], brand_color_lookup: Dict[str, str],
+    manufacturer_name: str, left, top, width_emu, max_height_in: Optional[float] = None,
 ):
-    """Inserta la tabla nativa de Segmento 8 en PowerPoint (sin pasar por imagen)."""
-    from pptx.enum.text import PP_ALIGN, MSO_ANCHOR
-
-    COLOR_HEADER = "#1F4E78"
-    COLOR_VAR_BG = "#C9CED6"
-    COLOR_C = "#F2DCDB"
-    COLOR_D = "#E2EFDA"
-    COLOR_G = "#DCE6F1"
-    COLOR_GRAY_BAND_A = "#F2F2F2"
-    COLOR_GRAY_BAND_B = "#E9E9E9"
-    COLOR_ERR_GREEN = "#A8D08D"
-    COLOR_ERR_YELLOW = "#FFD966"
-    COLOR_ERR_RED = "#C00000"
-    COLOR_TEXT_DEFAULT = TABLE_TEXT_PRIMARY
-    COLOR_LEVEL_MID = "#B9770E"
-
-    def _interp_color(start_hex: str, end_hex: str, t: float) -> str:
-        t = max(0.0, min(1.0, t))
-        start_rgb = mcolors.to_rgb(start_hex)
-        end_rgb = mcolors.to_rgb(end_hex)
-        blended = tuple(s + (e - s) * t for s, e in zip(start_rgb, end_rgb))
-        return mcolors.to_hex(blended)
-
-    def _error_cell_color(err_ratio: float) -> str:
-        if err_ratio is None or not np.isfinite(err_ratio):
-            return COLOR_G
-        val = err_ratio * 100.0
-        if val <= 1.0:
-            return COLOR_ERR_GREEN
-        if val <= 5.0:
-            t = (val - 1.0) / 4.0
-            return _interp_color(COLOR_ERR_GREEN, COLOR_ERR_YELLOW, t)
-        if val <= 51.0:
-            t = (val - 5.0) / 46.0
-            return _interp_color(COLOR_ERR_YELLOW, COLOR_ERR_RED, t)
-        return COLOR_ERR_RED
-
-    def _text_color_for_bg(hex_color: str) -> str:
-        r, g, b = mcolors.to_rgb(hex_color)
-        if 0.299 * r + 0.587 * g + 0.114 * b < 0.45:
-            return "#FFFFFF"
-        return COLOR_TEXT_DEFAULT
-
-    def _metric_text_color(value: float) -> str:
-        if value is None or not np.isfinite(value):
-            return COLOR_TEXT_DEFAULT
-        if value > 0:
-            return TABLE_POSITIVE_COLOR
-        if value < 0:
-            return TABLE_NEGATIVE_COLOR
-        return COLOR_TEXT_DEFAULT
-
-    def _penetration_level_color(level_text: str) -> str:
-        raw = str(level_text or "").lower()
-        raw = unicodedata.normalize("NFKD", raw)
-        raw = "".join(ch for ch in raw if not unicodedata.combining(ch))
-        if "super marca" in raw or "marca grande" in raw:
-            return TABLE_POSITIVE_COLOR
-        if "marca mediana" in raw:
-            return COLOR_LEVEL_MID
-        if "marca pequena" in raw or "fuera de rango" in raw:
-            return TABLE_NEGATIVE_COLOR
-        return COLOR_TEXT_DEFAULT
-
-    def _set_cell(
-        cell,
-        text: str,
-        *,
-        fill_hex: Optional[str] = None,
-        font_hex: str = COLOR_TEXT_DEFAULT,
-        bold: bool = False,
-        align=PP_ALIGN.CENTER,
-        font_size_pt: int = 11,
-    ) -> None:
-        if fill_hex:
-            fill_rgb = hex_to_rgb_color(fill_hex)
-            if fill_rgb is not None:
-                cell.fill.solid()
-                cell.fill.fore_color.rgb = fill_rgb
-        tf = cell.text_frame
-        tf.clear()
-        tf.word_wrap = True
-        tf.margin_top = 0
-        tf.margin_bottom = 0
-        tf.margin_left = Pt(3)
-        tf.margin_right = Pt(3)
-        paragraph = tf.paragraphs[0]
-        paragraph.alignment = align
-        paragraph.space_before = Pt(0)
-        paragraph.space_after = Pt(0)
-        paragraph.line_spacing = 1.0
-        run = paragraph.add_run()
-        run.text = str(text)
-        font = run.font
-        font.name = "Arial"
-        font.bold = bold
-        font.size = Pt(font_size_pt)
-        font_rgb = hex_to_rgb_color(font_hex)
-        if font_rgb is not None:
-            font.color.rgb = font_rgb
-        cell.vertical_anchor = MSO_ANCHOR.MIDDLE
-
-    total_rows = len(rows) + 1
-    total_cols = 7
-    if total_rows <= 1:
-        return None
-
-    fabricante_col_name = manufacturer_name.strip() if isinstance(manufacturer_name, str) else ""
-    fabricante_col_name = fabricante_col_name or "Fabricante"
-    header_bottom = [
-        "Marca",
-        f"% VAR {fabricante_col_name}",
-        "% VAR MAT Actual (WP by Numerator)",
-        "% VAR LIM INFERIOR",
-        "% VAR LIM SUPERIOR",
-        "Nivel de penetracion",
-        "Error muestral",
-    ]
-
-    header_height_in = 0.34
-    body_height_in = 0.34
-    estimated_height_in = header_height_in + body_height_in * max(1, len(rows)) + 0.06
-    table_height_in = max(0.8, estimated_height_in)
-    if max_height_in:
-        table_height_in = min(table_height_in, max_height_in)
-    table_shape = slide.shapes.add_table(
-        total_rows,
-        total_cols,
-        left,
-        top,
-        width_emu,
-        Inches(table_height_in),
-    )
-    table = table_shape.table
-
-    width_emu_int = int(width_emu)
-    col_width_ratios = [0.20, 0.14, 0.16, 0.13, 0.13, 0.16, 0.08]
-    consumed = 0
-    for col_idx, ratio in enumerate(col_width_ratios):
-        if col_idx == len(col_width_ratios) - 1:
-            col_width = max(1, width_emu_int - consumed)
-        else:
-            col_width = max(1, int(round(width_emu_int * ratio)))
-            consumed += col_width
-        table.columns[col_idx].width = col_width
-
-    table_height_emu = int(Inches(table_height_in))
-    header_h_emu = int(Inches(header_height_in))
-    if table_height_emu < header_h_emu + total_rows:
-        header_h_emu = max(1, table_height_emu // max(total_rows, 2))
-    body_rows = max(1, total_rows - 1)
-    body_h_emu = max(1, (table_height_emu - header_h_emu) // body_rows)
-    table.rows[0].height = header_h_emu
-    for row_idx in range(1, total_rows):
-        table.rows[row_idx].height = body_h_emu
-
-    body_font = 10
-    if len(rows) >= 12:
-        body_font = 7
-    elif len(rows) >= 8:
-        body_font = 8
-    else:
-        body_font = 9
-
-    for col_idx, title in enumerate(header_bottom):
-        _set_cell(
-            table.cell(0, col_idx),
-            title,
-            fill_hex=COLOR_HEADER,
-            font_hex=HEADER_FONT_COLOR,
-            bold=True,
-            font_size_pt=9,
-        )
-
-    for row_idx, row in enumerate(rows, start=1):
-        row_band_fill = COLOR_GRAY_BAND_A if (row_idx % 2 == 1) else COLOR_GRAY_BAND_B
-        brand_color = assign_brand_palette_color(row.marca, brand_color_lookup, TREND_COLOR_SEQUENCE) or COLOR_TEXT_DEFAULT
-        err_color = _error_cell_color(row.error_muestral)
-        err_text_color = _text_color_for_bg(err_color)
-        fab_text = f"{row.var_fabricante:.1f}" if np.isfinite(row.var_fabricante) else "-"
-        val_text = f"{row.mat_sep25:.1f}" if np.isfinite(row.mat_sep25) else "-"
-        lim_inf_text = f"{row.lim_inf:.1f}" if np.isfinite(row.lim_inf) else "-"
-        lim_sup_text = f"{row.lim_sup:.1f}" if np.isfinite(row.lim_sup) else "-"
-        err_text = f"{row.error_muestral:.1%}" if np.isfinite(row.error_muestral) else "-"
-
-        _set_cell(
-            table.cell(row_idx, 0),
-            row.marca,
-            fill_hex=row_band_fill,
-            font_hex=brand_color,
-            bold=False,
-            align=PP_ALIGN.LEFT,
-            font_size_pt=body_font,
-        )
-        _set_cell(
-            table.cell(row_idx, 1),
-            fab_text,
-            fill_hex=COLOR_VAR_BG,
-            font_hex=_metric_text_color(row.var_fabricante),
-            bold=True,
-            font_size_pt=body_font,
-        )
-        _set_cell(
-            table.cell(row_idx, 2),
-            val_text,
-            fill_hex=COLOR_VAR_BG,
-            font_hex=_metric_text_color(row.mat_sep25),
-            bold=True,
-            font_size_pt=body_font,
-        )
-        _set_cell(
-            table.cell(row_idx, 3),
-            lim_inf_text,
-            fill_hex=COLOR_C,
-            font_hex=_metric_text_color(row.lim_inf),
-            bold=True,
-            font_size_pt=body_font,
-        )
-        _set_cell(
-            table.cell(row_idx, 4),
-            lim_sup_text,
-            fill_hex=COLOR_D,
-            font_hex=_metric_text_color(row.lim_sup),
-            bold=True,
-            font_size_pt=body_font,
-        )
-        _set_cell(
-            table.cell(row_idx, 5),
-            row.nivel_pen,
-            fill_hex=row_band_fill,
-            font_hex=_penetration_level_color(row.nivel_pen),
-            bold=True,
-            align=PP_ALIGN.CENTER,
-            font_size_pt=body_font,
-        )
-        _set_cell(
-            table.cell(row_idx, 6),
-            err_text,
-            fill_hex=err_color,
-            font_hex=err_text_color,
-            bold=True,
-            font_size_pt=body_font,
-        )
-
-    return table_shape
+    """Editable unified comparison, including the shared soft double error signal."""
+    colors = [assign_brand_palette_color(row.marca, brand_color_lookup, TREND_COLOR_SEQUENCE)
+              or confidence_design.INK for row in rows]
+    return confidence_design.add_table(slide, rows, colors, left, top, width_emu, max_height_in)
 
 def _set_pandas_option_compat(option_name: str, value) -> None:
     """Configura opciones de pandas sin fallar cuando no existen o estan deprecadas."""
@@ -8212,70 +7970,30 @@ def run_report(source_path, output_root, mode="1", selected_sheets=None, size_th
             if not ppt_rows:
                 print_colored(f"Segmento 8: no hay filas calculables en la hoja {w}.", COLOR_RED)
                 continue
-            slide = ppt.slides.add_slide(ppt.slide_layouts[1])
-            title_box = slide.shapes.add_textbox(Inches(0.33), Inches(0.2), Inches(10), Inches(0.5))
-            title_tf = title_box.text_frame
-            title_prefix = c_w.get((lang, '8'), 'Intervalos') + ' | '
-            brand_label = sheet_clean[2:].replace('_', ' ').strip() or cat
-            set_title_with_brand_color(
-                title_tf,
-                title_prefix,
-                brand_label,
-                '',
-                0.35,
-                CATEGORY_TITLE_COLOR_LOOKUP,
-                CATEGORY_TITLE_PALETTE
-            )
             left_margin = Inches(0.33)
-            right_margin = Inches(0.33)
-            available_width_emu = available_width(ppt, left_margin, right_margin)
-            available_width_in = emu_to_inches(int(available_width_emu))
-            slide_height_in = emu_to_inches(int(ppt.slide_height))
-            comment_top_in = emu_to_inches(int(Inches(6.33)))
-            max_height_in = max(2.5, slide_height_in - CHART_TOP_INCH - 0.3)
-            if comment_top_in > 0:
-                max_height_cap = max(1.5, comment_top_in - CHART_TOP_INCH - 0.2)
-                max_height_in = min(max_height_in, max_height_cap)
-            # Colores de marcas en tabla PPT8: iniciar desde el primer color de la paleta,
-            # sin heredar asignaciones previas de otros segmentos/títulos.
+            available_width_emu = available_width(ppt, left_margin, Inches(0.33))
+            confidence_layout = confidence_design.slide_layout(emu_to_inches(int(ppt.slide_height)), CHART_TOP_INCH)
+            max_height_in = confidence_layout['table_height']
+            capacity = confidence_layout['capacity']
             ppt8_brand_color_lookup: dict[str, str] = {}
-            try:
-                add_ppt8_table_to_slide(
-                    slide,
-                    ppt_rows,
-                    ppt8_brand_color_lookup,
-                    client,
-                    left=left_margin,
-                    top=Inches(CHART_TOP_INCH),
-                    width_emu=available_width_emu,
-                    max_height_in=max_height_in,
-                )
-            except Exception as exc:
-                print_colored(
-                    f"Segmento 8: tabla nativa no disponible ({exc}). Se usa imagen de respaldo.",
-                    COLOR_YELLOW
-                )
-                c_fig += 1
-                table_stream, fig_size = render_ppt8_table(ppt_rows, c_fig, ppt8_brand_color_lookup, client)
-                fig_width_in, fig_height_in = fig_size
-                target_height_in = fig_height_in
-                if fig_width_in and fig_width_in > 0 and available_width_in and available_width_in > 0:
-                    target_height_in = fig_height_in * (available_width_in / fig_width_in)
-                if max_height_in and target_height_in > max_height_in:
-                    target_height_in = max_height_in
-                slide.shapes.add_picture(
-                    table_stream,
-                    left_margin,
-                    Inches(CHART_TOP_INCH),
-                    width=available_width_emu,
-                    height=Inches(target_height_in)
-                )
-            comment_box = slide.shapes.add_textbox(Inches(11.07), Inches(6.33), Inches(2), Inches(0.5))
-            comment_tf = comment_box.text_frame
-            comment_tf.clear()
-            comment_para = comment_tf.paragraphs[0]
-            comment_para.text = "Comentario" if lang == 'P' else "Comentario"
-            comment_para.font.size = Inches(0.25)
+            pages = [ppt_rows[i:i + capacity] for i in range(0, len(ppt_rows), capacity)]
+            for page_index, page_rows in enumerate(pages, 1):
+                slide = ppt.slides.add_slide(ppt.slide_layouts[1])
+                title_box = slide.shapes.add_textbox(Inches(0.33), Inches(0.2), Inches(10), Inches(0.5))
+                title_prefix = c_w.get((lang, '8'), 'Intervalos') + ' | '
+                brand_label = sheet_clean[2:].replace('_', ' ').strip() or cat
+                suffix = f" ({page_index}/{len(pages)})" if len(pages) > 1 else ''
+                set_title_with_brand_color(title_box.text_frame, title_prefix, brand_label, suffix,
+                                          0.35, CATEGORY_TITLE_COLOR_LOOKUP, CATEGORY_TITLE_PALETTE)
+                add_ppt8_table_to_slide(slide, page_rows, ppt8_brand_color_lookup, client,
+                                       left=left_margin, top=Inches(CHART_TOP_INCH),
+                                       width_emu=available_width_emu, max_height_in=max_height_in)
+                comment_box = slide.shapes.add_textbox(Inches(11.07), Inches(confidence_layout['comment_top']), Inches(2), Inches(0.4))
+                comment_box.name = 'Comentario · intervalos de confianza'
+                comment_para = comment_box.text_frame.paragraphs[0]
+                comment_para.text = "Comentario"
+                comment_para.font.size = Inches(0.25)
+                confidence_design.add_buyer_reference(slide, left_margin, Inches(confidence_layout['reference_top']), available_width_emu)
             last_reference_source = raw_df
             last_reference_origin = 'Segmento 8'
             continue

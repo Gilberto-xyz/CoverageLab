@@ -246,6 +246,15 @@ MAT, participaciones, variaciones y aportes. Árbol, distribución e intervalos 
 confianza usan sus reglas originales. Los gráficos se amplían con clic y permiten
 etiquetas y detalle visual; tablas y origen documentan unidades, base y filtros.
 Las participaciones conservan el total de la fuente al ocultar elementos.
+La tabla de intervalos reúne la comparación MAT y el detalle de muestra. El error
+muestral usa fondo suave y dos señales de color, sin mostrar los rangos internos.
+La misma tabla se genera editable en la PPT; las listas extensas se reparten en
+varias diapositivas para conservar el tamaño del texto.
+Antes de la marca se muestra el promedio de compradores de los últimos 12 meses,
+redondeado a enteros y con menor énfasis visual.
+Cada lámina de intervalos incluye una referencia editable de tamaños muestrales
+y usos del análisis, compacta y centrada junto al borde inferior; se conservan
+hasta tres marcas por lámina.
 En las comparaciones por origen, **Ventas va a la izquierda y Compras a la derecha**
 en la web y en el PPT: tendencias separadas, tablas de aportes y participaciones.
 El orden visual conserva los cálculos, los pipelines y los colores asignados.

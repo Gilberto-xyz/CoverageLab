@@ -26,6 +26,7 @@ from studio_inputs import _automatic_number_locale, _number_value, _date_value
 
 from studio_5w1h_vendor import report_engine as engine
 from studio_5w1h_vendor import template_engine as templates
+from studio_5w1h_vendor.confidence_design import confidence_view
 
 ENGINE_DIR = Path(__file__).resolve().parent / "studio_5w1h_vendor"
 ANALYSIS_LOCK = threading.RLock()
@@ -452,6 +453,7 @@ class ResearchStudio:
                 result["tables"].append({"id": "confidence", "title": "Intervalos de confianza y error muestral", "columns": columns,
                                          "display_columns": ["Marca", "Variación fabricante", "Variación MAT", "Límite inferior", "Límite superior", "Compradores · prom. 12m", "Penetración · prom. 12m", "Nivel de penetración", "Error muestral"],
                                          "column_units": ["", "%", "%", "%", "%", "", "%", "", "percent"],
+                                         "confidence_view": confidence_view(rows),
                                          "rows": [[record[c] for c in columns] for record in records]})
                 result["charts"].append(_chart("confidence", "Variación MAT e intervalo de confianza", [r.marca for r in rows],
                     [{"name": label, "values": [getattr(r, field) for r in rows], "color": color, "unit": "%"}
