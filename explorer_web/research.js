@@ -42,6 +42,7 @@
   function updateActions() {
     nodes.analyze.disabled = !state.file || !nodes.sheet.value || state.busy;
     nodes.edit.disabled = !state.file || state.busy;
+    nodes.edit.title = state.file ? 'Abre el archivo seleccionado en el editor de datos.' : 'Primero abre o selecciona un archivo de investigación.';
     nodes.create.disabled = state.busy;
     if (nodes.refresh) nodes.refresh.disabled = state.busy;
     nodes.generate.disabled = !state.analysis?.ready || state.analysis?.source_id !== state.file || state.busy || state.job?.status === 'running' || pendingInputs();
@@ -55,23 +56,26 @@
   }
   function clearAnalysis() {
     state.analysis = null;
-    nodes.output.replaceChildren($('div', {class: 'research-empty'}, 'Selecciona una hoja con datos o llénala en el editor para explorarla.'));
+    nodes.output.replaceChildren($('div', {class: 'research-empty'}, state.file ? 'Selecciona una hoja con datos o complétala con «Editar datos» para explorarla.' : 'Abre un Excel de tu PC, retoma un archivo disponible o crea una plantilla vacía para comenzar.'));
     updateActions();
   }
   function sourceDetails() {
     const file = state.catalog?.files.find(f => f.file === state.file || f.id === state.file);
     nodes.details.replaceChildren();
-    if (!file) return;
+    if (!file) {
+      nodes.details.append($('p', {class: 'studio-note'}, 'Al elegir un archivo verás aquí su país, categoría, fabricante y hojas disponibles.'));
+      return;
+    }
     const meta = file.metadata || file;
-    nodes.details.append($('strong', {}, `${meta.country} · ${meta.category}`), $('p', {class: 'studio-note'}, meta.manufacturer),
+    nodes.details.append($('strong', {}, `${meta.country} · ${meta.category} · ${meta.manufacturer}`),
       $('p', {class: 'studio-note research-source-name', title: file.name}, file.name),
-      $('p', {class: 'source-note'}, file.read_only ? 'Origen 5W1H. Al guardar cambios se creará una copia local para continuar aquí.' : 'Entrada local. Puedes editarla y analizarla sin abrir Excel.'));
+      $('p', {class: 'source-note'}, file.read_only ? 'Al editar se crea una copia local; el original se conserva.' : 'Entrada local. «Editar datos» permite completarla o corregirla.'));
     if (state.inspection?.requires_input) nodes.details.append($('p', {class: 'studio-note'}, 'Entrada vacía · pendiente de llenar.'));
   }
   async function catalog() {
     const response = await state.bridge.api('/api/research/catalog');
     state.catalog = response;
-    nodes.file.replaceChildren($('option', {value: ''}, 'Selecciona un archivo 5W1H'));
+    nodes.file.replaceChildren($('option', {value: ''}, 'Selecciona un archivo ya disponible…'));
     for (const file of response.files) {
       const meta = file.metadata || file;
       nodes.file.append($('option', {value: file.file || file.id, title: file.name}, `${meta.country} · ${meta.category} · ${meta.manufacturer} · ${file.name}${file.read_only ? ' · origen' : ' · local'}`));
@@ -114,7 +118,7 @@
     nodes.start.value = nodes.end.value = '';
     clearAnalysis();
     renderJob();
-    if (!fileId) { sourceDetails(); return; }
+    if (!fileId) { sourceDetails(); message(''); return; }
     state.busy = true;
     updateActions();
     message('Leyendo hojas y origen de los datos…');
@@ -162,13 +166,16 @@
     if (imported) {
       await open(imported.file);
       if (state.file === imported.file && state.inspection) {
-        message(`${imported.reused_existing ? 'Se abrió la entrada local existente' : 'Copia de trabajo guardada en inputs/5w1h'}: ${imported.name}. ${state.inspection.sheets.length} hojas disponibles en «Salidas del archivo».${state.analysis && !state.analysis.ready ? ' Revisa los avisos de la hoja seleccionada.' : ''}`);
+        message(`${imported.reused_existing ? 'Se abrió la entrada local existente' : 'Copia de trabajo lista'}: ${imported.name}. ${state.inspection.sheets.length} hojas disponibles en «Salidas del archivo».${state.analysis && !state.analysis.ready ? ' Revisa los avisos de la hoja seleccionada.' : ''}`);
       }
     }
   }
   function renderDimensions() {
     if (!nodes.dimensions) return;
     const sheets = state.inspection?.sheets || [];
+    nodes.sidebar.hidden = !sheets.length;
+    nodes.controlsPanel.hidden = !sheets.length;
+    nodes.layout.classList.toggle('research-without-sheets', !sheets.length);
     nodes.dimensions.replaceChildren($('h2', {}, 'Salidas del archivo'));
     nodes.dimensions.hidden = !sheets.length;
     if (!sheets.length) return;
@@ -441,9 +448,10 @@
     provenance.append($('summary', {}, 'Origen, cálculo y alcance del informe'), $('p', {}, 'La web explora el período y los elementos seleccionados. El PPT/Excel se genera con las hojas completas; no inventa regiones, canales o NSE a partir de cobertura.'),
       $('pre', {}, JSON.stringify(analysis.provenance, null, 2)));
     nodes.output.append(provenance);
-    if (!analysis.ready) nodes.output.append($('div', {class: 'research-empty'}, 'Usa Llenar / editar datos para completar este segmento.'));
+    if (!analysis.ready) nodes.output.append($('div', {class: 'research-empty'}, 'Usa «Editar datos» para completar este segmento.'));
   }
   function renderJob() {
+    nodes.results.hidden = !state.file;
     nodes.results.replaceChildren();
     const job = state.job?.file===state.file ? state.job : null;
     const panel = $('section', {class: 'studio-panel research-results', 'aria-label':'Resultados del archivo 5W1H seleccionado'});
@@ -554,34 +562,47 @@
   function init(container, bridge) {
     state.container = container; state.bridge = bridge;
     const heading = $('div', {class: 'studio-heading'}), headingText = $('div');
-    headingText.append($('div', {class: 'eyebrow'}, 'MOMENTO 3 · INVESTIGACIÓN'), $('h1', {}, 'Investigar con 5W1H'), $('p', {}, 'Explora marcas, tamaños, canales, regiones, NSE y sus aportes. Los datos adicionales se llenan en el mismo estudio.'));
-    const actions = $('div', {class: 'studio-actions'});
-    nodes.create = $('button', {class: 'button secondary', type: 'button'}, 'Nueva entrada 5W1H');
-    nodes.edit = $('button', {class: 'button secondary', type: 'button', disabled: true}, 'Llenar / editar datos');
-    nodes.importFile = $('button', {class: 'button secondary', type: 'button'}, 'Elegir archivo Excel');
-    nodes.upload = $('input', {type: 'file', accept: '.xlsx', hidden: true, 'aria-label': 'Elegir archivo de investigación desde cualquier carpeta'});
+    headingText.append($('div', {class: 'eyebrow'}, 'MOMENTO 3 · INVESTIGACIÓN'), $('h1', {}, 'Investigar con 5W1H'), $('p', {}, 'Elige un archivo, explora sus hojas y genera el informe de marcas, canales, regiones y compradores.'));
+    nodes.create = $('button', {id: 'research-create', class: 'button secondary', type: 'button'}, 'Crear plantilla vacía');
+    nodes.edit = $('button', {id: 'research-edit', class: 'button secondary', type: 'button', disabled: true}, 'Editar datos');
+    nodes.importFile = $('button', {id: 'research-open-pc', class: 'button primary', type: 'button'}, 'Abrir Excel de mi PC');
+    nodes.upload = $('input', {id: 'research-upload', type: 'file', accept: '.xlsx', hidden: true, 'aria-label': 'Elegir archivo de investigación desde cualquier carpeta'});
+    window.CoverageApp?.resultButton?.(nodes.importFile, 'Abrir Excel de mi PC', 'folder');
     nodes.importFile.addEventListener('click', () => nodes.upload.click());
     nodes.upload.addEventListener('change', () => importResearch(nodes.upload.files[0]));
     nodes.generate = $('button', {class: 'button primary', type: 'button', disabled: true}, 'Generar informe 5W1H');
     nodes.create.addEventListener('click', () => bridge.createResearch(bridge.coverageContext()));
     nodes.edit.addEventListener('click', () => bridge.openEditor(state.file, 'research', nodes.sheet.value));
     nodes.generate.addEventListener('click', reviewExport);
-    actions.append(nodes.importFile, nodes.upload, nodes.create, nodes.edit); heading.append(headingText, actions);
+    heading.append(headingText);
     nodes.message = $('div', {class: 'studio-message', role: 'status', hidden: true});
-    const layout = $('div', {class: 'studio-layout'}), aside = $('aside', {class: 'studio-sidebar'}), source = $('section', {class: 'studio-panel padded'});
-    source.append($('h2', {}, 'Fuente 5W1H'), $('label', {for: 'research-file'}, 'Archivo de investigación'));
+    const layout = $('div', {class: 'studio-layout research-layout'}), aside = $('aside', {class: 'studio-sidebar'}), source = $('section', {id: 'research-source', class: 'studio-panel research-source-panel', 'aria-labelledby': 'research-source-title'});
+    nodes.layout = layout; nodes.sidebar = aside;
+    source.append($('h2', {id: 'research-source-title'}, 'Archivo de investigación'));
+    const choices = $('div', {class: 'research-source-choices'});
+    const fromPC = $('div', {class: 'research-source-choice'});
+    fromPC.append($('span', {class: 'research-source-label'}, 'Desde tu computadora'), nodes.importFile,
+      $('p', {class: 'studio-note'}, 'Excel 5W1H (.xlsx) de cualquier carpeta. Se usa una copia local.'));
+    const existing = $('div', {class: 'research-source-choice research-source-existing'});
+    existing.append($('label', {for: 'research-file', class: 'research-source-label'}, 'Archivos ya disponibles en CoverageLab'));
     nodes.file = $('select', {id: 'research-file', 'aria-label': 'Archivo de investigación 5W1H'});
-    nodes.details = $('div');
+    nodes.details = $('div', {id: 'research-source-details', class: 'research-source-details', 'aria-live': 'polite'});
     nodes.file.addEventListener('change', () => {state.manual = true; open(nodes.file.value);});
-    source.append(nodes.file, nodes.details, $('p', {class: 'studio-note'}, 'La cobertura aporta contexto y pipelines. Las regiones, canales y perfiles requieren sus propias observaciones.'));
-    const refresh = $('button', {class: 'button subtle', type: 'button'}, 'Actualizar archivos');
+    const refresh = $('button', {id: 'research-refresh', class: 'button secondary', type: 'button', title: 'Actualiza la lista y vuelve a leer el archivo seleccionado.'}, 'Actualizar lista');
     nodes.refresh = refresh;
     refresh.addEventListener('click', async () => {try {await catalog(); if (state.file) await open(state.file);} catch (error) {message(error.message, true);}});
     refresh.addEventListener('click', () => {state.manual = true;});
-    source.append(refresh, $('p', {class: 'studio-note'}, 'Elige un Excel de cualquier carpeta. Se conserva el original y se usa una copia local; si ya existe idéntico, se abre sin duplicarlo.')); aside.append(source);
+    const picker = $('div', {class: 'research-source-picker'}); picker.append(nodes.file, refresh); existing.append(picker);
+    const newEntry = $('div', {class: 'research-source-choice'});
+    newEntry.append($('span', {class: 'research-source-label'}, 'Para empezar desde cero'), nodes.create,
+      $('p', {class: 'studio-note'}, 'Crea un archivo sin datos, listo para llenar.'));
+    choices.append(fromPC, existing, newEntry);
+    const selected = $('div', {class: 'research-source-selected'}); selected.append(nodes.details, nodes.edit);
+    source.append(choices, nodes.upload, selected);
     nodes.dimensions = $('section', {class: 'studio-panel padded research-dimensions', hidden: true}); aside.append(nodes.dimensions);
     const main = $('div');
     const controlsPanel = $('section', {class: 'studio-panel padded'}), controls = $('div', {class: 'research-controls'});
+    nodes.controlsPanel = controlsPanel;
     const field = (label, node, wide = false) => {const wrap = $('div', {class: wide ? 'wide-field' : ''}); wrap.append($('label', {for: node.id}, label), node); controls.append(wrap);};
     nodes.sheet = $('select', {id: 'research-sheet'}); field('Hoja / dimensión', nodes.sheet, true);
     nodes.mode = $('select', {id: 'research-mode'}); field('Origen de los gráficos', nodes.mode);
@@ -610,7 +631,7 @@
     elementActions.append(all, none); nodes.elements = $('div', {class: 'research-elements'}); nodes.elementDetail.append(elementActions, nodes.elements); controlsPanel.append(nodes.elementDetail);
     nodes.results = $('div',{class:'research-results-dock'}); nodes.output = $('div');
     main.append(controlsPanel, nodes.output); layout.append(aside, main);
-    container.replaceChildren(nodes.results,heading,nodes.message,layout); renderJob(); clearAnalysis();
+    container.replaceChildren(nodes.results,heading,source,nodes.message,layout); renderJob(); sourceDetails(); renderDimensions(); clearAnalysis();
   }
   async function activate(context) {
     try {
@@ -623,9 +644,8 @@
       const matching = chooseMatch(contextValue);
       if (!state.manual && contextValue?.file && !matching) {
         await open(null);
-        message('No hay una entrada 5W1H para este contexto. Crea una entrada o elige un archivo de investigación para continuar.');
+        message('Elige un archivo disponible, abre un Excel de tu PC o crea una plantilla vacía para este contexto.');
       } else if (!state.manual && matching && (matching.file || matching.id) !== state.file) await open(matching.file || matching.id);
-      else if (!state.manual && !state.file && !contextValue?.file && state.catalog.files.length) await open(state.catalog.files[0].file || state.catalog.files[0].id);
       else updateActions();
       if (pendingInputs()) message('Hay entradas pendientes de guardar. La vista muestra los datos guardados; guarda los cambios en el editor antes de generar el informe.', true);
     } catch (error) {message(error.message, true);}
