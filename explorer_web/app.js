@@ -1,7 +1,7 @@
 'use strict';
 const $ = id => document.getElementById(id);
 const token = document.querySelector('meta[name="explorer-token"]').content;
-const state = {analysis: null, active: null, selections: {}, included: {}, pptExtras: {}, busy: false, dirty: false, job: null, files: [], openingResults:false, openingOutput:null, resultRequest:0, pendingInput:null};
+const state = {analysis: null, active: null, selections: {}, included: {}, pptExtras: {}, pptSlides: {}, busy: false, dirty: false, job: null, files: [], openingResults:false, openingOutput:null, resultRequest:0, pendingInput:null};
 const outputNames = {template:'Abrir Excel', presentation:'Abrir PPT', bank:'Banco', pipeline_report:'Pipelines', selection:'Selección', log:'Registro'};
 const fmt = (value, digits = 1, suffix = '') => value == null ? '—' : new Intl.NumberFormat('es-MX', {minimumFractionDigits: digits, maximumFractionDigits: digits}).format(value) + suffix;
 const month = date => new Intl.DateTimeFormat('es-MX', {month: 'short', year: '2-digit'}).format(new Date(date + 'T12:00:00'));
@@ -74,11 +74,15 @@ function requestOptions() {
 function selectedSheets() {
   return Object.fromEntries(Object.entries(state.selections).filter(([name]) => state.included[name]));
 }
+function selectedPptSheets() {
+  return Object.fromEntries(Object.entries(selectedSheets()).filter(([name]) => state.pptSlides?.[name] !== false));
+}
 function payload() { return {analysis_id: state.analysis.id, selections: selectedSheets(),
+  ppt_slide_sheets:Object.keys(selectedPptSheets()),
   ppt_extras:Object.fromEntries(Object.keys(selectedSheets()).filter(name=>state.pptExtras[name]?.length).map(name=>[name,state.pptExtras[name]]))}; }
 function draftKey() { return `coveragelab-selection-${state.analysis.selection_key}`; }
 function saveDraft() {
-  try { localStorage.setItem(draftKey(), JSON.stringify({selections: state.selections, included: state.included,ppt_extras:state.pptExtras})); } catch (_) { /* Disk save remains available. */ }
+  try { localStorage.setItem(draftKey(), JSON.stringify({selections: state.selections, included: state.included,ppt_slide_sheets:Object.keys(selectedPptSheets()),ppt_extras:state.pptExtras})); } catch (_) { /* Disk save remains available. */ }
 }
 function controls() {
   const working = state.busy || state.job?.status === 'running';
@@ -88,6 +92,7 @@ function controls() {
   $('input-pending-notice').hidden=!pendingInput;
   const ready = state.analysis && !state.dirty && Object.keys(selectedSheets()).length && !working && !pendingInput;
   $('save').disabled = !ready;
+  for (const id of ['coverage-summary', 'dialog-selection']) CoverageSummary.setBusy($(id), working);
   const refreshNeeded=!state.analysis || state.dirty;
   $('generate-files').disabled = working || pendingInput || !$('file').value || (!refreshNeeded && !Object.keys(selectedSheets()).length);
   $('generate-files').textContent=state.job?.status==='running' ? 'Generando…' : state.busy ? 'Procesando…' : 'Generar archivos';
@@ -206,19 +211,20 @@ async function load() {
   try {
     const analysis = await api('/api/analyze', requestOptions());
     if (analysis.sheets.some(sheet => !sheet.error && !sheet.dashboard)) throw new Error('Reinicia el explorador local para cargar el panel completo del Excel.');
-    state.analysis = analysis; state.selections = {}; state.included = {}; state.pptExtras = {};
+    state.analysis = analysis; state.selections = {}; state.included = {}; state.pptExtras = {}; state.pptSlides = {};
     $('window').value = 'all'; $('dashboard-window').value = 'all';
     $('template-view').value = 'all'; $('table-columns').value = 'all';
     renderFileDetail();
     let saved;
     try { saved = JSON.parse(localStorage.getItem(draftKey()) || 'null'); } catch (_) { saved = null; }
-    if (!saved && analysis.saved_selection) saved = {selections: analysis.saved_selection.selections,ppt_extras:analysis.saved_selection.ppt_extras,
+    if (!saved && analysis.saved_selection) saved = {selections: analysis.saved_selection.selections,ppt_slide_sheets:analysis.saved_selection.ppt_slide_sheets,ppt_extras:analysis.saved_selection.ppt_extras,
       included: Object.fromEntries(Object.keys(analysis.saved_selection.selections).map(name => [name, true]))};
     analysis.sheets.forEach(sheet => {
       if (sheet.error) { state.included[sheet.name] = false; return; }
       const previous = saved?.selections?.[sheet.name];
       state.selections[sheet.name] = Number.isInteger(previous) && sheet.pipelines[previous]?.available ? previous : sheet.default_pipeline;
       state.included[sheet.name] = saved ? !!saved.included?.[sheet.name] : true;
+      state.pptSlides[sheet.name] = !Array.isArray(saved?.ppt_slide_sheets) || saved.ppt_slide_sheets.includes(sheet.name);
       const extras=saved?.ppt_extras?.[sheet.name];
       state.pptExtras[sheet.name] = Array.isArray(extras) ? [...new Set(extras.filter(key=>Object.hasOwn(pptExtraTitles,key)))] : [];
     });
@@ -261,10 +267,11 @@ function choose(pipeline) {
 function render() {
   if (!state.analysis) return;
   renderSheets();
+  renderCoverageSummary();
   const sheet = state.analysis.sheets.find(sheet => sheet.name === state.active);
   const count = Object.keys(selectedSheets()).length;
   $('included-count').textContent = `${count} hojas incluidas`;
-  $('export-summary').textContent = count ? `${count} hoja(s) con un pipeline elegido` : 'Incluye al menos una hoja para generar';
+  $('export-summary').textContent = count ? `${count} hoja(s) en resumen · ${Object.keys(selectedPptSheets()).length} con diapositivas` : 'Incluye al menos una hoja para generar';
   $('context').textContent = `${sheet?.metadata?.pais_nombre || state.analysis.country} / ${state.analysis.manufacturer} / ${sheet?.category || state.analysis.category}`;
   $('sheet-facts').replaceChildren(fact('País del archivo', `${state.analysis.country} · ${state.analysis.country_code}`), fact('Categoría de la hoja', `${sheet?.metadata?.categoria_nombre || state.analysis.category} · ${sheet?.metadata?.categoria_codigo || state.analysis.category_code}`), fact('Cesta', sheet?.metadata?.cesta_nombre || state.analysis.basket), fact('Unidad de volumen', sheet?.unit), fact('Último mes', sheet?.dates ? month(sheet.dates.at(-1)) : '—'));
   $('brand-title').textContent = sheet?.brand || 'Sin hojas';
@@ -658,12 +665,15 @@ async function saveSelection() {
   catch (error) { status(error.message, true); }
   finally { state.busy = false; controls(); }
 }
+function renderCoverageSummary(review = false) {
+  CoverageSummary.render($(review ? 'dialog-selection' : 'coverage-summary'), state, {fmt, month, extraTitles:pptExtraTitles,
+    changed() {saveDraft(); render(); if ($('export-dialog').open) {renderCoverageSummary(true); $('confirm-export').disabled = !Object.keys(selectedSheets()).length;}},
+    inspect(name) {state.active = name; render(); $('brand-title').scrollIntoView({block:'center', behavior:'smooth'});}}, review);
+}
 function reviewExport() {
   $('dialog-file').textContent = `${state.analysis.file} · ${$('template').selectedOptions[0].textContent}`;
-  $('dialog-selection').replaceChildren();
-  Object.entries(selectedSheets()).forEach(([name, pipeline]) => { const row = item('div', null, 'dialog-row');
-    const extras=(state.pptExtras[name] || []).map(key=>pptExtraTitles[key]);
-    row.append(item('span',name+(extras.length ? ` · Extra: ${extras.join(', ')}` : ' · Solo gráficos básicos')), item('strong', `P${pipeline}`)); $('dialog-selection').append(row); });
+  renderCoverageSummary(true);
+  $('confirm-export').disabled = !Object.keys(selectedSheets()).length;
   $('export-dialog').showModal();
 }
 async function prepareExport() {
@@ -677,6 +687,7 @@ async function exportFiles() {
   try {
     const request=payload(),captureOptions=dashboardOptions();
     await api('/api/save', request);
+    request.ppt_extras=Object.fromEntries(Object.entries(request.ppt_extras).filter(([name])=>request.ppt_slide_sheets.includes(name)));
     status('Preparando las imágenes de los gráficos para el PPT…');
     const images={};
     for(const [name,keys] of Object.entries(request.ppt_extras)) {

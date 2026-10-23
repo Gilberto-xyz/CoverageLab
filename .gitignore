@@ -22,6 +22,7 @@
 !Abrir_Explorador.cmd
 !explorer_web/index.html
 !explorer_web/app.js
+!explorer_web/coverage-summary.js
 !explorer_web/dashboard.js
 !explorer_web/style.css
 !explorer_web/studio.js
@@ -50,6 +51,7 @@
 !tests/test_research_dense_legend.py
 !tests/test_integrated_studio.py
 !tests/test_pipeline_explorer.py
+!tests/test_coverage_summary.py
 !requirements.txt
 !tests/test_auto_pipeline_comparison.py
 !tests/test_scorecard_output_name.py

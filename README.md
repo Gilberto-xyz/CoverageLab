@@ -501,6 +501,24 @@ El menú de formato permite generar:
 La opción 3 exporta dos archivos independientes en la misma carpeta de salida,
 uno con sufijo `_unilever.xlsx` y otro con sufijo `_personalizado.xlsx`.
 
+### Resumen de coberturas y selección de diapositivas
+
+El **Resumen de todas las marcas**, disponible al cargar y también en la revisión
+de exportación, reúne el pipeline elegido, compradores promedio de 12 meses,
+penetración, variaciones MAT, cobertura y correlación de cada hoja. Permite buscar
+marcas y cambiar su pipeline sin recorrer cada gráfico.
+**Resumen** incluye la hoja en la tabla del PPT, el Excel y el banco; **Slides**
+controla aparte sus diapositivas básicas y extras. **Solo ≥200 compradores** excluye
+las bases menores o sin dato de ambas salidas; **Slides solo ≥200** las mantiene
+en el resumen y omite sus diapositivas. **Solo resumen** desactiva todas las
+diapositivas de marca de la selección actual; **Incluir todas** recupera las hojas
+válidas con sus slides. El límite usa el promedio exacto, sin redondear, y la
+selección se conserva al guardar. Las selecciones anteriores incluyen sus slides
+como antes.
+
+Las marcas con menos de 200 compradores promedio se sombrean en toda la fila,
+tanto en el resumen como en la revisión de exportación.
+
 ## Formato del archivo de entrada
 
 ### Nombre del archivo

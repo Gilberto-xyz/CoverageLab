@@ -142,3 +142,16 @@ body{padding-top:var(--header-height)}
   #header-main .module-nav .step{display:flex;align-items:center;justify-content:center;gap:4px;white-space:normal;padding:4px 2px;font-size:9px;line-height:1.25}
   #header-main .module-nav .step b{flex-shrink:0;margin-right:0}
 }
+.coverage-summary{margin-bottom:18px;min-width:0}.coverage-summary>details>summary{padding:15px 18px;font-weight:700;cursor:pointer;color:var(--ink)}
+.coverage-summary-count{display:inline-block;font-size:12px;font-weight:400;color:var(--muted);margin-left:18px}.coverage-summary-tools{display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:0 16px 8px}
+.coverage-summary-tools .button{font-size:11px;padding:8px 11px}.coverage-summary-tools input[type=search]{flex:1;min-width:180px;margin:0;max-width:350px;font-size:12px}
+.coverage-summary .table-note{margin:5px 16px 12px;line-height:1.5}.coverage-summary-scroll{max-height:390px;border-top:1px solid var(--line)}
+.coverage-summary table{min-width:1320px;width:100%;border-collapse:separate;border-spacing:0}.coverage-summary th{position:sticky;top:0;z-index:2;background:#eff4f7;color:#325269;font-size:10px;white-space:normal;min-width:80px}
+.coverage-summary th:first-child,.coverage-summary th:nth-child(2){min-width:55px}.coverage-summary td{font-size:12px;white-space:nowrap}.coverage-summary th,.coverage-summary td{padding:9px 10px;text-align:right;border-bottom:1px solid var(--line)}
+.coverage-summary th:nth-child(3),.coverage-summary td:nth-child(3){text-align:left;position:sticky;left:0;background:white;min-width:195px;max-width:255px;z-index:1;box-shadow:2px 0 3px #1736460b}.coverage-summary th:nth-child(3){z-index:3;background:#eff4f7}
+.coverage-summary td small{display:block;font-size:10px;font-weight:400;white-space:normal;line-height:1.4;color:var(--muted);margin-top:3px}.coverage-summary-brand{padding:0;border:0;background:transparent;color:#007e82;text-align:left;font-size:12px;font-weight:650;white-space:normal;cursor:pointer}
+.coverage-summary td input[type=checkbox]{width:17px;height:17px;margin:0;accent-color:#008e8b}.coverage-summary td select{padding:5px;min-width:65px;max-width:80px;margin:0;font-size:12px}
+.coverage-summary td.coverage-positive{color:#166534;background:#edf9f0}.coverage-summary td.coverage-negative{color:#a52e3b;background:#fff0f1}.coverage-summary .coverage-summary-error{color:#a45c20}
+.coverage-summary tr.coverage-omitted td{color:#8494a0;background:#f8fafb}.coverage-summary tr.coverage-invalid td{background:#fff8f1;color:#917a66}
+.coverage-summary tr.coverage-low-buyers td{background:#fff1de}.coverage-summary tr.coverage-low-buyers td:first-child{box-shadow:inset 3px 0 #d28a2d}.coverage-summary tr.coverage-low-buyers select{background:#fff8ed;border-color:#e8c798}
+.coverage-export-dialog{width:min(1450px,95vw);max-width:95vw}.coverage-export-dialog .dialog-selection{max-height:none;padding:0}.coverage-export-dialog .coverage-summary-scroll{max-height:46vh}.coverage-summary button:focus-visible{outline:2px solid #008e8b;outline-offset:3px}

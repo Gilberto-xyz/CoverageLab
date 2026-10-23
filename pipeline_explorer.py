@@ -87,7 +87,7 @@ def options_from_request(payload):
 
 def serialize_options(options):
     return {key: value for key, value in asdict(options).items()
-            if key not in {"pipeline_overrides", "sheet_metadata_overrides", "ppt_extra_charts", "ppt_extra_images"}}
+            if key not in {"pipeline_overrides", "sheet_metadata_overrides", "ppt_extra_charts", "ppt_extra_images", "ppt_slide_sheets"}}
 
 
 def validate_ppt_images(value, extras):
@@ -578,12 +578,21 @@ class ExplorerState:
                     raise ValueError(f"{name}: el KPI {key} no tiene datos para el PPT.")
         return extras
 
+    def reviewed_slide_sheets(self, payload, selections):
+        """Legacy selections produce every slide; an explicit empty list means summary only."""
+        names = payload.get("ppt_slide_sheets", list(selections))
+        if (not isinstance(names, list) or any(not isinstance(name, str) for name in names)
+                or len(names) != len(set(names)) or not set(names).issubset(selections)):
+            raise ValueError("Las diapositivas deben corresponder a hojas incluidas en el resumen.")
+        return [name for name in selections if name in names]
+
     def save_selection(self, payload):
         with self.analysis_lock:
             analysis, _, selections = self.reviewed_selection(payload)
             extras = self.reviewed_extras(payload, selections, analysis)
+            slide_sheets = self.reviewed_slide_sheets(payload, selections)
             selection = {"file": analysis["file"], "fingerprint": analysis["fingerprint"],
-                         "options": analysis["options"], "selections": selections, "ppt_extras": extras}
+                         "options": analysis["options"], "selections": selections, "ppt_extras": extras, "ppt_slide_sheets": slide_sheets}
             directory = self.root / "outputs" / "pipeline_explorer" / "selections"
             directory.mkdir(parents=True, exist_ok=True)
             target = directory / f"{analysis['selection_key']}.json"
@@ -599,6 +608,8 @@ class ExplorerState:
                 raise ValueError("Ya hay una generación en curso. Espera a que termine.")
             analysis, source, selections = self.reviewed_selection(payload)
             extras = self.reviewed_extras(payload, selections, analysis)
+            slide_sheets = self.reviewed_slide_sheets(payload, selections)
+            extras = {name: keys for name, keys in extras.items() if name in slide_sheets}
             started = datetime.now().astimezone()
             images = validate_ppt_images(payload["ppt_images"], extras) if "ppt_images" in payload else {}
             job_id = started.strftime("%Y%m%d_%H%M%S") + "_" + secrets.token_hex(3)
@@ -612,6 +623,7 @@ class ExplorerState:
             shutil.copy2(self.root / "Modelo_PPT.pptx", workdir / "Modelo_PPT.pptx")
             config = {"file": source.name, "fingerprint": analysis["fingerprint"],
                       "options": analysis["options"], "selections": selections, "ppt_extras": extras,
+                      "ppt_slide_sheets": slide_sheets,
                       "output_root": str(self.output_root), "run_suffix": started.strftime("%Y%m%d_%H%M%S"),
                       "metadata": {sheet["name"]: sheet["metadata"] for sheet in analysis["sheets"] if sheet["name"] in selections}}
             if images:
@@ -701,6 +713,7 @@ def run_worker(config_path):
     try:
         options = core.ExecutionOptions(**config["options"])
         options.pipeline_overrides = config["selections"]
+        options.ppt_slide_sheets = config.get("ppt_slide_sheets")
         options.ppt_extra_charts = config.get("ppt_extras", {})
         for name, charts in config.get("ppt_images", {}).items():
             options.ppt_extra_images[name] = {}
@@ -801,7 +814,7 @@ def make_handler(state):
                 if path == "/":
                     html = (ASSETS / "index.html").read_text(encoding="utf-8").replace("__EXPLORER_TOKEN__", state.token)
                     self.send_bytes(html.encode("utf-8"), "text/html; charset=utf-8")
-                elif path in {"/app.js", "/dashboard.js", "/studio.js", "/research.js", "/style.css", "/studio.css"}:
+                elif path in {"/app.js", "/coverage-summary.js", "/dashboard.js", "/studio.js", "/research.js", "/style.css", "/studio.css"}:
                     file = ASSETS / path[1:]
                     self.send_bytes(file.read_bytes(), mimetypes.guess_type(str(file))[0] + "; charset=utf-8")
                 elif path == "/api/files":

@@ -8,6 +8,7 @@
   <link rel="stylesheet" href="/style.css">
   <link rel="stylesheet" href="/studio.css">
   <script src="/dashboard.js" defer></script>
+  <script src="/coverage-summary.js" defer></script>
   <script src="/app.js" defer></script>
   <script src="/research.js" defer></script>
   <script src="/studio.js" defer></script>
@@ -73,6 +74,7 @@
         <div class="empty-features"><span>↔ Comparación visual</span><span>◷ Cobertura MAT</span><span>✓ Selección por hoja</span></div>
       </section>
       <section id="workspace" hidden>
+        <section id="coverage-summary" class="table-card coverage-summary" aria-label="Resumen de coberturas de todas las hojas"></section>
         <div class="workspace-heading"><div><div id="context" class="eyebrow"></div><h1 id="brand-title"></h1><p id="sheet-subtitle"></p></div><span id="included-count" class="pill"></span></div>
         <div id="sheet-facts" class="sheet-facts"></div>
         <div id="warnings" class="warnings" hidden></div>
@@ -126,13 +128,13 @@
           </section>
           <section class="table-card"><div class="table-heading"><h2>Todos los pipelines, lado a lado</h2><span>Selecciona una fila para elegir</span></div><div id="pipeline-color-key" class="excel-color-key"></div><div class="table-scroll"><table><thead><tr><th>Pipeline</th><th>Correlación MAT</th><th>Cobertura actual</th><th>VAR % Sell-in</th><th>Gap (pp)</th><th>Estabilidad (pp)</th><th>Referencia</th></tr></thead><tbody id="pipeline-table"></tbody></table></div><p class="table-note">— indica historia insuficiente o una base no calculable. La recomendación automática compara P1–P6; P0 queda disponible como referencia.</p></section>
         </div>
-        <section class="export-bar"><div><strong id="export-summary"></strong><p>La elección por hoja se aplicará al PPT, al banco y a los gráficos del Excel. Genera los archivos desde la barra superior.</p></div><div class="export-actions"><button id="save" class="button secondary">Guardar selección</button></div></section>
+        <section class="export-bar"><div><strong id="export-summary"></strong><p>La elección por hoja se aplicará al resumen, al banco y al Excel. Puedes elegir aparte qué marcas generan diapositivas. Genera los archivos desde la barra superior.</p></div><div class="export-actions"><button id="save" class="button secondary">Guardar selección</button></div></section>
       </section>
     </main>
   </div>
   <section id="input-module" class="studio-module" aria-label="Preparar y editar entradas" hidden></section>
   <section id="research-module" class="studio-module" aria-label="Investigar resultados 5W1H" hidden></section>
-  <dialog id="export-dialog"><div class="dialog-heading"><div class="eyebrow">REVISIÓN FINAL</div><h2>Generar con tu selección</h2><p id="dialog-file"></p></div><div id="dialog-selection" class="dialog-selection"></div><p>Los gráficos extra se incluyen como imágenes de alta resolución, con el período, las etiquetas y el detalle visual elegidos en la web.</p><p>Se creará una carpeta nueva en <strong>Output</strong>, con el nombre de país, categoría, fabricante, periodo y cobertura del script, más fecha y hora. Conserva el Excel, el PPT, el banco, el reporte de pipelines y la configuración utilizada.</p><div class="dialog-actions"><button id="cancel-export" class="button secondary">Volver a explorar</button><button id="confirm-export" class="button primary">Generar entregables</button></div></dialog>
+  <dialog id="export-dialog" class="coverage-export-dialog"><div class="dialog-heading"><div class="eyebrow">REVISIÓN FINAL</div><h2>Generar con tu selección</h2><p id="dialog-file"></p></div><div id="dialog-selection" class="dialog-selection coverage-summary"></div><p>Los gráficos extra se incluyen como imágenes de alta resolución, con el período, las etiquetas y el detalle visual elegidos en la web.</p><p>Se creará una carpeta nueva en <strong>Output</strong>, con el nombre de país, categoría, fabricante, periodo y cobertura del script, más fecha y hora. Conserva el Excel, el PPT, el banco, el reporte de pipelines y la configuración utilizada.</p><div class="dialog-actions"><button id="cancel-export" class="button secondary">Volver a explorar</button><button id="confirm-export" class="button primary">Generar entregables</button></div></dialog>
   <dialog id="file-dialog" class="file-dialog" aria-labelledby="file-dialog-title"><div class="file-dialog-heading"><div><div class="eyebrow">ARCHIVOS DEL PROYECTO</div><h2 id="file-dialog-title">Elige por país, categoría y fabricante</h2><p>Los códigos se traducen con el catálogo de CoverageLab.</p></div><button id="close-files" class="icon-button" aria-label="Cerrar selector de archivos">×</button></div><div class="catalog-filters"><input id="file-search" type="search" placeholder="Buscar fabricante, país, categoría o archivo…" aria-label="Buscar archivos"><label for="file-country" class="sr-only">Filtrar país</label><select id="file-country"><option value="">Todos los países</option></select><label for="file-category" class="sr-only">Filtrar categoría</label><select id="file-category"><option value="">Todas las categorías</option></select></div><p id="catalog-count" class="section-description" aria-live="polite"></p><div id="file-cards" class="file-cards"></div></dialog>
   <dialog id="chart-dialog" class="chart-dialog" aria-labelledby="chart-dialog-title"><div class="file-dialog-heading"><div><div class="eyebrow">DETALLE DEL GRÁFICO</div><h2 id="chart-dialog-title"></h2><p id="chart-dialog-description"></p></div><button id="close-chart" class="icon-button" aria-label="Cerrar gráfico ampliado">×</button></div><div id="chart-dialog-content"></div></dialog>
 </body>

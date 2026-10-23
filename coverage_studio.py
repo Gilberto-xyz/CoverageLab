@@ -5545,6 +5545,7 @@ class ExecutionOptions:
     sheet_metadata_overrides: Dict[str, SheetBankMetadata] = field(default_factory=dict)
     ppt_extra_charts: Dict[str, List[str]] = field(default_factory=dict)
     ppt_extra_images: Dict[str, Dict[str, str]] = field(default_factory=dict)
+    ppt_slide_sheets: Optional[List[str]] = None
 
     @classmethod
     def from_scenario(cls, scenario_key: str) -> Optional["ExecutionOptions"]:
@@ -12594,8 +12595,12 @@ def generate_presentation_and_bank(
     sheet_metadata_overrides: Optional[Dict[str, SheetBankMetadata]] = None,
     ppt_extra_charts: Optional[Dict[str, List[str]]] = None,
     ppt_extra_images: Optional[Dict[str, Dict[str, str]]] = None,
+    ppt_slide_sheets: Optional[Sequence[str]] = None,
 ) -> Tuple[str, "pd.DataFrame", "pd.DataFrame", "pd.DataFrame"]:
     ppt_extra_charts = validate_ppt_extra_charts(ppt_extra_charts or {}, marcas)
+    slide_sheets = set(marcas if ppt_slide_sheets is None else ppt_slide_sheets)
+    if not slide_sheets.issubset(marcas):
+        raise ValueError("Las diapositivas deben corresponder a marcas incluidas en el resumen.")
     chosen_lang, lang_index = determine_language(include_english, pais_nombre)
     include_summary_category = any(
         bool(parse_sheet_name_identity(sheet_name).category_code)
@@ -12649,6 +12654,8 @@ def generate_presentation_and_bank(
         or include_summary_category
     )
     for marca_sheet_name in marcas:
+        if marca_sheet_name not in slide_sheets:
+            continue
         df_marca_ppt, _ = load_and_preprocess_sheet(
             excel_file_obj,
             marca_sheet_name,
@@ -12679,7 +12686,9 @@ def generate_presentation_and_bank(
     )
 
     with progress:
-        task_id = progress.add_task("Creando Diapositivas PPT", total=total_slides_to_generate + 1)
+        # Every summary row still needs processing when its brand slides are omitted.
+        presentation_total = max(1, total_slides_to_generate + len(marcas))
+        task_id = progress.add_task("Creando Diapositivas PPT", total=presentation_total)
         for marca_sheet_name in marcas:
             df_marca_ppt, measure_unit = load_and_preprocess_sheet(
                 excel_file_obj,
@@ -12858,73 +12867,74 @@ def generate_presentation_and_bank(
                 current_year_correlation = compute_pipeline_current_year_correlation(df_marca_ppt, pipeline)
                 annual_var_cliente_y2 = compute_previous_year_annual_variation(df_marca_ppt, COL_SELL_IN, pipeline)
                 annual_var_wp_y2 = compute_previous_year_annual_variation(df_marca_ppt, COL_SELL_OUT, 0)
-                variation_table = build_variation_table(
-                    fabricante,
-                    labels,
-                    lang_index,
-                    pipeline,
-                    sheet_ref_month_year,
-                    var_cliente_mat,
-                    var_kantar_mat,
-                )
-                variations_detail = build_variations_detail_table(
-                    df_variations,
-                    pipeline,
-                    df_marca_ppt,
-                    include_same_period_last_year=variations_include_same_period_last_year,
-                )
-                evolution_figure = build_evolution_figure(
-                    df_marca_ppt,
-                    pipeline,
-                    lang_index,
-                    marca_nombre_limpio,
-                    variant=evolution_slide_variant,
-                )
-                assets = PipelineAssets(
-                    pipeline=pipeline,
-                    marca=marca_nombre_limpio,
-                    coverage_series=coverage_series,
-                    penetration_series=df_marca_ppt.set_index(COL_DATA)[COL_PENET].loc[coverage_series.dropna().index],
-                    variation_table=variation_table,
-                    trend_plot_df=df_trend_plot,
-                    variations_detail=variations_detail,
-                    evolution_figure=evolution_figure,
-                    buyers_mat_actual=averages.get('Buyers_MAT_Actual'),
-                    penet_mat_actual=averages.get('Penet_MAT_Actual'),
-                    penet_mat_anterior=averages.get('Penet_MAT_Anterior'),
-                    annual_var_cliente_y1=var_cliente_mat,
-                    annual_var_cliente_y2=annual_var_cliente_y2,
-                    annual_var_wp_y1=var_kantar_mat,
-                    annual_var_wp_y2=annual_var_wp_y2,
-                    measure_unit=measure_unit,
-                    current_year_correlation=current_year_correlation,
-                    trend_following=trend_following,
-                )
-                slide_start_idx = len(ppt.slides)
-                slides_created = builder.add_pipeline_slides(
-                    assets,
-                    marca_nombre_limpio=marca_nombre_limpio,
-                    lang_index=lang_index,
-                    coverage_label=builder.coverage_label,
-                    presentation_label=section_title,
-                    progress=progress,
-                    task_id=task_id,
-                )
-                if pipeline == pipelines_to_run[-1]:
-                    extras_created = add_extra_kpi_slides(builder, df_marca_ppt,
-                        ppt_extra_charts.get(marca_sheet_name, []), section_title, measure_unit,
-                        pipeline=pipeline, coverage_series=coverage_series,
-                        images=(ppt_extra_images or {}).get(marca_sheet_name))
-                    slides_created += extras_created
-                    if extras_created:
-                        progress.update(task_id, advance=extras_created)
                 current_section_title = next_section_title
-                register_section_slide_range(
-                    brand_section_map,
-                    section_title,
-                    slide_start_idx,
-                    slides_created,
-                )
+                if marca_sheet_name in slide_sheets:
+                    variation_table = build_variation_table(
+                        fabricante,
+                        labels,
+                        lang_index,
+                        pipeline,
+                        sheet_ref_month_year,
+                        var_cliente_mat,
+                        var_kantar_mat,
+                    )
+                    variations_detail = build_variations_detail_table(
+                        df_variations,
+                        pipeline,
+                        df_marca_ppt,
+                        include_same_period_last_year=variations_include_same_period_last_year,
+                    )
+                    evolution_figure = build_evolution_figure(
+                        df_marca_ppt,
+                        pipeline,
+                        lang_index,
+                        marca_nombre_limpio,
+                        variant=evolution_slide_variant,
+                    )
+                    assets = PipelineAssets(
+                        pipeline=pipeline,
+                        marca=marca_nombre_limpio,
+                        coverage_series=coverage_series,
+                        penetration_series=df_marca_ppt.set_index(COL_DATA)[COL_PENET].loc[coverage_series.dropna().index],
+                        variation_table=variation_table,
+                        trend_plot_df=df_trend_plot,
+                        variations_detail=variations_detail,
+                        evolution_figure=evolution_figure,
+                        buyers_mat_actual=averages.get('Buyers_MAT_Actual'),
+                        penet_mat_actual=averages.get('Penet_MAT_Actual'),
+                        penet_mat_anterior=averages.get('Penet_MAT_Anterior'),
+                        annual_var_cliente_y1=var_cliente_mat,
+                        annual_var_cliente_y2=annual_var_cliente_y2,
+                        annual_var_wp_y1=var_kantar_mat,
+                        annual_var_wp_y2=annual_var_wp_y2,
+                        measure_unit=measure_unit,
+                        current_year_correlation=current_year_correlation,
+                        trend_following=trend_following,
+                    )
+                    slide_start_idx = len(ppt.slides)
+                    slides_created = builder.add_pipeline_slides(
+                        assets,
+                        marca_nombre_limpio=marca_nombre_limpio,
+                        lang_index=lang_index,
+                        coverage_label=builder.coverage_label,
+                        presentation_label=section_title,
+                        progress=progress,
+                        task_id=task_id,
+                    )
+                    if pipeline == pipelines_to_run[-1]:
+                        extras_created = add_extra_kpi_slides(builder, df_marca_ppt,
+                            ppt_extra_charts.get(marca_sheet_name, []), section_title, measure_unit,
+                            pipeline=pipeline, coverage_series=coverage_series,
+                            images=(ppt_extra_images or {}).get(marca_sheet_name))
+                        slides_created += extras_created
+                        if extras_created:
+                            progress.update(task_id, advance=extras_created)
+                    register_section_slide_range(
+                        brand_section_map,
+                        section_title,
+                        slide_start_idx,
+                        slides_created,
+                    )
                 summary_row, bank_row, _, _, _, _ = build_summary_and_bank_rows(
                     pipeline=pipeline,
                     marca_nombre_limpio=marca_nombre_limpio,
@@ -13874,6 +13884,7 @@ class CoverageStudioUltraApp:
                 sheet_metadata_overrides=options.sheet_metadata_overrides,
                 ppt_extra_charts=options.ppt_extra_charts,
                 ppt_extra_images=options.ppt_extra_images,
+                ppt_slide_sheets=options.ppt_slide_sheets,
             )
             ruta_banco_final = save_coverage_bank(
                 df_bank=df_bank,
