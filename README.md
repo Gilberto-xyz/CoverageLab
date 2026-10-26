@@ -66,6 +66,22 @@ Guarda tus Excel en `recursos/` o impórtalos desde la web. Las plantillas
 reutilizables, las dependencias y las pruebas viven en `scripts/`.
 Los borradores del editor se conservan en `recursos/inputs/`.
 
+Al abrir `Abrir_Explorador.cmd`, la preparación inicial detecta los Excel y
+entregas de la estructura anterior dentro del proyecto. Mueve las entradas a
+`recursos/`, los libros 5W1H a `recursos/inputs/5w1h/` y las entregas a
+`recursos/Output/`. Las salidas antiguas de `outputs/pipeline_explorer` conservan
+su estructura en `recursos/outputs/` para seguir siendo reconocidas. Los archivos
+generados sueltos se reúnen en `recursos/Output/Archivos_anteriores/`.
+
+Los libros y PPT se conservan íntegros; las rutas de sus JSON auxiliares se
+actualizan con respaldo. El registro queda en
+`recursos/.estado/organizacion_inicial_v1.json`. Si hay un destino existente o un
+archivo ocupado, se conservan los originales y se reintenta en el próximo inicio.
+La preparación no sigue enlaces, no recorre otras carpetas de la PC ni mueve
+ejecuciones temporales `.runs`. Si el servidor anterior sigue abierto, el lanzador
+pide cerrarlo antes de organizar. Después del primer inicio, solo vuelve a actuar
+si aparecen archivos de la estructura anterior o quedaron elementos pendientes.
+
 En la web, **Resultados** permanece en la barra superior de los tres módulos.
 Reúne las entregas de Coberturas y 5W1H, muestra su estado y permite buscar
 y abrir directamente los Excel, las presentaciones o la carpeta de cada entrega.

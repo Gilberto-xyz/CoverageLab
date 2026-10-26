@@ -99,6 +99,8 @@
 /recursos/outputs/
 /recursos/inputs/
 !scripts/project_paths.py
+!scripts/preparar_proyecto.py
+!scripts/tests/test_project_preparation.py
 !scripts/ejecutar_pruebas.py
 !scripts/tests/test_repository_layout.py
 /recursos/.estado/
