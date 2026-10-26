@@ -8,7 +8,7 @@ Automatiza el flujo de coberturas desde un archivo Excel de entrada hasta tres e
 - una presentación `...pptx`
 - un `Banco_...xlsx` consolidado
 
-El proyecto está centrado en `coverage_studio.py`, que procesa metadata del archivo, interpreta hojas por marca o pipeline, genera slides y construye el banco final.
+El proyecto está centrado en `scripts/coverage_studio.py`, que procesa metadata del archivo, interpreta hojas por marca o pipeline, genera slides y construye el banco final.
 
 La pantalla local integra ahora **Archivos de entrada → Coberturas → Investigación 5W1H**.
 Puedes crear y llenar los libros, explorar resultados y generar informes desde
@@ -50,32 +50,39 @@ Además, hoy ya incorpora lógica específica para:
 
 ## Estructura del proyecto
 
-- `coverage_studio.py`: motor principal de generación
-- `archivos_studio.py`: asistente para crear archivos base de captura
-- `scorecards_studio.py`: exportador de scorecards
-- `pipeline_explorer.py`: pantalla local para revisar y elegir pipelines antes de generar
-- `studio_inputs.py`: creación, importación y edición de entradas con guardado atómico
-- `studio_workflow.py`: continuidad de las etapas, invalidación y trabajos 5W1H
-- `studio_5w1h.py`: investigación y exportación usando el motor original de 5W1H
-- `studio_5w1h_vendor/`: motor y modelos locales necesarios; sin depender del programa externo
-- `explorer_web/`: interfaz del explorador (HTML, CSS y JavaScript, sin dependencias web)
-- `Abrir_Explorador.cmd`: acceso para iniciar el explorador en Windows
-- `Modelo_PPT.pptx`: plantilla obligatoria para construir la presentación
-- `requirements.txt`: dependencias Python
+```text
+CoverageLab/
+├── README.md                 # Guía y mapa del proyecto
+├── Abrir_Explorador.cmd       # Iniciar la web
+├── scripts/                  # Código, interfaz web, modelos PPT/Excel y pruebas
+└── recursos/                 # Datos de trabajo
+    ├── *.xlsx                # Entradas de cobertura
+    ├── inputs/5w1h/          # Entradas de investigación
+    ├── Output/               # Entregables
+    └── .estado/              # Selecciones y estado interno
+```
+
+Guarda tus Excel en `recursos/` o impórtalos desde la web. Las plantillas
+reutilizables, las dependencias y las pruebas viven en `scripts/`.
+Los borradores del editor se conservan en `recursos/inputs/`.
+
+En la web, **Resultados** permanece en la barra superior de los tres módulos.
+Reúne las entregas de Coberturas y 5W1H, muestra su estado y permite buscar
+y abrir directamente los Excel, las presentaciones o la carpeta de cada entrega.
 
 ## Requisitos
 
 - Python 3.11 o superior (requerido por pandas 3.0.1)
 - `pip` actualizado
-- dependencias de `requirements.txt`
-- `Modelo_PPT.pptx` presente en la raíz del proyecto
+- dependencias de `scripts/requirements.txt`
+- `scripts/Modelo_PPT.pptx` presente en la instalación
 
 ## Instalación
 
 Instalación recomendada:
 
 ```bash
-pip install -r requirements.txt
+pip install -r scripts/requirements.txt
 ```
 
 Si prefieres instalación manual:
@@ -91,20 +98,20 @@ pip install pandas numpy matplotlib openpyxl tqdm colorama rich dataframe_image 
 En Windows puedes hacer doble clic en `Abrir_Explorador.cmd`. También puedes ejecutar:
 
 ```bash
-python pipeline_explorer.py
+python -B scripts/pipeline_explorer.py
 ```
 
 O iniciar la pantalla desde el programa principal:
 
 ```bash
-python coverage_studio.py --explorar
+python -B scripts/coverage_studio.py --explorar
 ```
 
 Abre automáticamente `http://127.0.0.1:8765/`. Mantén abierta la terminal mientras
 usas el explorador; `Ctrl+C` cierra el servidor. Si el puerto está ocupado:
 
 ```bash
-python pipeline_explorer.py --port 8766
+python -B scripts/pipeline_explorer.py --port 8766
 ```
 
 1. Selecciona un Excel y el template de salida; pulsa **Cargar y explorar**.
@@ -137,7 +144,7 @@ python pipeline_explorer.py --port 8766
 
 ## Estudio integral en la web
 
-Abre `Abrir_Explorador.cmd` o ejecuta `python pipeline_explorer.py --no-browser`.
+Abre `Abrir_Explorador.cmd` o ejecuta `python -B scripts/pipeline_explorer.py --no-browser`.
 Usa las tres opciones de la barra superior sin salir de `http://127.0.0.1:8765/`.
 
 ### 1. Archivos de entrada
@@ -153,6 +160,9 @@ el método elegido. En Windows con Excel disponible se propone el modo de escrit
 al recuperar un borrador se abre la edición web para poder corregirlo.
 
 **Nueva entrada** usa los países, categorías y nombres de `archivos_studio.py`.
+Los catálogos de captura, cobertura y 5W1H conservan ñ, tildes y diéresis.
+La búsqueda acepta, por ejemplo, `pañales` o `panales`, y muestra `Pañales`;
+los nombres de fabricante y marca conservan sus caracteres al crear el Excel.
 Indica fabricante y marcas; cobertura crea una hoja `P0_<marca>` por marca,
 con el orden de ocho columnas original. La unidad queda en el encabezado y se
 conserva al añadir hojas. **Importar Excel** permite cargar un `.xlsx` de hasta
@@ -161,7 +171,7 @@ conserva al añadir hojas. **Importar Excel** permite cargar un `.xlsx` de hasta
 En Windows con Excel instalado, **Abrir en Excel** utiliza la interfaz real de
 Excel de escritorio. Pega y guarda en Excel; después pulsa **Actualizar desde
 Excel** para leer esa versión, validar los períodos e invalidar los análisis
-anteriores. Los libros externos de 5W1H se copian íntegramente a `inputs/5w1h/`
+anteriores. Los libros externos de 5W1H se copian íntegramente a `recursos/inputs/5w1h/`
 antes de abrirse, conservando el original. Si hay cambios pendientes, **Abrir en
 Excel** los guarda como contenido literal y abre ese mismo archivo local; no exige
 fechas o números válidos para continuar allí. Para **Actualizar desde Excel**, guarda
@@ -220,6 +230,19 @@ cobertura ya disponibles: diez gráficos, KPI, tablas, comparación P0–P6 y se
 por hoja. **Generar archivos** muestra la revisión final y genera los entregables.
 Los cambios pendientes en entradas deben guardarse o descartarse antes de generar.
 
+El **Resumen de todas las marcas**, disponible al cargar y también en la revisión
+de exportación, reúne el pipeline elegido, compradores promedio de 12 meses,
+penetración, variaciones MAT, cobertura y correlación de cada hoja. Permite buscar
+marcas y cambiar su pipeline sin recorrer cada gráfico.
+**Resumen** incluye la hoja en la tabla del PPT, el Excel y el banco; **Slides**
+controla aparte sus diapositivas básicas y extras. **Solo ≥200 compradores** excluye
+las bases menores o sin dato de ambas salidas; **Slides solo ≥200** las mantiene
+en el resumen y omite sus diapositivas. **Solo resumen** desactiva todas las
+diapositivas de marca de la selección actual; **Incluir todas** recupera las hojas
+válidas con sus slides. El límite usa el promedio exacto, sin redondear, y la
+selección se conserva al guardar. Las selecciones anteriores incluyen sus slides
+como antes.
+
 ### 3. Investigación 5W1H
 
 La investigación usa sus propias matrices de regiones, canales, NSE, tamaños,
@@ -231,7 +254,7 @@ contexto, crea una nueva o selecciona otra fuente explícitamente.
 **Nueva entrada 5W1H** recibe el contexto de cobertura y permite elegir marcas,
 segmentos, unidad del árbol y meses. Crea encabezados, fechas y estructura **sin
 cifras de demostración**. **Llenar / editar datos** lleva al mismo editor. Las entradas
-locales quedan en `inputs/5w1h/`; los originales de la carpeta hermana `../5W1H/`
+locales quedan en `recursos/inputs/5w1h/`; los originales de la carpeta hermana `../5W1H/`
 se leen y su primera edición crea una copia local. Nunca se sobrescriben los originales.
 
 **Elegir archivo Excel** abre un libro `.xlsx` desde cualquier carpeta directamente
@@ -255,6 +278,27 @@ redondeado a enteros y con menor énfasis visual.
 Cada lámina de intervalos incluye una referencia editable de tamaños muestrales
 y usos del análisis, compacta y centrada junto al borde inferior; se conservan
 hasta tres marcas por lámina.
+Para comparar versiones de compras, conserva `Compras` en la columna de fecha
+del primer bloque y escribe `Compras_Mosaico`, `Compras_ajuste`, `Compras_ajt`
+o `Compras_` seguido de tu propio texto en el segundo bloque, donde antes iban ventas.
+El primer bloque queda a la izquierda y el segundo a la derecha. También se
+admiten nombres personalizados en ambos bloques. Mantienen sus nombres en la web, el PPT y el Excel; las
+compras no reciben desfase, aunque el nombre de versión contenga números o haya
+un pipeline seleccionado para otras hojas. La columna vacía entre bloques es
+opcional. Los gráficos emparejados comparten escala para comparar sus magnitudes.
+La vista conjunta alinea las observaciones por mes, y **Solo bloque base**
+permite revisar únicamente la primera versión. Los encabezados `Ventas_n` siguen
+aplicando su pipeline como antes.
+En compras contra compras, las categorías equivalentes comparten color: la base
+usa línea continua y la otra fuente, discontinua. La leyenda conjunta muestra cada
+categoría una vez y explica los dos estilos. Las variantes habituales de nombres
+de canales se alinean visualmente sin cambiar etiquetas ni sumar categorías;
+las coincidencias ambiguas se mantienen separadas.
+La PPT conjunta dedica una lámina más alta a la tendencia y otra al resumen MAT
+con sus tablas. El resumen compara los mismos 12 meses entre ambas fuentes y
+muestra sus diferencias en volumen y porcentaje; **no es variación interanual**.
+También aparece en la web y al exportar tendencias separadas. Sin equivalente,
+sin 12 meses comunes o sin base numérica no se inventa un porcentaje.
 En las comparaciones por origen, **Ventas va a la izquierda y Compras a la derecha**
 en la web y en el PPT: tendencias separadas, tablas de aportes y participaciones.
 El orden visual conserva los cálculos, los pipelines y los colores asignados.
@@ -266,13 +310,18 @@ su distribución anterior.
 **Generar informe 5W1H** abre una revisión para elegir las hojas con datos y los
 pipelines coincidentes. El Excel/PPT contienen las **hojas completas seleccionadas**;
 los filtros de fecha/elementos son de exploración web, no recortan ese informe.
-Se genera una carpeta nueva dentro de `Output/`, más un registro y JSON de origen,
+Se genera una carpeta nueva dentro de `recursos/Output/`, más un registro y JSON de origen,
 opciones y pipelines aplicados. Los botones se habilitan al terminar y abren
 directamente los resultados. El historial se recupera al reiniciar la aplicación.
 El panel **Resultados 5W1H** permanece visible al recorrer los gráficos y permite
 abrir el Excel, el PPT, la carpeta, el origen y el registro de la última entrega
 del archivo seleccionado. Puede contraerse conservando el botón de generación.
 Antes de la primera entrega o durante la generación, las aperturas permanecen deshabilitadas.
+**Generar informe 5W1H** se llena con el progreso real de hojas, guardado del PPT,
+preparación del Excel y verificación final. Muestra porcentaje y tiempo restante
+estimado usando el historial de 5W1H y el ritmo de la ejecución actual. La primera
+ejecución espera dos hojas procesadas antes de estimar; solo marca 100% al verificar
+los entregables. El botón y el avance siguen visibles con los resultados contraídos.
 
 El motor y sus modelos necesarios están integrados en `studio_5w1h_vendor/`.
 La carpeta externa 5W1H aporta las entradas existentes, pero no es necesaria para
@@ -281,13 +330,13 @@ crear nuevas entradas ni generar informes. No se instalaron dependencias web nue
 ### Verificación integral
 
 ```powershell
-python -X utf8 -m unittest discover -s tests -p test_studio_inputs.py -v
-python -X utf8 -m unittest discover -s tests -p test_studio_desktop.py -v
-python -X utf8 -m unittest discover -s tests -p test_studio_drafts.py -v
-python -X utf8 -m unittest discover -s tests -p test_studio_entry_ui.py -v
-python -X utf8 -m unittest discover -s tests -p test_studio_5w1h.py -v
-python -X utf8 -m unittest discover -s tests -p test_integrated_studio.py -v
-python -X utf8 -m unittest discover -s tests -p test_pipeline_explorer.py -v
+python -B -X utf8 scripts/ejecutar_pruebas.py -p test_studio_inputs.py -v
+python -B -X utf8 scripts/ejecutar_pruebas.py -p test_studio_desktop.py -v
+python -B -X utf8 scripts/ejecutar_pruebas.py -p test_studio_drafts.py -v
+python -B -X utf8 scripts/ejecutar_pruebas.py -p test_studio_entry_ui.py -v
+python -B -X utf8 scripts/ejecutar_pruebas.py -p test_studio_5w1h.py -v
+python -B -X utf8 scripts/ejecutar_pruebas.py -p test_integrated_studio.py -v
+python -B -X utf8 scripts/ejecutar_pruebas.py -p test_pipeline_explorer.py -v
 ```
 
 Las pruebas incluyen archivos aislados, edición tipada/atómica, conflictos,
@@ -377,6 +426,40 @@ resuelve por archivo de origen, incluso para las entregas anteriores recuperadas
 desde `selection.json`; elegir otra marca no habilita los archivos de la anterior.
 El archivo seleccionado se recuerda al recargar el navegador.
 Los botones muestran el avance de apertura y generación en esa misma zona.
+
+**Selección PPT** aplica los checkboxes de gráficos a **Todas las hojas incluidas**
+por defecto: desmarcar un gráfico lo quita de todas. **Solo esta hoja** permite
+excepciones individuales. Cada tarjeta muestra cuántas hojas lo incluyen y ofrece
+**Incluir en todas** y **Quitar de todas**. El alcance y las selecciones se conservan
+al recargar y al guardar la selección, sin modificar los pipelines elegidos.
+El template y las opciones de salida se recuerdan por archivo. **Idioma de salida**
+muestra la regla del motor: portugués para Brasil, español para otros países e
+inglés cuando se marca **Entregables en inglés**. Las capturas de gráficos, los KPI,
+las matrices y las láminas Original/Mosaic usan ese mismo idioma, con fechas y
+números locales. La interfaz de los controles continúa en español.
+Durante la exportación, **Generar archivos** se llena como una barra de progreso y
+muestra el porcentaje, la etapa y las hojas o diapositivas procesadas. El tiempo
+restante es aproximado: usa las duraciones de entregas anteriores y se ajusta con
+el ritmo observado de la PPT. En la primera ejecución muestra **Estimando** hasta
+tener suficientes datos. Solo llega a 100% cuando los entregables están verificados.
+
+Cuando el archivo contiene versiones **Original / Mosaic**, aparece la opción
+**Crear PPT especial Original / Mosaic** en el panel del Excel. Detecta las parejas
+por nombres y verifica que compartan fechas, unidad y Sell-in, incluso si una hoja
+usa una abreviatura. Las coincidencias ambiguas no se unen automáticamente.
+**Previsualizar lámina comparativa** muestra ambas versiones antes de exportar.
+Cada lámina combina el gráfico de **Volumen MAT, YoY y cobertura por año** y las
+correlaciones P0–P6 de ambas hojas, con escalas y cortes MAT comunes. Respeta el
+pipeline elegido en cada hoja. Las matrices muestran r en porcentaje, omiten las
+ventanas sin datos y calculan su escala de colores de forma independiente para
+Original y Mosaic.
+La misma tabla incluye debajo la variación MAT de Sell-in para P0–P6 y la de
+Worldpanel frente al MAT anterior, en porcentaje, con aumentos en verde y caídas
+en rojo. Los valores sin base se muestran como —.
+Solo exporta parejas con ambas hojas incluidas y al menos un corte MAT compartido. Al generar, añade
+una PPT independiente a la misma entrega, disponible en **PPT Original / Mosaic**.
+Las notas de cada lámina identifican las hojas y los pipelines utilizados.
+
 Cada generación crea `Output/<nombre de entrega del script>__AAAAMMDD_HHMMSS/`:
 el nombre conserva país, categoría, fabricante, periodo y tipo de cobertura; la fecha
 y hora se agregan para distinguir ejecuciones. Los nombres y formatos de Excel, PPT,
@@ -399,6 +482,21 @@ quedan a la vista los archivos finales y la carpeta `_sistema`.
 Los cinco gráficos de hábitos de compra tienen una casilla **Incluir en PPT**:
 compra media, compra por ocasión, frecuencia, penetración y compradores. La elección
 es por hoja y se conserva al cambiar de marca, recargar o guardar la selección.
+Cada gráfico extra también ofrece **Incluir en todas**: desde cualquier hoja aplica
+ese gráfico a todas las hojas incluidas que tengan datos suficientes, conservando
+el pipeline de cada una y los demás extras elegidos. El contador confirma cuántas
+hojas lo incluyen; la casilla individual permite hacer excepciones después.
+Arriba del panel del Excel, **Mostrar correlaciones e incluir en PPT** permite
+activar o desactivar la matriz para la hoja actual. **Activar en todas** y
+**Desactivar en todas** aplican el cambio a las hojas incluidas y conservan los
+demás extras. La matriz P0–P6 del año actual, año anterior y 24 meses aparece debajo
+de la tendencia mensual. Se agrega como imagen independiente cerca del pie, a la derecha del logo
+y antes del aviso de baja penetración, para acomodarla manualmente sin desplazar
+los elementos existentes ni crear otra diapositiva. Conserva los colores relativos,
+el pipeline destacado y las mismas reglas y bases insuficientes del Excel.
+Las correlaciones se muestran en porcentaje (r × 100), con una cifra decimal.
+Se omiten las ventanas y columnas sin ningún dato calculable; el cero se conserva
+como 0.0%. La imagen ajusta su altura a las filas disponibles.
 Los gráficos básicos de cobertura permanecen siempre; sin marcar extras, el PPT
 mantiene su contenido habitual. Desde la web, cada extra añade una diapositiva con
 una imagen PNG de alta resolución del mismo gráfico ampliado, con el período,
@@ -424,7 +522,7 @@ Para iniciar sin abrir el navegador automáticamente, agrega `--no-browser`.
 Verificación del explorador, incluyendo una generación real con selección manual:
 
 ```bash
-python -m unittest discover -s tests -p test_pipeline_explorer.py -v
+python -B -X utf8 scripts/ejecutar_pruebas.py -p test_pipeline_explorer.py -v
 ```
 
 ### Flujo A: crear base y luego procesar
@@ -432,23 +530,23 @@ python -m unittest discover -s tests -p test_pipeline_explorer.py -v
 1. Genera un archivo base:
 
 ```bash
-python archivos_studio.py
+python -B scripts/archivos_studio.py
 ```
 
 2. Llena el Excel con tus datos.
 3. Ejecuta el proceso principal:
 
 ```bash
-python coverage_studio.py
+python -B scripts/coverage_studio.py
 ```
 
 ### Flujo B: procesar un archivo existente
 
-1. Coloca el `.xlsx` en la raíz del proyecto.
+1. Coloca el `.xlsx` en la carpeta `recursos/`.
 2. Ejecuta:
 
 ```bash
-python coverage_studio.py
+python -B scripts/coverage_studio.py
 ```
 
 ### Template Yakult - BR- Relativa
@@ -477,7 +575,7 @@ Para ejecutar con el archivo de ejemplo desde PowerShell:
 $env:AUTO_FILE = '55_MXDI_Yakult.xlsx'
 $env:AUTO_COV_TYPE = 'YAKULT_BR_RELATIVA'
 $env:AUTO_EJE = 'doble' # 'simple' para eje normal; predeterminado si se omite
-python coverage_studio.py
+python -B scripts/coverage_studio.py
 ```
 
 ### Flujo C: exportar scorecards
@@ -489,7 +587,7 @@ meses del corte. Las etiquetas muestran volumen y variación frente al MAT del
 año anterior, omitiendo el porcentaje cuando no hay base comparable o es cero.
 
 ```bash
-python scorecards_studio.py
+python -B scripts/scorecards_studio.py
 ```
 
 El menú de formato permite generar:
@@ -500,24 +598,6 @@ El menú de formato permite generar:
 
 La opción 3 exporta dos archivos independientes en la misma carpeta de salida,
 uno con sufijo `_unilever.xlsx` y otro con sufijo `_personalizado.xlsx`.
-
-### Resumen de coberturas y selección de diapositivas
-
-El **Resumen de todas las marcas**, disponible al cargar y también en la revisión
-de exportación, reúne el pipeline elegido, compradores promedio de 12 meses,
-penetración, variaciones MAT, cobertura y correlación de cada hoja. Permite buscar
-marcas y cambiar su pipeline sin recorrer cada gráfico.
-**Resumen** incluye la hoja en la tabla del PPT, el Excel y el banco; **Slides**
-controla aparte sus diapositivas básicas y extras. **Solo ≥200 compradores** excluye
-las bases menores o sin dato de ambas salidas; **Slides solo ≥200** las mantiene
-en el resumen y omite sus diapositivas. **Solo resumen** desactiva todas las
-diapositivas de marca de la selección actual; **Incluir todas** recupera las hojas
-válidas con sus slides. El límite usa el promedio exacto, sin redondear, y la
-selección se conserva al guardar. Las selecciones anteriores incluyen sus slides
-como antes.
-
-Las marcas con menos de 200 compradores promedio se sombrean en toda la fila,
-tanto en el resumen como en la revisión de exportación.
 
 ## Formato del archivo de entrada
 
@@ -671,7 +751,7 @@ $env:AUTO_RAZON = "Actualización"
 $env:AUTO_EJE = "simple"
 $env:AUTO_ENGLISH = "0"
 $env:AUTO_ROUND_COV = "0"
-python coverage_studio.py
+python -B scripts/coverage_studio.py
 ```
 
 ### AUTOEXPERIMENTAL: recomendación y comparación
@@ -794,7 +874,7 @@ flowchart TD
 ## Troubleshooting
 
 - `Modelo_PPT.pptx` no existe:
-  el script necesita la plantilla en la raíz del proyecto.
+  el script necesita la plantilla en la carpeta `scripts/`.
 
 - No aparecen archivos Excel al iniciar:
   valida que terminen en `.xlsx`, que no empiecen con `~$` y que no estén abiertos o bloqueados.
@@ -811,7 +891,7 @@ flowchart TD
 - Faltan dependencias:
 
 ```bash
-pip install -r requirements.txt
+pip install -r scripts/requirements.txt
 ```
 
 - Error al guardar Excel o PPT:

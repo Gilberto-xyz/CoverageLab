@@ -1,0 +1,22 @@
+{
+  "origin": "5W1H local project",
+  "integrated_at": "2026-10-13",
+  "report_source_sha256": "830af2ac53205d27bad1419c00c551ffe00699269d0e08232fe54e2267594c02",
+  "adaptation": "Explicit run_report API and isolated worker; original calculations retained. Presentation-only adaptations are recorded separately.",
+  "original_calculation_ast_sha256": {
+    "ppt8_compute_rows": "58b8de540f659efeaa3de7405ce40eebceb5e0735e3188c8a266c08638fdf19a",
+    "df_mat": "ecf3703db7e20910b9a8d17f796cf36dc095ac393af7b9eab44cf319f72cdd78",
+    "line_graf": "61dcf052b3c3c64d5ba0ef1aeb4a381ffddba001f0f4156d6131318175bb2070",
+    "calcular_cambios": "1f0de2d8a05a300bd7f3ea95baea934aaad3b9a460a9636693d749055b91b08d",
+    "aporte": "73cd3ff2bb9c3d3c3cc730947fe6a0d61aa89af7ee256e35706deb506c6cbbcb",
+    "parse_distribution_sheet": "ebf2b3e01840284eb47ed403f39e3ec70a55b92815a7098326bc4b9384bbc3d2",
+    "split_compras_ventas": "6538304a8c3dd3c789647ed0b8d060f9537d2e89ce9e79fb19649f7d138338a3",
+    "prepare_price_index_dataframe": "7884edce781b89dc0c42ad5221ad3da1128f925fcf133f680d98781dae9c4dc8"
+  },
+  "presentation_adaptations": {
+    "line_graf": {
+      "ast_sha256": "c948ebd4a01084fc0a365ca4e0fbe2371a1c1c2572edec097c4e0015cc4a46a5",
+      "reason": "Leyenda adaptativa por categoría, nombres de versiones de compras, estilos de línea por fuente y colores compartidos para pares explícitos; conserva observaciones y cálculos originales."
+    }
+  }
+}

@@ -1,4 +1,5 @@
 @echo off
-cd /d "%~dp0"
-python pipeline_explorer.py
+set "PYTHONDONTWRITEBYTECODE=1"
+cd /d "%~dp0scripts"
+python -B pipeline_explorer.py %*
 if errorlevel 1 pause

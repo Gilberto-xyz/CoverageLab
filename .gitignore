@@ -7,67 +7,82 @@
 ### Lista blanca: solo scripts y archivos base
 # Mantener este propio archivo
 !.gitignore
-!welcome.png
+!scripts/welcome.png
 
 # Documentación base
 !README.md
-!Pendientes.md
+!scripts/Pendientes.md
 
 # Scripts base del proyecto
-!coverage_studio.py
-!archivos_studio.py
-!migrar_filtros_power_view.py
-!scorecards_studio.py
-!pipeline_explorer.py
+!scripts/coverage_studio.py
+!scripts/archivos_studio.py
+!scripts/migrar_filtros_power_view.py
+!scripts/scorecards_studio.py
+!scripts/pipeline_explorer.py
 !Abrir_Explorador.cmd
-!explorer_web/index.html
-!explorer_web/app.js
-!explorer_web/coverage-summary.js
-!explorer_web/dashboard.js
-!explorer_web/style.css
-!explorer_web/studio.js
-!explorer_web/research.js
-!explorer_web/studio.css
-!studio_inputs.py
-!studio_workflow.py
-!studio_5w1h.py
-!studio_desktop.py
-!studio_drafts.py
-!delivery_files.py
-!studio_5w1h_vendor/__init__.py
-!studio_5w1h_vendor/report_engine.py
-!studio_5w1h_vendor/template_engine.py
-!studio_5w1h_vendor/provenance.json
-!studio_5w1h_vendor/Modelo_5W1H.pptx
-!studio_5w1h_vendor/Plantilla_Entrada_5W1H.xlsx
-!tests/test_studio_inputs.py
-!tests/test_studio_desktop.py
-!tests/test_studio_drafts.py
-!tests/test_delivery_extras.py
-!tests/test_studio_entry_ui.py
-!tests/test_studio_5w1h.py
-!tests/test_research_results.py
-!tests/test_research_sources.py
-!tests/test_research_dense_legend.py
-!tests/test_integrated_studio.py
-!tests/test_pipeline_explorer.py
-!tests/test_coverage_summary.py
-!requirements.txt
-!tests/test_auto_pipeline_comparison.py
-!tests/test_scorecard_output_name.py
-!tests/test_scorecard_skipped_sheets.py
-!tests/test_presentation_sections.py
-!tests/test_sheet_category_names.py
-!tests/test_auto_trend_chart_height.py
-!tests/test_trend_pipeline_animation.py
-!tests/test_trend_axis_formatting.py
-!tests/test_trend_variation_table_highlight.py
-!tests/test_excel_template_dashboard.py
-!tests/test_coverage_bank_tables.py
-!tests/test_yakult_relative.py
+!scripts/explorer_web/index.html
+!scripts/explorer_web/app.js
+!scripts/explorer_web/coverage-summary.js
+!scripts/explorer_web/dashboard.js
+!scripts/explorer_web/generation.js
+!scripts/explorer_web/style.css
+!scripts/explorer_web/studio.js
+!scripts/explorer_web/research.js
+!scripts/explorer_web/studio.css
+!scripts/studio_inputs.py
+!scripts/studio_workflow.py
+!scripts/studio_5w1h.py
+!scripts/studio_desktop.py
+!scripts/studio_drafts.py
+!scripts/delivery_files.py
+!scripts/studio_5w1h_vendor/__init__.py
+!scripts/studio_5w1h_vendor/confidence_design.py
+!scripts/studio_5w1h_vendor/report_engine.py
+!scripts/studio_5w1h_vendor/template_engine.py
+!scripts/studio_5w1h_vendor/provenance.json
+!scripts/studio_5w1h_vendor/Modelo_5W1H.pptx
+!scripts/studio_5w1h_vendor/Plantilla_Entrada_5W1H.xlsx
+!scripts/tests/test_studio_inputs.py
+!scripts/tests/test_studio_desktop.py
+!scripts/tests/test_studio_drafts.py
+!scripts/tests/test_delivery_extras.py
+!scripts/tests/test_export_progress.py
+!scripts/export_progress.py
+!scripts/research_comparison.py
+!scripts/tests/test_research_progress.py
+!scripts/tests/test_research_comparison.py
+!scripts/mosaic_comparison.py
+!scripts/explorer_web/mosaic.js
+!scripts/explorer_web/i18n.js
+!scripts/tests/test_export_localization.py
+!scripts/tests/test_mosaic_comparison.py
+!scripts/tests/test_studio_entry_ui.py
+!scripts/tests/test_studio_5w1h.py
+!scripts/tests/test_research_results.py
+!scripts/tests/test_research_sources.py
+!scripts/tests/test_research_dense_legend.py
+!scripts/tests/test_research_purchase_versions.py
+!scripts/tests/test_integrated_studio.py
+!scripts/tests/test_pipeline_explorer.py
+!scripts/tests/test_coverage_summary.py
+!scripts/tests/test_confidence_design.py
+!scripts/tests/test_spanish_catalogs.py
+!scripts/requirements.txt
+!scripts/tests/test_auto_pipeline_comparison.py
+!scripts/tests/test_scorecard_output_name.py
+!scripts/tests/test_scorecard_skipped_sheets.py
+!scripts/tests/test_presentation_sections.py
+!scripts/tests/test_sheet_category_names.py
+!scripts/tests/test_auto_trend_chart_height.py
+!scripts/tests/test_trend_pipeline_animation.py
+!scripts/tests/test_trend_axis_formatting.py
+!scripts/tests/test_trend_variation_table_highlight.py
+!scripts/tests/test_excel_template_dashboard.py
+!scripts/tests/test_coverage_bank_tables.py
+!scripts/tests/test_yakult_relative.py
 
 # Activos base necesarios (presentes en el repo)
-!Modelo_PPT.pptx
+!scripts/Modelo_PPT.pptx
 
 ### Cómo permitir archivos puntuales
 # Para incluir un archivo adicional (ej. rar/zip/pdf o un script nuevo),
@@ -80,6 +95,21 @@
 # Nota: los Excel u otros binarios quedan ignorados por defecto a menos que se declaren
 
 # Las excepciones por nombre nunca deben incluir datos, capturas ni entregas.
-/Output/
-/outputs/
-/inputs/
+/recursos/Output/
+/recursos/outputs/
+/recursos/inputs/
+!scripts/project_paths.py
+!scripts/ejecutar_pruebas.py
+!scripts/tests/test_repository_layout.py
+/recursos/.estado/
+/recursos/**/__pycache__/
+/recursos/**/*.pyc
+/.reorganizacion/
+
+/scripts/outputs/
+/scripts/**/__pycache__/
+/scripts/**/*.pyc
+
+!scripts/studio_results.py
+!scripts/explorer_web/results.js
+!scripts/tests/test_studio_results.py
