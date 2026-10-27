@@ -589,7 +589,7 @@ assert.equal(api.correlationStyle(null,[0,.5,1],palette),null);
         ws = template["P4_MarcaDemo"]
         headers = {cell.value: cell.column_letter for cell in ws[1] if cell.value is not None}
         coverage_chart = ws._charts[0]
-        self.assertIn(f"${headers['P3']}$", coverage_chart.series[0].val.numRef.f)
+        self.assertIn(f"${headers['P3']}$", coverage_chart.series[1].val.numRef.f)
         template.close()
         ppt = self.core.Presentation(outputs["presentation"])
         extra_slides = [slide for slide in ppt.slides if slide.name.startswith("KPI:")]

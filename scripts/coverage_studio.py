@@ -8825,15 +8825,15 @@ def add_native_excel_charts(
     chart_titles = {
         "ES": {
             "coverage_title": "Cobertura en Año Móvil",
-            "penetration_label": "Penetracion Mensual",
+            "penetration_label": "Penetración Mensual",
             "trend_title": "Tendencia en Volumen",
             "evolution_title": "Evolucion Mensual y Variacion",
             "evolution_var_axis": "Variacion Interanual",
             "evolution_monthly_axis": "Volumen Mensual",
         },
         "PT": {
-            "coverage_title": "Cobertura em Ano Movel",
-            "penetration_label": "Penetracao Mensal",
+            "coverage_title": "Cobertura em Ano Móvel",
+            "penetration_label": "Penetração Mensal",
             "trend_title": "Tendencia em Volumen",
             "evolution_title": "Evolucao Mensal e Variacao",
             "evolution_var_axis": "Variacao Interanual",
@@ -9647,8 +9647,16 @@ def add_native_excel_charts(
         sell_in_end = last_data_row - pipeline
 
         # 1) Cobertura vs Penetracion (rangos directos de columnas originales).
-        cov_start = _find_first_nonempty_row(ws, cov_col, start_row=2, end_row=last_data_row)
-        if cov_start is not None and cov_start <= last_data_row:
+        # La PPT compara ambas métricas en el mismo período y la misma escala.
+        coverage_rows = [
+            row for row in range(2, last_data_row + 1)
+            if all(ws.cell(row, col).value is not None
+                   and str(ws.cell(row, col).value).strip() != ""
+                   and ws.cell(row, col).data_type != "e"
+                   for col in (cov_col, pen_col))
+        ]
+        if coverage_rows:
+            cov_start, cov_end = coverage_rows[0], coverage_rows[-1]
             coverage_chart = _BarChart()
             coverage_chart.type = "col"
             coverage_chart.grouping = "clustered"
@@ -9661,49 +9669,43 @@ def add_native_excel_charts(
             _style_chart_axes(
                 coverage_chart,
                 x_title=dashboard_copy["period_axis"],
-                y_title=coverage_label,
-                y_number_format="0.0",
+                y_title="%",
+                y_number_format='0"%"',
                 y_minimum=0,
             )
             coverage_chart.legend.position = "b"
             coverage_chart.legend.overlay = False
 
-            coverage_chart.add_data(
-                _Reference(ws, min_col=cov_col, min_row=cov_start, max_row=last_data_row),
-                titles_from_data=False,
-            )
-            coverage_chart.series[-1].title = _SeriesLabel(v=coverage_label)
-            coverage_chart.set_categories(
-                _Reference(ws, min_col=data_col, min_row=cov_start, max_row=last_data_row)
-            )
-            _set_bar_series_color(coverage_chart.series[0], COLOR_COBERTURA_BAR)
+            from openpyxl.chart.text import RichText
+            from openpyxl.drawing.text import Paragraph, ParagraphProperties, CharacterProperties, RichTextProperties
 
-            # Penetración va en un eje secundario para no quedar aplastada por
-            # la escala de cobertura y evitar etiquetas superpuestas.
-            penetration_chart = _LineChart()
-            penetration_chart.y_axis.axId = 200
-            penetration_chart.y_axis.crosses = "max"
-            penetration_chart.visible_cells_only = False
-            _style_chart_axes(
-                penetration_chart,
-                x_title=dashboard_copy["period_axis"],
-                y_title=chart_titles["penetration_label"],
-                y_number_format="0.0",
-                y_minimum=0,
+            # Penetración a la izquierda y cobertura a la derecha, como en la PPT.
+            for column, label, color, background, number_format in (
+                (pen_col, chart_titles["penetration_label"], COLOR_PENETRACION_BAR, "FDEAD9", '0.0"%"'),
+                (cov_col, coverage_label, COLOR_COBERTURA_BAR, "F2F2F2",
+                 '0"%"' if globals().get("ROUND_COVERAGE", False) else '0.0"%"'),
+            ):
+                coverage_chart.add_data(
+                    _Reference(ws, min_col=column, min_row=cov_start, max_row=cov_end),
+                    titles_from_data=False,
+                )
+                series = coverage_chart.series[-1]
+                series.title = _SeriesLabel(v=label)
+                _set_bar_series_color(series, color)
+                series.dLbls = _DataLabelList(
+                    showVal=True, showSerName=False, showCatName=False,
+                    showLegendKey=False, showPercent=False, dLblPos="outEnd",
+                    numFmt=number_format,
+                    spPr=_GraphicalProperties(solidFill=background),
+                    txPr=RichText(
+                        bodyPr=RichTextProperties(rot=-5400000 if cov_end - cov_start + 1 > 18 else 0),
+                        p=[Paragraph(pPr=ParagraphProperties(
+                            defRPr=CharacterProperties(solidFill="172C3C", sz=800)))],
+                    ),
+                )
+            coverage_chart.set_categories(
+                _Reference(ws, min_col=data_col, min_row=cov_start, max_row=cov_end)
             )
-            penetration_chart.x_axis.delete = True
-            penetration_chart.y_axis.axPos = "r"
-            penetration_chart.y_axis.majorGridlines = None
-            penetration_chart.add_data(
-                _Reference(ws, min_col=pen_col, min_row=cov_start, max_row=last_data_row),
-                titles_from_data=False,
-            )
-            penetration_chart.series[-1].title = _SeriesLabel(v=chart_titles["penetration_label"])
-            penetration_chart.set_categories(
-                _Reference(ws, min_col=data_col, min_row=cov_start, max_row=last_data_row)
-            )
-            _set_line_series_color(penetration_chart.series[0], COLOR_PENETRACION_BAR, width=28575)
-            coverage_chart += penetration_chart
             ws.add_chart(
                 coverage_chart,
                 f"{dashboard_left_chart_col}{dashboard_chart_rows[0]}",
